@@ -357,21 +357,26 @@ func (v *validator) validateFieldDefault(field *Field, path string) {
 		// Any string is a legal default.
 
 	case TypeInteger:
+		// Base 10 is explicit so hex and Go underscore literals are refused.
 		if _, err := strconv.ParseInt(value, 10, 64); err != nil {
 			v.report(CodeInvalidDefault, defaultPath, field.ID,
 				"default %q is not a valid integer", value)
 		}
 
 	case TypeDecimal:
-		if _, err := strconv.ParseFloat(value, 64); err != nil {
+		if !isDecimalLiteral(value) {
 			v.report(CodeInvalidDefault, defaultPath, field.ID,
 				"default %q is not a valid decimal", value)
 		}
 
 	case TypeBoolean:
-		if _, err := strconv.ParseBool(value); err != nil {
+		// Deliberately stricter than strconv.ParseBool, which also accepts
+		// "1", "t" and "TRUE". The default is emitted verbatim into the
+		// generated model and the migration, so only the two literals
+		// generation produces are legal.
+		if value != "true" && value != "false" {
 			v.report(CodeInvalidDefault, defaultPath, field.ID,
-				"default %q is not a valid boolean", value)
+				`default %q is not a valid boolean (want "true" or "false")`, value)
 		}
 
 	case TypeDatetime:

@@ -370,6 +370,59 @@ func TestValidateFieldDefault(t *testing.T) {
 	}
 }
 
+// TestValidateDefaultGrammarIsNarrowerThanStrconv pins the literals a default
+// may hold. strconv.ParseBool accepts "1"/"t"/"TRUE" and strconv.ParseFloat
+// accepts "NaN"/"Inf"/hex/exponent; those would reach the generated model and
+// the migration verbatim, which is the failure this check exists to prevent.
+func TestValidateDefaultGrammarIsNarrowerThanStrconv(t *testing.T) {
+	booleans := map[string]bool{
+		"true": true, "false": true,
+		"1": false, "0": false, "t": false, "T": false,
+		"TRUE": false, "True": false, "f": false, "F": false, "yes": false,
+	}
+	for value, wantValid := range booleans {
+		t.Run("boolean "+value, func(t *testing.T) {
+			assertDefaultValidity(t, TypeBoolean, nil, value, wantValid)
+		})
+	}
+
+	decimals := map[string]bool{
+		"1.5": true, "2": true, "-3.25": true, "+0.5": true, "0": true, ".5": true,
+		"NaN": false, "Inf": false, "+Inf": false, "-Inf": false, "infinity": false,
+		"0x1p-2": false, "1e5": false, "1.2.3": false, "": false, "-": false, "banana": false,
+	}
+	for value, wantValid := range decimals {
+		t.Run("decimal "+value, func(t *testing.T) {
+			assertDefaultValidity(t, TypeDecimal, nil, value, wantValid)
+		})
+	}
+
+	integers := map[string]bool{
+		"42": true, "-7": true, "+5": true,
+		"0x10": false, "1_0": false, "1.5": false, "NaN": false, "": false,
+	}
+	for value, wantValid := range integers {
+		t.Run("integer "+value, func(t *testing.T) {
+			assertDefaultValidity(t, TypeInteger, nil, value, wantValid)
+		})
+	}
+}
+
+func assertDefaultValidity(t *testing.T, fieldType FieldType, enums []EnumValue, value string, wantValid bool) {
+	t.Helper()
+
+	s := validSpec()
+	field := s.Resources[0].Fields[0]
+	field.Type = fieldType
+	field.EnumValues = enums
+	field.Default = strptr(value)
+
+	diagnostics := Validate(s)
+	if gotValid := !diagnostics.Has(CodeInvalidDefault); gotValid != wantValid {
+		t.Errorf("default %q on %s: valid=%v want %v", value, fieldType, gotValid, wantValid)
+	}
+}
+
 func TestValidateRejectsDefaultOnBelongsTo(t *testing.T) {
 	s := validSpec()
 	s.Resources[1].Fields[0].Default = strptr("anything")
@@ -415,6 +468,72 @@ func TestValidateAllowsSameCodeNameInDifferentResources(t *testing.T) {
 func TestValidateNilSpec(t *testing.T) {
 	if diagnostics := Validate(nil); diagnostics == nil {
 		t.Fatal("expected diagnostics for nil spec")
+	}
+}
+
+// TestValidateSurvivesNullArrayEntries covers JSON that Unmarshal accepts but
+// that carries null entries. Validation must report them as diagnostics; a
+// lookup that walks the null entry must not crash.
+func TestValidateSurvivesNullArrayEntries(t *testing.T) {
+	tests := []struct {
+		name string
+		json string
+	}{
+		{
+			// A null resource plus a belongs_to whose target lookup scans it.
+			name: "null resource with a belongs_to lookup",
+			json: `{"spec_version":1,
+"project":{"id":"` + string(fixProject) + `","name":"Acme","slug":"acme"},
+"database":{"driver":"postgres"},"auth":{"mode":"cookie"},
+"resources":[null,{"id":"` + string(fixInvoice) + `","label":"Invoice",
+"code_name":"Invoice","storage_name":"invoices","fields":[
+{"id":"` + string(fixInvoiceCustomer) + `","label":"Customer","type":"belongs_to",
+"code_name":"Customer","storage_name":"customer_id","target":"` + string(fixCustomer) + `"}],
+"behavior":{"create_enabled":true,"update_enabled":true,"delete_enabled":true,"admin_visible":true}}],
+"pages":[],"navigation":[]}`,
+		},
+		{
+			// A null field plus a behavior list that scans it.
+			name: "null field with a behavior lookup",
+			json: `{"spec_version":1,
+"project":{"id":"` + string(fixProject) + `","name":"Acme","slug":"acme"},
+"database":{"driver":"postgres"},"auth":{"mode":"cookie"},
+"resources":[{"id":"` + string(fixCustomer) + `","label":"Customer",
+"code_name":"Customer","storage_name":"customers","fields":[null],
+"behavior":{"create_enabled":true,"update_enabled":true,"delete_enabled":true,
+"admin_visible":true,"list_fields":["` + string(fixCustomerName) + `"]}}],
+"pages":[],"navigation":[]}`,
+		},
+		{
+			// A null page plus a nav entry that scans it.
+			name: "null page with a navigation lookup",
+			json: `{"spec_version":1,
+"project":{"id":"` + string(fixProject) + `","name":"Acme","slug":"acme"},
+"database":{"driver":"postgres"},"auth":{"mode":"cookie"},
+"resources":[],"pages":[null],
+"navigation":[{"id":"` + string(fixNavDashboard) + `","label":"Dashboard",
+"target":"page","page":"` + string(fixPageDashboard) + `"}]}`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			s, err := Unmarshal([]byte(test.json))
+			if err != nil {
+				t.Fatalf("fixture JSON should decode: %v", err)
+			}
+
+			// The point of the test: this must not panic.
+			diagnostics := Validate(s)
+			if diagnostics == nil {
+				t.Fatal("expected diagnostics for a spec containing null entries")
+			}
+
+			// Marshalling such a spec must not crash either.
+			if _, err := Marshal(s); err != nil {
+				t.Errorf("marshal: %v", err)
+			}
+		})
 	}
 }
 

@@ -358,6 +358,118 @@ func TestDashboardPageProjectsOnlyCards(t *testing.T) {
 	}
 }
 
+// TestTableColumnsDefaultWhenPageOmitsTableBlock covers the shape DESIGN.md
+// §7 actually writes: a resource_table with no table block at all. The graph
+// must still resolve columns, or a generator emits a table with none.
+func TestTableColumnsDefaultWhenPageOmitsTableBlock(t *testing.T) {
+	t.Run("falls back to configured list fields", func(t *testing.T) {
+		s, ids := buildSpec(t)
+		s.Pages[0].Table = nil
+		s.Resources[0].Behavior.ListFields = []spec.ID{ids["cEmail"]}
+
+		g, err := graph.Build(s)
+		if err != nil {
+			t.Fatalf("build: %v", err)
+		}
+
+		columns := g.Page(ids["pageCust"]).Columns
+		if len(columns) != 1 || columns[0].Spec.ID != ids["cEmail"] {
+			t.Fatalf("expected the configured list field, got %d columns", len(columns))
+		}
+	})
+
+	t.Run("falls back to scalar fields when nothing is configured", func(t *testing.T) {
+		s, ids := buildSpec(t)
+		s.Pages[0].Table = nil // no columns, and no list_fields either
+
+		g, err := graph.Build(s)
+		if err != nil {
+			t.Fatalf("build: %v", err)
+		}
+
+		columns := g.Page(ids["pageCust"]).Columns
+		if len(columns) == 0 {
+			t.Fatal("a table page with no table block must still resolve columns")
+		}
+		// Customer has two scalar fields and no relationships.
+		if len(columns) != 2 {
+			t.Errorf("columns: got %d want 2", len(columns))
+		}
+		for _, column := range columns {
+			if column.Spec.Type == spec.TypeBelongsTo {
+				t.Error("default columns must exclude belongs_to")
+			}
+		}
+	})
+
+	t.Run("default excludes relationships", func(t *testing.T) {
+		s, ids := buildSpec(t)
+		// Invoice carries a belongs_to plus one scalar.
+		invoicePageID := spec.MustNewID(spec.KindPage)
+		s.Pages = append(s.Pages, &spec.Page{
+			ID: invoicePageID, Slug: "invoices", Label: "Invoices",
+			Type: spec.PageResourceTable, Resource: ids["invoice"],
+		})
+
+		g, err := graph.Build(s)
+		if err != nil {
+			t.Fatalf("build: %v", err)
+		}
+
+		columns := g.Page(invoicePageID).Columns
+		if len(columns) != 1 || columns[0].Spec.ID != ids["iTotal"] {
+			t.Errorf("expected only the scalar field, got %d columns", len(columns))
+		}
+	})
+
+	t.Run("explicit columns still win", func(t *testing.T) {
+		s, ids := buildSpec(t)
+		s.Resources[0].Behavior.ListFields = []spec.ID{ids["cEmail"]}
+		// Table block is present in the fixture with both columns.
+
+		g, err := graph.Build(s)
+		if err != nil {
+			t.Fatalf("build: %v", err)
+		}
+
+		if len(g.Page(ids["pageCust"]).Columns) != 2 {
+			t.Error("explicit table columns must take precedence over list fields")
+		}
+	})
+}
+
+// TestFormFieldsDefaultWhenPageOmitsFormBlock is the form-side counterpart.
+// Relationships are included: a form is where a belongs_to becomes a
+// relationship selector (DESIGN.md §18).
+func TestFormFieldsDefaultWhenPageOmitsFormBlock(t *testing.T) {
+	s, ids := buildSpec(t)
+	formPageID := spec.MustNewID(spec.KindPage)
+	s.Pages = append(s.Pages, &spec.Page{
+		ID: formPageID, Slug: "invoice-form", Label: "Invoice form",
+		Type: spec.PageResourceForm, Resource: ids["invoice"],
+	})
+
+	g, err := graph.Build(s)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	fields := g.Page(formPageID).FormFields
+	if len(fields) != 2 {
+		t.Fatalf("form fields: got %d want 2 (both invoice fields)", len(fields))
+	}
+
+	var sawRelationship bool
+	for _, field := range fields {
+		if field.Spec.Type == spec.TypeBelongsTo {
+			sawRelationship = true
+		}
+	}
+	if !sawRelationship {
+		t.Error("default form fields must include belongs_to for relationship selectors")
+	}
+}
+
 // TestBehaviorFieldListsAreResolved covers the other half of "resolves every
 // ID reference exactly once": behavior lists become pointers.
 func TestBehaviorFieldListsAreResolved(t *testing.T) {

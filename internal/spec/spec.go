@@ -258,29 +258,34 @@ type Branding struct {
 }
 
 // FindResource returns the resource with the given ID, or nil.
+//
+// Nil entries are skipped rather than dereferenced: JSON such as
+// "resources":[null,...] decodes successfully, and validation must be able to
+// report that as a diagnostic instead of crashing while looking up an
+// unrelated reference.
 func (s *ProjectSpec) FindResource(id ID) *Resource {
 	for _, resource := range s.Resources {
-		if resource.ID == id {
+		if resource != nil && resource.ID == id {
 			return resource
 		}
 	}
 	return nil
 }
 
-// FindPage returns the page with the given ID, or nil.
+// FindPage returns the page with the given ID, or nil. Nil entries are skipped.
 func (s *ProjectSpec) FindPage(id ID) *Page {
 	for _, page := range s.Pages {
-		if page.ID == id {
+		if page != nil && page.ID == id {
 			return page
 		}
 	}
 	return nil
 }
 
-// FindField returns the field with the given ID, or nil.
+// FindField returns the field with the given ID, or nil. Nil entries are skipped.
 func (r *Resource) FindField(id ID) *Field {
 	for _, field := range r.Fields {
-		if field.ID == id {
+		if field != nil && field.ID == id {
 			return field
 		}
 	}

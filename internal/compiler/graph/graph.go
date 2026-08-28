@@ -89,11 +89,15 @@ type Page struct {
 	Spec *spec.Page
 	// Resource is nil for dashboard pages.
 	Resource *Resource
-	// Columns is the resolved table column order. It is populated only for a
-	// resource_table page and is empty for every other type.
+	// Columns is the resolved table column order, including the default when
+	// the page declares no columns of its own (see tableColumns). It is
+	// populated only for a resource_table page and is empty for every other
+	// type.
 	Columns []*Field
-	// FormFields is the resolved form field order. It is populated only for a
-	// resource_form page and is empty for every other type.
+	// FormFields is the resolved form field order, including the default when
+	// the page declares no fields of its own (see formFields). It is
+	// populated only for a resource_form page and is empty for every other
+	// type.
 	FormFields []*Field
 	// CountCards and RecentLists are populated only for a dashboard page.
 	CountCards  []*Card
@@ -239,13 +243,13 @@ func (g *Graph) buildPages() {
 
 		switch pageSpec.Type {
 		case spec.PageResourceTable:
-			if pageSpec.Table != nil && page.Resource != nil {
-				page.Columns = page.Resource.resolveFields(pageSpec.Table.Columns)
+			if page.Resource != nil {
+				page.Columns = page.Resource.tableColumns(pageSpec.Table)
 			}
 
 		case spec.PageResourceForm:
-			if pageSpec.Form != nil && page.Resource != nil {
-				page.FormFields = page.Resource.resolveFields(pageSpec.Form.Fields)
+			if page.Resource != nil {
+				page.FormFields = page.Resource.formFields(pageSpec.Form)
 			}
 
 		case spec.PageDashboard:
@@ -262,6 +266,39 @@ func (g *Graph) buildPages() {
 		g.Pages = append(g.Pages, page)
 		g.byPageID[pageSpec.ID] = page
 	}
+}
+
+// tableColumns resolves the columns a resource_table renders.
+//
+// A page may omit its table block entirely — DESIGN.md §7 writes exactly that
+// shape — so the default is resolved here rather than left to each generator:
+//
+//	explicit columns -> the resource's configured list fields -> scalar fields
+//
+// The final fallback excludes belongs_to because rendering a relationship as
+// a column needs a display representation of the related record, which the
+// MVP does not define. A relationship still appears as a column when it is
+// named explicitly or configured as a list field.
+func (r *Resource) tableColumns(table *spec.TableConfig) []*Field {
+	if table != nil && len(table.Columns) > 0 {
+		return r.resolveFields(table.Columns)
+	}
+	if len(r.Behavior.List) > 0 {
+		return r.Behavior.List
+	}
+	return r.ScalarFields()
+}
+
+// formFields resolves the fields a resource_form renders.
+//
+// As with tableColumns the block is optional, and the default is every field
+// in authored order. Relationships are included: a form is where a
+// belongs_to becomes a relationship selector (DESIGN.md §18).
+func (r *Resource) formFields(form *spec.FormConfig) []*Field {
+	if form != nil && len(form.Fields) > 0 {
+		return r.resolveFields(form.Fields)
+	}
+	return r.Fields
 }
 
 // resolveCards links each dashboard card to its resource, preserving order.

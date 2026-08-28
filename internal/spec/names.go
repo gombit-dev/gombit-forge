@@ -104,6 +104,41 @@ func IsStorageName(name string) bool {
 	return true
 }
 
+// isDecimalLiteral reports whether value is a plain decimal number.
+//
+// This is deliberately narrower than strconv.ParseFloat, which also accepts
+// "NaN", "Inf", hexadecimal floats such as "0x1p-2" and exponent notation.
+// A default is emitted verbatim into the generated model and the migration,
+// so the grammar is restricted to what a column default can actually hold:
+// an optional sign, decimal digits, and at most one fractional point.
+func isDecimalLiteral(value string) bool {
+	if value == "" {
+		return false
+	}
+
+	index := 0
+	if value[0] == '+' || value[0] == '-' {
+		index++
+	}
+
+	digits := 0
+	seenPoint := false
+	for ; index < len(value); index++ {
+		switch char := value[index]; {
+		case char >= '0' && char <= '9':
+			digits++
+		case char == '.':
+			if seenPoint {
+				return false
+			}
+			seenPoint = true
+		default:
+			return false
+		}
+	}
+	return digits > 0
+}
+
 // IsSlug reports whether value is a legal lower kebab-case URL slug.
 func IsSlug(value string) bool {
 	if value == "" || len(value) > 63 {
