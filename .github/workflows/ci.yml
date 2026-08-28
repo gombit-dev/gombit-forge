@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # Read the toolchain from go.mod so CI never drifts from the module.
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check formatting
+        run: make fmt-check
+
+      - name: Vet
+        run: make vet
+
+      - name: Test
+        run: make test
+
+      - name: Test with race detector
+        run: make race
