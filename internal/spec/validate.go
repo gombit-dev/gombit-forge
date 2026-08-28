@@ -3,7 +3,9 @@ package spec
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // Code identifies a class of validation failure. Codes are stable so the
@@ -30,6 +32,9 @@ const (
 	CodeInvalidPage     Code = "invalid_page"
 	CodeInvalidNav      Code = "invalid_navigation"
 	CodeEmptyProject    Code = "empty_project"
+	CodeInvalidDefault  Code = "invalid_default"
+	CodeReservedName    Code = "reserved_name"
+	CodePageMismatch    Code = "page_config_mismatch"
 )
 
 // Diagnostic is one structured, machine-readable validation failure.
@@ -249,27 +254,42 @@ func (v *validator) validateFields(resource *Resource, resourcePath string) {
 				"unsupported field type %q", field.Type)
 		}
 
-		if !IsExportedGoIdent(field.CodeName) {
+		switch {
+		case !IsExportedGoIdent(field.CodeName):
 			v.report(CodeInvalidCodeName, path+".code_name", field.ID,
 				"code_name %q is not an exported Go identifier", field.CodeName)
-		} else if owner, taken := fieldCodeNames[field.CodeName]; taken {
-			v.report(CodeDuplicateCode, path+".code_name", field.ID,
-				"code_name %q already used by field %s on this resource", field.CodeName, owner)
-		} else {
-			fieldCodeNames[field.CodeName] = field.ID
+		// gorm.Model already occupies these on the generated struct, so
+		// minting one would emit a duplicate field (ADR-001 §12).
+		case IsReservedCodeName(field.CodeName):
+			v.report(CodeReservedName, path+".code_name", field.ID,
+				"code_name %q is reserved by the embedded gorm.Model", field.CodeName)
+		default:
+			if owner, taken := fieldCodeNames[field.CodeName]; taken {
+				v.report(CodeDuplicateCode, path+".code_name", field.ID,
+					"code_name %q already used by field %s on this resource", field.CodeName, owner)
+			} else {
+				fieldCodeNames[field.CodeName] = field.ID
+			}
 		}
 
-		if !IsStorageName(field.StorageName) {
+		switch {
+		case !IsStorageName(field.StorageName):
 			v.report(CodeInvalidStorage, path+".storage_name", field.ID,
 				"storage_name %q must be lower_snake_case", field.StorageName)
-		} else if owner, taken := fieldStorage[field.StorageName]; taken {
-			v.report(CodeDuplicateStore, path+".storage_name", field.ID,
-				"storage_name %q already used by field %s on this resource", field.StorageName, owner)
-		} else {
-			fieldStorage[field.StorageName] = field.ID
+		case IsReservedStorageName(field.StorageName):
+			v.report(CodeReservedName, path+".storage_name", field.ID,
+				"storage_name %q is reserved by the embedded gorm.Model", field.StorageName)
+		default:
+			if owner, taken := fieldStorage[field.StorageName]; taken {
+				v.report(CodeDuplicateStore, path+".storage_name", field.ID,
+					"storage_name %q already used by field %s on this resource", field.StorageName, owner)
+			} else {
+				fieldStorage[field.StorageName] = field.ID
+			}
 		}
 
 		v.validateFieldType(field, path)
+		v.validateFieldDefault(field, path)
 	}
 }
 
@@ -317,6 +337,68 @@ func (v *validator) validateFieldType(field *Field, path string) {
 			v.report(CodeDanglingRef, path+".target", field.ID,
 				"target is only valid on a belongs_to field, not %q", field.Type)
 		}
+	}
+}
+
+// validateFieldDefault checks the declared default against the field's type.
+//
+// Defaults are stored as strings so the spec stays a plain JSON document, but
+// an unparseable default is a semantic error, not a presentation detail: it
+// would reach the generated model and the migration as a literal.
+func (v *validator) validateFieldDefault(field *Field, path string) {
+	if field.Default == nil {
+		return
+	}
+	value := *field.Default
+	defaultPath := path + ".default"
+
+	switch field.Type {
+	case TypeString, TypeText:
+		// Any string is a legal default.
+
+	case TypeInteger:
+		if _, err := strconv.ParseInt(value, 10, 64); err != nil {
+			v.report(CodeInvalidDefault, defaultPath, field.ID,
+				"default %q is not a valid integer", value)
+		}
+
+	case TypeDecimal:
+		if _, err := strconv.ParseFloat(value, 64); err != nil {
+			v.report(CodeInvalidDefault, defaultPath, field.ID,
+				"default %q is not a valid decimal", value)
+		}
+
+	case TypeBoolean:
+		if _, err := strconv.ParseBool(value); err != nil {
+			v.report(CodeInvalidDefault, defaultPath, field.ID,
+				"default %q is not a valid boolean", value)
+		}
+
+	case TypeDatetime:
+		if _, err := time.Parse(time.RFC3339, value); err != nil {
+			v.report(CodeInvalidDefault, defaultPath, field.ID,
+				"default %q is not an RFC 3339 datetime", value)
+		}
+
+	case TypeDate:
+		if _, err := time.Parse(time.DateOnly, value); err != nil {
+			v.report(CodeInvalidDefault, defaultPath, field.ID,
+				"default %q is not a YYYY-MM-DD date", value)
+		}
+
+	case TypeEnum:
+		// A default outside the declared values can never be selected.
+		for _, enumValue := range field.EnumValues {
+			if enumValue.Value == value {
+				return
+			}
+		}
+		v.report(CodeInvalidDefault, defaultPath, field.ID,
+			"default %q is not one of the declared enum values", value)
+
+	case TypeBelongsTo:
+		v.report(CodeInvalidDefault, defaultPath, field.ID,
+			"a belongs_to field may not declare a default")
 	}
 }
 
@@ -371,12 +453,51 @@ func (v *validator) validatePages() {
 
 		switch page.Type {
 		case PageResourceTable, PageResourceForm, PageResourceDetail:
+			v.validatePageConfigMatchesType(page, path)
 			v.validateResourcePage(page, path)
 		case PageDashboard:
+			v.validatePageConfigMatchesType(page, path)
 			v.validateDashboardPage(page, path)
 		default:
 			v.report(CodeInvalidPage, path+".type", page.ID,
 				"unsupported page type %q", page.Type)
+		}
+	}
+}
+
+// validatePageConfigMatchesType enforces that a page carries only the config
+// block its type uses.
+//
+// Without this a resource_form could carry a Table block, or a table page a
+// Form block, and every consumer would have to guess which one is
+// authoritative. Making type the invariant lets the domain graph project
+// exactly one view per page and lets generators trust it.
+//
+// A missing block is deliberately allowed: it means "use the defaults" (a
+// table page with no explicit columns falls back to the resource's configured
+// list fields), which is well defined. Only a contradictory block is an error.
+func (v *validator) validatePageConfigMatchesType(page *Page, path string) {
+	permitted := map[PageType]string{
+		PageResourceTable:  "table",
+		PageResourceForm:   "form",
+		PageResourceDetail: "",
+		PageDashboard:      "dashboard",
+	}[page.Type]
+
+	present := []struct {
+		name string
+		set  bool
+	}{
+		{"table", page.Table != nil},
+		{"form", page.Form != nil},
+		{"dashboard", page.Dashboard != nil},
+	}
+
+	for _, block := range present {
+		if block.set && block.name != permitted {
+			v.report(CodePageMismatch, path+"."+block.name, page.ID,
+				"a %s page must not carry a %s configuration block",
+				page.Type, block.name)
 		}
 	}
 }

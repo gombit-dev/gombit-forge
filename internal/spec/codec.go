@@ -21,6 +21,11 @@ const canonicalIndent = "  "
 //
 // Authored order is preserved rather than sorted because order is meaningful:
 // it drives field order in forms and entry order in navigation.
+//
+// Encoding is canonical over Go representation as well as over content: an
+// absent collection and an empty one describe the same spec, so both encode
+// as []. Without this a nil slice would encode as null and shift the lineage
+// digest for a semantically identical spec (ADR-001 §60).
 func Marshal(s *ProjectSpec) ([]byte, error) {
 	if s == nil {
 		return nil, fmt.Errorf("spec: marshal nil spec")
@@ -33,10 +38,48 @@ func Marshal(s *ProjectSpec) ([]byte, error) {
 	// characters; escaping them would corrupt user labels such as "R&D".
 	encoder.SetEscapeHTML(false)
 
-	if err := encoder.Encode(s); err != nil {
+	if err := encoder.Encode(canonical(s)); err != nil {
 		return nil, fmt.Errorf("spec: marshal: %w", err)
 	}
 	return buf.Bytes(), nil
+}
+
+// canonical returns a copy of s with every always-emitted collection non-nil.
+//
+// Collections tagged omitempty need no treatment: nil and empty both vanish
+// from the output, so they are already canonical. Only the always-emitted
+// ones (resources, pages, navigation, fields) can differ, and those are
+// normalized here. The input is copied rather than mutated so callers never
+// observe Marshal rewriting their spec.
+func canonical(s *ProjectSpec) *ProjectSpec {
+	clone := *s
+	clone.Pages = nonNil(s.Pages)
+	clone.Navigation = nonNil(s.Navigation)
+
+	clone.Resources = make([]*Resource, len(s.Resources))
+	for i, resource := range s.Resources {
+		if resource == nil {
+			// Invalid, but marshalling runs before validation in some paths;
+			// preserve the entry so the diagnostic stays meaningful.
+			continue
+		}
+		resourceClone := *resource
+		resourceClone.Fields = nonNil(resource.Fields)
+		clone.Resources[i] = &resourceClone
+	}
+	if s.Resources == nil {
+		clone.Resources = []*Resource{}
+	}
+
+	return &clone
+}
+
+// nonNil replaces a nil slice with an empty one, leaving contents untouched.
+func nonNil[T any](values []T) []T {
+	if values == nil {
+		return []T{}
+	}
+	return values
 }
 
 // Unmarshal decodes canonical JSON into a ProjectSpec.

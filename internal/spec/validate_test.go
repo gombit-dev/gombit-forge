@@ -210,9 +210,81 @@ func TestValidateRejects(t *testing.T) {
 		{
 			name: "unsupported form layout",
 			mutate: func(s *ProjectSpec) {
+				// Convert the page to a real form page so the only defect is
+				// the layout, not a type/config mismatch.
+				s.Pages[1].Type = PageResourceForm
+				s.Pages[1].Table = nil
 				s.Pages[1].Form = &FormConfig{Layout: "absolute"}
 			},
 			wantAny: CodeInvalidPage,
+		},
+
+		// Page type must agree with the attached configuration block,
+		// otherwise the domain graph cannot project a single view per page.
+		{
+			name: "table page carrying a form block",
+			mutate: func(s *ProjectSpec) {
+				s.Pages[1].Form = &FormConfig{Layout: "single_column"}
+			},
+			wantAny: CodePageMismatch,
+		},
+		{
+			name: "form page carrying a table block",
+			mutate: func(s *ProjectSpec) {
+				s.Pages[1].Type = PageResourceForm
+			},
+			wantAny: CodePageMismatch,
+		},
+		{
+			name: "dashboard page carrying a table block",
+			mutate: func(s *ProjectSpec) {
+				s.Pages[0].Table = &TableConfig{}
+			},
+			wantAny: CodePageMismatch,
+		},
+		{
+			name: "detail page carrying a table block",
+			mutate: func(s *ProjectSpec) {
+				s.Pages[1].Type = PageResourceDetail
+			},
+			wantAny: CodePageMismatch,
+		},
+		{
+			name: "resource page carrying a dashboard block",
+			mutate: func(s *ProjectSpec) {
+				s.Pages[1].Dashboard = &DashboardConfig{}
+			},
+			wantAny: CodePageMismatch,
+		},
+
+		// gorm.Model already occupies these names on every generated model.
+		{
+			name: "code_name reserved by gorm.Model",
+			mutate: func(s *ProjectSpec) {
+				s.Resources[0].Fields[0].CodeName = "ID"
+			},
+			wantAny: CodeReservedName,
+		},
+		{
+			name: "code_name CreatedAt reserved by gorm.Model",
+			mutate: func(s *ProjectSpec) {
+				s.Resources[0].Fields[0].CodeName = "CreatedAt"
+			},
+			wantAny: CodeReservedName,
+		},
+		{
+			name: "storage_name reserved by gorm.Model",
+			mutate: func(s *ProjectSpec) {
+				s.Resources[0].Fields[0].StorageName = "id"
+			},
+			wantAny: CodeReservedName,
+		},
+		{
+			name: "storage_name deleted_at reserved by gorm.Model",
+			mutate: func(s *ProjectSpec) {
+				s.Resources[0].Fields[0].StorageName = "deleted_at"
+			},
+			wantAny: CodeReservedName,
 		},
 	}
 
@@ -230,6 +302,80 @@ func TestValidateRejects(t *testing.T) {
 					test.wantAny, diagnostics.Codes(), diagnostics.Error())
 			}
 		})
+	}
+}
+
+// TestValidateFieldDefault checks a declared default against its field type.
+// An unparseable default reaches the generated model and the migration as a
+// literal, so it is a spec-validity question, not a presentation detail.
+func TestValidateFieldDefault(t *testing.T) {
+	tests := []struct {
+		name       string
+		fieldType  FieldType
+		enumValues []EnumValue
+		value      string
+		wantValid  bool
+	}{
+		{name: "string accepts anything", fieldType: TypeString, value: "banana", wantValid: true},
+		{name: "text accepts anything", fieldType: TypeText, value: "", wantValid: true},
+
+		{name: "integer accepts digits", fieldType: TypeInteger, value: "42", wantValid: true},
+		{name: "integer accepts negative", fieldType: TypeInteger, value: "-7", wantValid: true},
+		{name: "integer rejects decimal", fieldType: TypeInteger, value: "1.5"},
+		{name: "integer rejects words", fieldType: TypeInteger, value: "banana"},
+
+		{name: "decimal accepts fraction", fieldType: TypeDecimal, value: "1.5", wantValid: true},
+		{name: "decimal accepts integer form", fieldType: TypeDecimal, value: "2", wantValid: true},
+		{name: "decimal rejects words", fieldType: TypeDecimal, value: "banana"},
+
+		{name: "boolean accepts true", fieldType: TypeBoolean, value: "true", wantValid: true},
+		{name: "boolean accepts false", fieldType: TypeBoolean, value: "false", wantValid: true},
+		{name: "boolean rejects words", fieldType: TypeBoolean, value: "banana"},
+		{name: "boolean rejects yes", fieldType: TypeBoolean, value: "yes"},
+
+		{name: "datetime accepts RFC3339", fieldType: TypeDatetime, value: "2026-08-28T10:00:00Z", wantValid: true},
+		{name: "datetime rejects date only", fieldType: TypeDatetime, value: "2026-08-28"},
+		{name: "datetime rejects words", fieldType: TypeDatetime, value: "banana"},
+
+		{name: "date accepts YYYY-MM-DD", fieldType: TypeDate, value: "2026-08-28", wantValid: true},
+		{name: "date rejects datetime", fieldType: TypeDate, value: "2026-08-28T10:00:00Z"},
+		{name: "date rejects impossible day", fieldType: TypeDate, value: "2026-02-31"},
+
+		{
+			name: "enum accepts a declared value", fieldType: TypeEnum, value: "pro",
+			enumValues: []EnumValue{{Value: "free"}, {Value: "pro"}}, wantValid: true,
+		},
+		{
+			name: "enum rejects an undeclared value", fieldType: TypeEnum, value: "enterprise",
+			enumValues: []EnumValue{{Value: "free"}, {Value: "pro"}},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			s := validSpec()
+			field := s.Resources[0].Fields[0]
+			field.Type = test.fieldType
+			field.EnumValues = test.enumValues
+			field.Default = strptr(test.value)
+
+			diagnostics := Validate(s)
+			gotValid := !diagnostics.Has(CodeInvalidDefault)
+
+			if gotValid != test.wantValid {
+				t.Errorf("default %q on %s: valid=%v want %v\n%s",
+					test.value, test.fieldType, gotValid, test.wantValid, diagnostics.Error())
+			}
+		})
+	}
+}
+
+func TestValidateRejectsDefaultOnBelongsTo(t *testing.T) {
+	s := validSpec()
+	s.Resources[1].Fields[0].Default = strptr("anything")
+
+	if diagnostics := Validate(s); !diagnostics.Has(CodeInvalidDefault) {
+		t.Errorf("expected a belongs_to default to be rejected, got %v", diagnostics.Codes())
 	}
 }
 

@@ -241,3 +241,164 @@ func TestBuildRefusesInvalidSpec(t *testing.T) {
 		t.Fatal("expected build to refuse an invalid spec")
 	}
 }
+
+// TestEveryBelongsToHasARelationship is the invariant generators rely on when
+// they dereference Field.Relationship without a nil check.
+func TestEveryBelongsToHasARelationship(t *testing.T) {
+	s, _ := buildSpec(t)
+
+	g, err := graph.Build(s)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	for _, resource := range g.Resources {
+		for _, field := range resource.Fields {
+			isBelongsTo := field.Spec.Type == spec.TypeBelongsTo
+			hasRelationship := field.Relationship != nil
+			if isBelongsTo != hasRelationship {
+				t.Errorf("field %s (%s): belongs_to=%v but relationship=%v",
+					field.CodeName(), field.Spec.Type, isBelongsTo, hasRelationship)
+			}
+		}
+	}
+}
+
+// TestPageViewsAreKeyedOffType is the contract the Page doc comments state:
+// each page type populates exactly one view and leaves the others empty, so a
+// generator can switch on Type alone.
+func TestPageViewsAreKeyedOffType(t *testing.T) {
+	s, ids := buildSpec(t)
+
+	// Give the table page a form page sibling so every type is represented.
+	formPageID := spec.MustNewID(spec.KindPage)
+	detailPageID := spec.MustNewID(spec.KindPage)
+	s.Pages = append(s.Pages,
+		&spec.Page{
+			ID: formPageID, Slug: "customer-form", Label: "Customer form",
+			Type: spec.PageResourceForm, Resource: ids["customer"],
+			Form: &spec.FormConfig{Fields: []spec.ID{ids["cName"], ids["cEmail"]}},
+		},
+		&spec.Page{
+			ID: detailPageID, Slug: "customer-detail", Label: "Customer detail",
+			Type: spec.PageResourceDetail, Resource: ids["customer"],
+		},
+	)
+	s.Pages[1].Dashboard = &spec.DashboardConfig{
+		CountCards: []spec.DashboardCard{{Label: "Customers", Resource: ids["customer"]}},
+	}
+
+	g, err := graph.Build(s)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	tests := []struct {
+		name                             string
+		page                             *graph.Page
+		wantColumns, wantForm, wantCards bool
+	}{
+		{"resource_table", g.Page(ids["pageCust"]), true, false, false},
+		{"resource_form", g.Page(formPageID), false, true, false},
+		{"resource_detail", g.Page(detailPageID), false, false, false},
+		{"dashboard", g.Page(ids["pageDash"]), false, false, true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := len(test.page.Columns) > 0; got != test.wantColumns {
+				t.Errorf("Columns populated=%v, want %v", got, test.wantColumns)
+			}
+			if got := len(test.page.FormFields) > 0; got != test.wantForm {
+				t.Errorf("FormFields populated=%v, want %v", got, test.wantForm)
+			}
+			if got := len(test.page.CountCards) > 0; got != test.wantCards {
+				t.Errorf("CountCards populated=%v, want %v", got, test.wantCards)
+			}
+		})
+	}
+}
+
+// TestDashboardPageProjectsOnlyCards pins that a dashboard yields resolved
+// cards and no table/form views.
+func TestDashboardPageProjectsOnlyCards(t *testing.T) {
+	s, ids := buildSpec(t)
+	s.Pages[1].Dashboard = &spec.DashboardConfig{
+		CountCards:  []spec.DashboardCard{{Label: "Customers", Resource: ids["customer"]}},
+		RecentLists: []spec.DashboardCard{{Label: "Recent", Resource: ids["invoice"], Limit: 5}},
+	}
+
+	g, err := graph.Build(s)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	dashboard := g.Page(ids["pageDash"])
+	if len(dashboard.Columns) != 0 || len(dashboard.FormFields) != 0 {
+		t.Error("dashboard page must project neither columns nor form fields")
+	}
+
+	// Cards are resolved to resource pointers, not left as raw IDs.
+	if len(dashboard.CountCards) != 1 {
+		t.Fatalf("count cards: got %d want 1", len(dashboard.CountCards))
+	}
+	if dashboard.CountCards[0].Resource != g.Resource(ids["customer"]) {
+		t.Error("count card resource not resolved to a pointer")
+	}
+	if len(dashboard.RecentLists) != 1 {
+		t.Fatalf("recent lists: got %d want 1", len(dashboard.RecentLists))
+	}
+	if dashboard.RecentLists[0].Resource != g.Resource(ids["invoice"]) {
+		t.Error("recent list resource not resolved to a pointer")
+	}
+
+	// A table page must not gain card views.
+	if len(g.Page(ids["pageCust"]).CountCards) != 0 {
+		t.Error("a resource_table page must not project dashboard cards")
+	}
+}
+
+// TestBehaviorFieldListsAreResolved covers the other half of "resolves every
+// ID reference exactly once": behavior lists become pointers.
+func TestBehaviorFieldListsAreResolved(t *testing.T) {
+	s, ids := buildSpec(t)
+	s.Resources[0].Behavior = spec.ResourceBehavior{
+		CreateEnabled:    true,
+		ListFields:       []spec.ID{ids["cEmail"], ids["cName"]},
+		SearchableFields: []spec.ID{ids["cEmail"]},
+		SortableFields:   []spec.ID{ids["cName"]},
+		FilterableFields: []spec.ID{ids["cEmail"]},
+	}
+
+	g, err := graph.Build(s)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	customer := g.Resource(ids["customer"])
+	behavior := customer.Behavior
+
+	// Order follows the behavior list, not field declaration order.
+	if len(behavior.List) != 2 ||
+		behavior.List[0].Spec.ID != ids["cEmail"] ||
+		behavior.List[1].Spec.ID != ids["cName"] {
+		t.Errorf("list fields not resolved in order: %+v", behavior.List)
+	}
+	if len(behavior.Searchable) != 1 || behavior.Searchable[0].Spec.ID != ids["cEmail"] {
+		t.Errorf("searchable fields not resolved: %+v", behavior.Searchable)
+	}
+	if len(behavior.Sortable) != 1 || behavior.Sortable[0].Spec.ID != ids["cName"] {
+		t.Errorf("sortable fields not resolved: %+v", behavior.Sortable)
+	}
+	if len(behavior.Filterable) != 1 || behavior.Filterable[0].Spec.ID != ids["cEmail"] {
+		t.Errorf("filterable fields not resolved: %+v", behavior.Filterable)
+	}
+
+	// Resolved pointers must be the graph's own field objects, not copies.
+	if behavior.List[0] != customer.Field(ids["cEmail"]) {
+		t.Error("behavior field is not the graph's field instance")
+	}
+	if behavior.Spec != &s.Resources[0].Behavior {
+		t.Error("behavior spec pointer not carried through")
+	}
+}

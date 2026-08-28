@@ -44,7 +44,21 @@ type Resource struct {
 	// authored directly (DESIGN.md §4.2).
 	HasMany []*Relationship
 
+	// Behavior holds the resource's CRUD settings with every field-ID list
+	// resolved to pointers.
+	Behavior Behavior
+
 	byFieldID map[spec.ID]*Field
+}
+
+// Behavior is ResourceBehavior with its field references resolved.
+type Behavior struct {
+	Spec *spec.ResourceBehavior
+
+	List       []*Field
+	Searchable []*Field
+	Sortable   []*Field
+	Filterable []*Field
 }
 
 // Field is a resolved field.
@@ -67,14 +81,29 @@ type Relationship struct {
 }
 
 // Page is a resolved page.
+//
+// The view fields are keyed strictly off Spec.Type, which validation
+// guarantees agrees with the attached configuration blocks. A page therefore
+// projects exactly one view and a generator can switch on Type alone.
 type Page struct {
 	Spec *spec.Page
 	// Resource is nil for dashboard pages.
 	Resource *Resource
-	// Columns is the resolved table column order, empty for non-table pages.
+	// Columns is the resolved table column order. It is populated only for a
+	// resource_table page and is empty for every other type.
 	Columns []*Field
-	// FormFields is the resolved form field order, empty for non-form pages.
+	// FormFields is the resolved form field order. It is populated only for a
+	// resource_form page and is empty for every other type.
 	FormFields []*Field
+	// CountCards and RecentLists are populated only for a dashboard page.
+	CountCards  []*Card
+	RecentLists []*Card
+}
+
+// Card is a resolved dashboard card with its resource reference linked.
+type Card struct {
+	Spec     *spec.DashboardCard
+	Resource *Resource
 }
 
 // NavEntry is a resolved navigation entry.
@@ -102,7 +131,10 @@ func Build(s *spec.ProjectSpec) (*Graph, error) {
 	}
 
 	g.buildResources()
-	g.linkRelationships()
+	if err := g.linkRelationships(); err != nil {
+		return nil, err
+	}
+	g.resolveBehavior()
 	g.buildPages()
 	g.buildNavigation()
 
@@ -133,7 +165,13 @@ func (g *Graph) buildResources() {
 //
 // Both sides are appended in resource-then-field authored order, so HasMany
 // ordering is deterministic rather than dependent on map iteration.
-func (g *Graph) linkRelationships() {
+//
+// An unresolvable target is reported rather than skipped. Validation already
+// rejects dangling references, so reaching this is a bug in the graph or the
+// validator; failing here keeps the invariant that every belongs_to field in
+// a built graph has a non-nil Relationship, which is what lets generators
+// dereference it without a nil check.
+func (g *Graph) linkRelationships() error {
 	for _, from := range g.Resources {
 		for _, field := range from.Fields {
 			if field.Spec.Type != spec.TypeBelongsTo {
@@ -142,9 +180,9 @@ func (g *Graph) linkRelationships() {
 
 			to := g.byResourceID[field.Spec.Target]
 			if to == nil {
-				// Validation guarantees the target exists; skip defensively
-				// rather than panicking if that ever regresses.
-				continue
+				return fmt.Errorf(
+					"graph: belongs_to field %s on resource %s targets unknown resource %s",
+					field.Spec.ID, from.Spec.ID, field.Spec.Target)
 			}
 
 			relationship := &Relationship{Field: field, From: from, To: to}
@@ -153,8 +191,44 @@ func (g *Graph) linkRelationships() {
 			to.HasMany = append(to.HasMany, relationship)
 		}
 	}
+	return nil
 }
 
+// resolveBehavior turns each resource's field-ID lists into pointers so later
+// stages never re-scan the spec to interpret them.
+func (g *Graph) resolveBehavior() {
+	for _, resource := range g.Resources {
+		behavior := &resource.Spec.Behavior
+		resource.Behavior = Behavior{
+			Spec:       behavior,
+			List:       resource.resolveFields(behavior.ListFields),
+			Searchable: resource.resolveFields(behavior.SearchableFields),
+			Sortable:   resource.resolveFields(behavior.SortableFields),
+			Filterable: resource.resolveFields(behavior.FilterableFields),
+		}
+	}
+}
+
+// resolveFields maps field IDs to this resource's fields, preserving order.
+// Validation guarantees each ID belongs to the resource.
+func (r *Resource) resolveFields(ids []spec.ID) []*Field {
+	if len(ids) == 0 {
+		return nil
+	}
+	fields := make([]*Field, 0, len(ids))
+	for _, id := range ids {
+		if field := r.byFieldID[id]; field != nil {
+			fields = append(fields, field)
+		}
+	}
+	return fields
+}
+
+// buildPages projects each page into exactly the view its type defines.
+//
+// The switch is on Type, not on which config block happens to be non-nil:
+// validation guarantees the two agree, and keying off Type is what makes the
+// documented "empty for other page types" contract true.
 func (g *Graph) buildPages() {
 	for _, pageSpec := range g.Spec.Pages {
 		page := &Page{Spec: pageSpec}
@@ -163,24 +237,47 @@ func (g *Graph) buildPages() {
 			page.Resource = g.byResourceID[pageSpec.Resource]
 		}
 
-		if pageSpec.Table != nil && page.Resource != nil {
-			for _, columnID := range pageSpec.Table.Columns {
-				if field := page.Resource.byFieldID[columnID]; field != nil {
-					page.Columns = append(page.Columns, field)
-				}
+		switch pageSpec.Type {
+		case spec.PageResourceTable:
+			if pageSpec.Table != nil && page.Resource != nil {
+				page.Columns = page.Resource.resolveFields(pageSpec.Table.Columns)
 			}
-		}
-		if pageSpec.Form != nil && page.Resource != nil {
-			for _, fieldID := range pageSpec.Form.Fields {
-				if field := page.Resource.byFieldID[fieldID]; field != nil {
-					page.FormFields = append(page.FormFields, field)
-				}
+
+		case spec.PageResourceForm:
+			if pageSpec.Form != nil && page.Resource != nil {
+				page.FormFields = page.Resource.resolveFields(pageSpec.Form.Fields)
 			}
+
+		case spec.PageDashboard:
+			if pageSpec.Dashboard != nil {
+				page.CountCards = g.resolveCards(pageSpec.Dashboard.CountCards)
+				page.RecentLists = g.resolveCards(pageSpec.Dashboard.RecentLists)
+			}
+
+		case spec.PageResourceDetail:
+			// A detail page renders the resource's own fields and its related
+			// records; it carries no field-selection block of its own.
 		}
 
 		g.Pages = append(g.Pages, page)
 		g.byPageID[pageSpec.ID] = page
 	}
+}
+
+// resolveCards links each dashboard card to its resource, preserving order.
+func (g *Graph) resolveCards(cards []spec.DashboardCard) []*Card {
+	if len(cards) == 0 {
+		return nil
+	}
+	resolved := make([]*Card, 0, len(cards))
+	for i := range cards {
+		card := &cards[i]
+		resolved = append(resolved, &Card{
+			Spec:     card,
+			Resource: g.byResourceID[card.Resource],
+		})
+	}
+	return resolved
 }
 
 func (g *Graph) buildNavigation() {

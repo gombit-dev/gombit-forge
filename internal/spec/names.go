@@ -17,6 +17,37 @@ func IsGoKeyword(name string) bool {
 	return found
 }
 
+// reservedCodeNames are symbols the embedded gorm.Model already occupies on
+// every generated model, so a field may not mint them.
+//
+// This is the minimum needed to keep M0 generation from emitting a struct
+// with duplicate fields. The complete reservation table the allocator
+// consults — framework helpers, generated hook names, per-namespace
+// reservations — is F0 work (ADR-001 §12).
+var reservedCodeNames = map[string]struct{}{
+	"ID": {}, "CreatedAt": {}, "UpdatedAt": {}, "DeletedAt": {},
+}
+
+// reservedStorageNames mirrors reservedCodeNames on the database side; it
+// matches the set Gombit's own resourcegen refuses.
+var reservedStorageNames = map[string]struct{}{
+	"id": {}, "created_at": {}, "updated_at": {}, "deleted_at": {},
+}
+
+// IsReservedCodeName reports whether a generated symbol collides with the
+// embedded gorm.Model.
+func IsReservedCodeName(name string) bool {
+	_, found := reservedCodeNames[name]
+	return found
+}
+
+// IsReservedStorageName reports whether a column name collides with the
+// embedded gorm.Model.
+func IsReservedStorageName(name string) bool {
+	_, found := reservedStorageNames[name]
+	return found
+}
+
 // IsExportedGoIdent reports whether name is a legal exported Go identifier,
 // which is what every generated code symbol must be (ADR-001 §6).
 func IsExportedGoIdent(name string) bool {

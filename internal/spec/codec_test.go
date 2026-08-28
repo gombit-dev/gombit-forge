@@ -27,6 +27,70 @@ func TestMarshalIsDeterministic(t *testing.T) {
 	}
 }
 
+// TestEmptyAndAbsentCollectionsEncodeIdentically guards the lineage anchor:
+// an absent collection and an empty one describe the same spec, so they must
+// not produce different digests (ADR-001 §60).
+func TestEmptyAndAbsentCollectionsEncodeIdentically(t *testing.T) {
+	absent := &ProjectSpec{SpecVersion: SpecVersion}
+	empty := &ProjectSpec{
+		SpecVersion: SpecVersion,
+		Resources:   []*Resource{},
+		Pages:       []*Page{},
+		Navigation:  []*NavItem{},
+	}
+
+	absentJSON := mustMarshal(t, absent)
+	emptyJSON := mustMarshal(t, empty)
+	if !bytes.Equal(absentJSON, emptyJSON) {
+		t.Errorf("absent and empty collections encode differently:\nabsent:\n%s\nempty:\n%s",
+			absentJSON, emptyJSON)
+	}
+
+	absentHash, err := Hash(absent)
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	emptyHash, err := Hash(empty)
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	if absentHash != emptyHash {
+		t.Errorf("lineage digest differs for identical specs: %s vs %s", absentHash, emptyHash)
+	}
+
+	// Collections are always emitted, never null.
+	if bytes.Contains(absentJSON, []byte("null")) {
+		t.Errorf("canonical encoding contains null:\n%s", absentJSON)
+	}
+}
+
+// TestNestedEmptyCollectionsEncodeIdentically covers the same rule one level
+// down: a resource with no fields must encode the same either way.
+func TestNestedEmptyCollectionsEncodeIdentically(t *testing.T) {
+	withNil := validSpec()
+	withNil.Resources[0].Fields = nil
+
+	withEmpty := validSpec()
+	withEmpty.Resources[0].Fields = []*Field{}
+
+	if !bytes.Equal(mustMarshal(t, withNil), mustMarshal(t, withEmpty)) {
+		t.Error("nil and empty field slices encode differently")
+	}
+}
+
+// TestMarshalDoesNotMutateInput confirms canonicalization copies rather than
+// rewriting the caller's spec.
+func TestMarshalDoesNotMutateInput(t *testing.T) {
+	s := &ProjectSpec{SpecVersion: SpecVersion}
+
+	if _, err := Marshal(s); err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if s.Resources != nil || s.Pages != nil || s.Navigation != nil {
+		t.Error("Marshal mutated the caller's spec")
+	}
+}
+
 func TestRoundTripIsLossless(t *testing.T) {
 	original := validSpec()
 
