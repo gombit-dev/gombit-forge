@@ -423,6 +423,54 @@ func assertDefaultValidity(t *testing.T, fieldType FieldType, enums []EnumValue,
 	}
 }
 
+// TestValidateRejectsUnrepresentableDefault keeps spec validity in step with
+// what the generator can emit: a string default the compiler cannot carry into
+// a GORM tag is rejected at validation, not accepted and then refused at
+// generation.
+func TestValidateRejectsUnrepresentableDefault(t *testing.T) {
+	unsafe := map[string]string{
+		"semicolon": "a;b",
+		"quote":     `a"b`,
+		"backtick":  "a`b",
+		"backslash": `a\b`,
+		"newline":   "a\nb",
+		"tab":       "a\tb",
+		"nul":       "a\x00b",
+	}
+	for name, value := range unsafe {
+		t.Run("string "+name, func(t *testing.T) {
+			s := validSpec()
+			s.Resources[0].Fields[0].Default = strptr(value) // Email, a string field
+			if diagnostics := Validate(s); !diagnostics.Has(CodeInvalidDefault) {
+				t.Errorf("default %q should be rejected as unrepresentable, got %v", value, diagnostics.Codes())
+			}
+		})
+	}
+
+	// An enum default that is a declared value but itself unrepresentable is
+	// rejected too.
+	t.Run("enum value with semicolon", func(t *testing.T) {
+		s := validSpec()
+		tier := s.Resources[0].Fields[3] // Tier enum
+		tier.EnumValues = []EnumValue{{Value: "a;b"}}
+		tier.Default = strptr("a;b")
+		if diagnostics := Validate(s); !diagnostics.Has(CodeInvalidDefault) {
+			t.Errorf("unrepresentable enum default should be rejected, got %v", diagnostics.Codes())
+		}
+	})
+
+	// Safe values still pass: a plain string and an apostrophe.
+	for _, ok := range []string{"free", "O'Brien", "hello world", "50%"} {
+		t.Run("safe "+ok, func(t *testing.T) {
+			s := validSpec()
+			s.Resources[0].Fields[0].Default = strptr(ok)
+			if diagnostics := Validate(s); diagnostics.Has(CodeInvalidDefault) {
+				t.Errorf("default %q should be accepted, got %s", ok, diagnostics.Error())
+			}
+		})
+	}
+}
+
 func TestValidateRejectsDefaultOnBelongsTo(t *testing.T) {
 	s := validSpec()
 	s.Resources[1].Fields[0].Default = strptr("anything")

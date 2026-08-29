@@ -24,6 +24,10 @@ func Models(g *graph.Graph) ([]File, error) {
 		return nil, fmt.Errorf("gen: nil graph")
 	}
 
+	if err := validatePackages(g); err != nil {
+		return nil, err
+	}
+
 	files := make([]File, 0, len(g.Resources))
 	for _, resource := range g.Resources {
 		file, err := modelFile(resource)
@@ -33,6 +37,49 @@ func Models(g *graph.Graph) ([]File, error) {
 		files = append(files, file)
 	}
 	return files, nil
+}
+
+// validatePackages rejects a graph whose resources derive an illegal or
+// colliding package identity, before any file is emitted.
+//
+// PackageName folds the code symbol to lower case, and PackageDir is built
+// from it, so two facts the spec validator does not check must be checked
+// here (build health, not spec validity — ADR-001 §36):
+//
+//   - The folded name must be a legal, importable package identifier. A Go
+//     keyword ("Type" → package type) or "main" ("Main" → package main, which
+//     needs a func main and cannot be imported) does not build.
+//   - Two resources must not fold to the same package. "Customer" and
+//     "CUSTOMER" are distinct code symbols the validator accepts, but both
+//     fold to package customer and the same PackageDir, so one model.go would
+//     overwrite the other.
+//
+// F0 centralizes symbol reservation in the ledger; this is the M0 guard, and
+// it fails with a clear error rather than leaving the clash for go build.
+func validatePackages(g *graph.Graph) error {
+	byPackage := make(map[string]*graph.Resource, len(g.Resources))
+	for _, resource := range g.Resources {
+		name := PackageName(resource)
+
+		switch {
+		case spec.IsGoKeyword(name):
+			return fmt.Errorf(
+				"gen: resource %s code_name %q folds to the Go keyword package name %q; rename the resource code symbol",
+				resource.Spec.ID, resource.CodeName(), name)
+		case name == "main":
+			return fmt.Errorf(
+				"gen: resource %s code_name %q folds to package %q, which is not an importable package; rename the resource code symbol",
+				resource.Spec.ID, resource.CodeName(), name)
+		}
+
+		if other, clash := byPackage[name]; clash {
+			return fmt.Errorf(
+				"gen: resources %s (%q) and %s (%q) both fold to package %q; their generated directories would collide",
+				other.Spec.ID, other.CodeName(), resource.Spec.ID, resource.CodeName(), name)
+		}
+		byPackage[name] = resource
+	}
+	return nil
 }
 
 func modelFile(resource *graph.Resource) (File, error) {
@@ -102,18 +149,14 @@ func modelFile(resource *graph.Resource) (File, error) {
 	return formatGo(relPath, b.String())
 }
 
-// validateNames rejects a resource whose generated Go identifiers would be
-// invalid or collide. These are symbols the generator derives — the package
-// name from the code symbol, and a belongs_to key from the code symbol plus
-// "ID" — that the spec validator never saw, so they are checked here rather
-// than left for gofmt or go build to reject (ADR-001 §12).
+// validateNames rejects a resource whose generated struct fields would collide.
+//
+// A belongs_to derives its key field as the code symbol plus "ID", a symbol the
+// spec validator never saw, so the generated field-name set is checked here
+// rather than left for go build to reject with a duplicate-field error
+// (ADR-001 §36 build health; §12 reserve, do not discover). Package identity is
+// checked once across the whole graph in validatePackages.
 func validateNames(resource *graph.Resource) error {
-	if pkg := PackageName(resource); spec.IsGoKeyword(pkg) {
-		return fmt.Errorf(
-			"gen: resource %s code_name %q yields the Go keyword package name %q; rename the resource code symbol",
-			resource.Spec.ID, resource.CodeName(), pkg)
-	}
-
 	// Every generated struct-field name must be unique and must not shadow a
 	// field promoted from gorm.Model.
 	seen := make(map[string]spec.ID, len(resource.Fields))

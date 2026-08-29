@@ -47,8 +47,9 @@ func PackageDir(resource *graph.Resource) string {
 //
 // It is the lowercased frozen code symbol. Deriving it from the frozen symbol
 // rather than the label keeps the package name stable across relabels. The
-// lowercased symbol can still collide with a Go keyword (code symbol "Type" →
-// package "type"), which validateNames rejects before any source is emitted.
+// fold can still produce an illegal package name (a Go keyword, or "main") or
+// collide with another resource's fold; validatePackages rejects all of those
+// before any source is emitted.
 func PackageName(resource *graph.Resource) string {
 	return strings.ToLower(resource.CodeName())
 }

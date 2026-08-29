@@ -124,21 +124,19 @@ func gormTag(field *graph.Field, mapping goMapping) (string, error) {
 // The value is validated against its type before it reaches here (a spec with
 // a bad default never builds a graph), so this only encodes it for the tag.
 //
-// String-valued defaults become SQL string literals with ” escaping. They
-// must survive two carriers before GORM sees them: Go's struct-tag unquoting
-// (reflect.StructTag.Get) and GORM's own ';'-separated tag grammar. Empirical
-// testing against gorm v1.31.2 shows neither carrier can round-trip a value
-// containing ';', '"', a backtick, a backslash, or a control character — the
-// tag either fails to unquote (yielding an empty tag) or is truncated at the
-// separator. Rather than emit a silently corrupted default, such a value is
-// rejected here. A single quote is fine: ” escaping round-trips cleanly.
+// String-valued defaults become SQL string literals, escaping an embedded
+// single quote by doubling it. The spec validator has already rejected values
+// that cannot round-trip a GORM struct tag (spec.IsSafeDefaultValue); the same
+// check is repeated here as a defensive assertion so a graph built by some
+// future path that skipped validation still fails loudly rather than emitting
+// a corrupted default.
 func gormDefault(field *graph.Field) (string, error) {
 	value := *field.Spec.Default
 	switch field.Spec.Type {
 	case spec.TypeString, spec.TypeText, spec.TypeEnum, spec.TypeDate, spec.TypeDatetime:
-		if ok, bad := tagSafe(value); !ok {
+		if ok, bad := spec.IsSafeDefaultValue(value); !ok {
 			return "", fmt.Errorf(
-				"gen: default %q for field %s contains %q, which cannot be represented in a GORM struct tag; remove it from the default",
+				"gen: default %q for field %s contains %q, which cannot be represented in a GORM struct tag",
 				value, field.Spec.ID, bad)
 		}
 		return "'" + strings.ReplaceAll(value, "'", "''") + "'", nil
@@ -147,18 +145,4 @@ func gormDefault(field *graph.Field) (string, error) {
 		// (true/false, digits, sign, decimal point) and need no quoting.
 		return value, nil
 	}
-}
-
-// tagSafe reports whether value can be carried in a GORM struct tag, and if
-// not, the first offending rune.
-func tagSafe(value string) (ok bool, bad string) {
-	for _, r := range value {
-		switch {
-		case r == ';', r == '"', r == '`', r == '\\':
-			return false, string(r)
-		case r < 0x20: // control characters, including newline and tab
-			return false, fmt.Sprintf("\\x%02x", r)
-		}
-	}
-	return true, ""
 }

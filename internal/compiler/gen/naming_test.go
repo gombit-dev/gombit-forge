@@ -88,6 +88,57 @@ func TestPackageNameKeywordRejected(t *testing.T) {
 	}
 }
 
+// TestPackageNameMainRejected covers a valid code symbol that folds to "main":
+// package main needs a func main and cannot be imported, so `go build` breaks.
+func TestPackageNameMainRejected(t *testing.T) {
+	g := oneResourceGraph(t, "Main", "mains", field("Name", "name", spec.TypeString))
+	_, err := Models(g)
+	if err == nil {
+		t.Fatal("expected a resource folding to package main to be rejected")
+	}
+	if !strings.Contains(err.Error(), "importable") {
+		t.Errorf("rejection should explain main is not importable, got: %v", err)
+	}
+}
+
+// TestPackageFoldCollisionRejected covers two distinct code symbols that fold
+// to the same package, whose generated directories would collide.
+func TestPackageFoldCollisionRejected(t *testing.T) {
+	s := &spec.ProjectSpec{
+		SpecVersion: spec.SpecVersion,
+		Project:     spec.Project{ID: spec.MustNewID(spec.KindProject), Name: "Acme", Slug: "acme"},
+		Database:    spec.Database{Driver: spec.DriverPostgres},
+		Auth:        spec.Auth{Mode: spec.AuthCookie},
+		Resources: []*spec.Resource{
+			{ID: spec.MustNewID(spec.KindResource), Label: "Customer", CodeName: "Customer", StorageName: "customers"},
+			{ID: spec.MustNewID(spec.KindResource), Label: "Shouty", CodeName: "CUSTOMER", StorageName: "shouty"},
+		},
+	}
+	if d := spec.Validate(s); d != nil {
+		t.Fatalf("distinct code symbols should be spec-valid; the fold clash is build health: %s", d.Error())
+	}
+	g, err := graph.Build(s)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	files, err := Models(g)
+	if err == nil {
+		// Prove the concrete harm the guard prevents: two files at one path.
+		seen := map[string]bool{}
+		for _, f := range files {
+			if seen[f.Path] {
+				t.Fatalf("two models share path %s", f.Path)
+			}
+			seen[f.Path] = true
+		}
+		t.Fatal("expected the package fold collision to be rejected")
+	}
+	if !strings.Contains(err.Error(), "fold to package") {
+		t.Errorf("rejection should name the package collision, got: %v", err)
+	}
+}
+
 // TestBelongsToFieldCollisionRejected covers the FK-suffix collision: a
 // belongs_to "Customer" derives "CustomerID", which must not silently coexist
 // with a scalar field whose code symbol is already "CustomerID".
@@ -172,20 +223,52 @@ func TestSafeStringDefaultRoundTrips(t *testing.T) {
 	}
 }
 
-// TestUnsafeStringDefaultRejected proves the values that cannot round-trip are
-// refused rather than silently corrupted.
-func TestUnsafeStringDefaultRejected(t *testing.T) {
+// TestUnsafeStringDefaultRejectedBeforeGraph confirms the spec validator is the
+// gate: a graph with an unrepresentable default never builds, so gen never sees
+// it. (The spec package has its own table covering each character; this asserts
+// the boundary the generator relies on.)
+func TestUnsafeStringDefaultRejectedBeforeGraph(t *testing.T) {
 	for _, v := range []string{"a;b", `a"b`, "a`b", `a\b`, "a\nb"} {
 		t.Run(v, func(t *testing.T) {
-			f := field("Note", "note", spec.TypeString)
-			f.Default = &v
-			g := oneResourceGraph(t, "Doc", "docs", f)
-
-			if _, err := Models(g); err == nil {
-				t.Errorf("default %q should be rejected as unrepresentable", v)
+			s := &spec.ProjectSpec{
+				SpecVersion: spec.SpecVersion,
+				Project:     spec.Project{ID: spec.MustNewID(spec.KindProject), Name: "Acme", Slug: "acme"},
+				Database:    spec.Database{Driver: spec.DriverPostgres},
+				Auth:        spec.Auth{Mode: spec.AuthCookie},
+				Resources: []*spec.Resource{
+					{
+						ID: spec.MustNewID(spec.KindResource), Label: "Doc",
+						CodeName: "Doc", StorageName: "docs",
+						Fields: []*spec.Field{withDefault(field("Note", "note", spec.TypeString), v)},
+					},
+				},
+			}
+			if spec.Validate(s) == nil {
+				t.Fatalf("spec validation should reject default %q", v)
+			}
+			if _, err := graph.Build(s); err == nil {
+				t.Errorf("graph must refuse to build over an unrepresentable default %q", v)
 			}
 		})
 	}
+}
+
+// TestGormDefaultDefensiveRejection covers gen's own guard directly, since a
+// valid graph can no longer carry an unsafe default to it.
+func TestGormDefaultDefensiveRejection(t *testing.T) {
+	bad := "a;b"
+	f := &graph.Field{Spec: &spec.Field{
+		ID: spec.MustNewID(spec.KindField), Type: spec.TypeString,
+		CodeName: "Note", StorageName: "note", Default: &bad,
+	}}
+	if _, err := gormDefault(f); err == nil {
+		t.Fatal("gormDefault must reject an unrepresentable default as a defensive assertion")
+	}
+}
+
+func withDefault(f *spec.Field, v string) *spec.Field {
+	f.Default = &v
+	return f
 }
 
 // extractGormTag pulls the gorm struct tag for a field out of generated source
