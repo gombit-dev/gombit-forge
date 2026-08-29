@@ -42,14 +42,16 @@ func TestGeneratedModelsCompile(t *testing.T) {
 		writeFile(t, filepath.Join(root, filepath.FromSlash(file.Path)), string(file.Content))
 	}
 
-	// Populate go.sum from the module cache. GOPROXY=off proves no network is
-	// needed; if a required module is genuinely missing this fails, which is
-	// the acceptance test doing its job rather than skipping.
-	if out, err := runGo(t, root, "GOFLAGS=-mod=mod", "GOPROXY=off"); err != nil {
-		t.Fatalf("go mod tidy could not resolve deps from cache:\n%s", out)
-	}
-
-	if out, err := runGoBuild(t, root); err != nil {
+	// `go build -mod=mod` resolves the build graph from the module cache and
+	// writes go.sum as it goes. GOPROXY=off proves no network is needed and
+	// keeps the test hermetic; if a build dependency is genuinely missing this
+	// fails, which is the acceptance test doing its job rather than skipping.
+	//
+	// `go mod tidy` is deliberately avoided: it resolves the *test* graph of
+	// every dependency too (e.g. gorm's own gorm.io/driver/sqlite), which this
+	// module never caches, so it would fail offline on something unrelated to
+	// whether the generated models compile.
+	if out, err := runGoBuild(t, root, "GOFLAGS=-mod=mod", "GOPROXY=off"); err != nil {
 		t.Fatalf("generated models did not compile:\n%s", out)
 	}
 }
@@ -64,20 +66,11 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-// runGo runs `go mod tidy` with the given extra environment.
-func runGo(t *testing.T, dir string, env ...string) (string, error) {
-	t.Helper()
-	cmd := exec.Command("go", "mod", "tidy")
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), env...)
-	out, err := cmd.CombinedOutput()
-	return string(out), err
-}
-
-func runGoBuild(t *testing.T, dir string) (string, error) {
+func runGoBuild(t *testing.T, dir string, env ...string) (string, error) {
 	t.Helper()
 	cmd := exec.Command("go", "build", "./...")
 	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), env...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
