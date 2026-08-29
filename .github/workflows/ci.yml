@@ -23,6 +23,10 @@ jobs:
       - name: Vet
         run: make vet
 
+      # The .claude and .cursor skill trees are duplicated; fail on drift.
+      - name: Check skill trees are in sync
+        run: make skills-check
+
       - name: Test
         run: make test
 
