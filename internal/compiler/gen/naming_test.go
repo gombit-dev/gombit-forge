@@ -97,9 +97,10 @@ func TestPackageNameKeywordRejected(t *testing.T) {
 //	testdata  the go tool ignores testdata, so the compile gate never sees it
 func TestPackageNameReservedRejected(t *testing.T) {
 	cases := map[string]struct{ code, storage string }{
-		"main":     {"Main", "mains"},
-		"internal": {"Internal", "internals"},
-		"testdata": {"TestData", "test_data"},
+		"main":          {"Main", "mains"},
+		"documentation": {"Documentation", "docs"},
+		"internal":      {"Internal", "internals"},
+		"testdata":      {"TestData", "test_data"},
 	}
 	for pkg, c := range cases {
 		t.Run(pkg, func(t *testing.T) {

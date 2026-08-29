@@ -66,22 +66,28 @@ var gormModelFields = map[string]struct{}{
 	"Model": {}, "ID": {}, "CreatedAt": {}, "UpdatedAt": {}, "DeletedAt": {},
 }
 
-// reservedPackageNames are directory basenames the go tool treats specially,
-// so a resource may not fold to one. These are the go-tool package-path rules,
-// not a list of examples:
+// reservedPackageNames are names the go tool treats specially, so a resource
+// may not fold to one. Our fold is both the directory basename and the package
+// clause, so this is the union of both go/build rules — derived from go/build,
+// not accumulated from examples:
 //
-//	main      a package that needs a func main and cannot be imported
-//	internal  an import-boundary directory; cmd/ could not import the model
-//	testdata  ignored by the go tool, so the compile gate would never see it
+//	main           needs a func main and cannot be imported (package clause)
+//	documentation  go/build adds .go files in `package documentation` to
+//	               IgnoredGoFiles, so the model would be dropped (package clause)
+//	internal       an import-boundary directory; cmd/ could not import the model
+//	testdata       a directory go/build ignores, so the compile gate never sees it
 //
-// (Go keywords are handled separately. A folded name never begins with "." or
-// "_", the other ignored forms, because it derives from an exported
-// identifier. "vendor" is not reserved: a nested vendor directory is an
-// ordinary package in module mode, verified against the go tool.)
+// go/build's only special package clause is "documentation" (build.go: the
+// sole `pkg == "..."` check when collecting files); its only ignored directory
+// forms are "testdata" and names beginning "." or "_". A fold of an exported
+// identifier cannot begin "." or "_", and "vendor" is an ordinary package in
+// module mode (verified against the go tool), so neither is reserved. Go
+// keywords are rejected separately as invalid identifiers.
 var reservedPackageNames = map[string]string{
-	"main":     "a package that needs a func main and cannot be imported",
-	"internal": "an internal-import-boundary directory the application shell could not import",
-	"testdata": "a directory the go tool ignores, so the generated model would be invisible to the build",
+	"main":          "a package that needs a func main and cannot be imported",
+	"documentation": "a package clause the go tool ignores, so the generated model would be dropped from the build",
+	"internal":      "an internal-import-boundary directory the application shell could not import",
+	"testdata":      "a directory the go tool ignores, so the generated model would be invisible to the build",
 }
 
 // formatGo runs gofmt over generated Go source.
