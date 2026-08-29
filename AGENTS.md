@@ -32,6 +32,8 @@ list` and `git log` before claiming how anything works.
   ownership and the backend extension ABI. Where it overlaps DESIGN.md on
   identity or naming, ADR-001 v2 wins — it supersedes v1 and is the newer
   document.
+- `docs/ADR-002.md` is authoritative for generation ownership and amends
+  DESIGN.md P4. Read it before writing any generator.
 - GitHub issues are the unit of work. Epics are labelled `epic`; don't start a
   task whose epic describes an unmet prerequisite.
 
@@ -96,33 +98,36 @@ AutoMigrate — which DESIGN.md §14 forbids in deployed apps.
 Note the installed binary on a given machine may be older. Check
 `gombit version` before trusting a limitation you observed from the CLI.
 
-### Open tension — do not treat as settled
+### Ownership split (ADR-002, settled)
 
-P4's forbidden list includes *resource scaffolding semantics*, and that is
-exactly what a model/handler/route generator is. So "Forge generates them
-itself" is **not** P4-compliant on its face, and no ADR currently amends P4.
+> **Gombit owns framework primitives; Forge owns application synthesis.**
 
-DESIGN.md §9 describes the compliant route: the compiler "may reuse Gombit's
-generator packages directly rather than spawning CLI commands" — reuse the
-semantics as a library, don't reimplement them, and don't drive the CLI
-per-entity. The obstacle is that `resourcegen` today cannot express Forge's
-model (the type and relationship gaps above), so reusing it unchanged is
-impossible for the MVP field set.
+Forge generates resource-specific application code — models, handlers, routes,
+admin declarations and the extension API — under `internal/forge_generated/**`.
+ADR-002 amends the P4 bullet on *resource scaffolding semantics* to scope it to
+hand-written applications (`gombit make resource`); every other P4 bullet is
+unchanged and still binding.
 
-That leaves two legitimate paths, and issue #4 has to pick one:
+The constraint that makes this legitimate, and the one to enforce in review:
 
-1. **Extend Gombit's generator packages** so they can express Forge's model.
-   P4 states this preference directly: "If Forge needs behavior that also
-   belongs in normal Gombit applications, prefer adding the capability to
-   Gombit first."
-2. **Write an ADR amending P4**, scoping exactly which scaffolding semantics
-   Forge owns and why, with `internal/forge_generated/**` ownership.
+> **Generated output consumes Gombit's public/stable APIs and never duplicates
+> Gombit infrastructure** (ADR-002 D3).
 
-Do not resolve this by paraphrasing P4 into something it does not say.
+So generated code imports `framework`, `contract`, `auth`, `database` and
+`admin` and registers through their documented entry points. It must never
+contain a Forge-specific router, ORM layer, auth/permission/admin
+implementation, divergent response envelope, or vendored Gombit internals, and
+must never import Gombit *internal* packages. If generated code can't express
+something through a public Gombit API, extend Gombit — don't synthesize a
+private replacement.
+
+P4's closing preference still stands: if Forge needs behavior that also belongs
+in ordinary Gombit apps, add it to Gombit first. Adding the missing field types
+to `resourcegen` upstream is still worth doing on its own merits.
 
 ### Version pinning
 
-Pin **≥ v0.1.2**: the module path was renamed there from
+Pin **≥ v0.1.2** (ADR-002 D5): the module path was renamed there from
 `github.com/LAA-Software-Engineering/gombit` to `github.com/gombit-dev/gombit`,
 and current scaffolding emits the latter. Earlier notes in this repo described
 the two paths as an unresolved question — that was an artifact of a stale
