@@ -152,14 +152,25 @@ func modelFile(resource *graph.Resource) (File, error) {
 
 // validateNames rejects a resource whose generated struct fields would collide.
 //
-// A belongs_to derives its key field as the code symbol plus "ID", a symbol the
-// spec validator never saw, so the generated field-name set is checked here
-// rather than left for go build to reject with a duplicate-field error
-// (ADR-001 §36 build health; §12 reserve, do not discover). Each generated
-// field name must be unique, must not shadow a gorm.Model field, and must not
-// collide with a method this stage emits onto the model (TableName). Package
-// identity is checked once across the whole graph in validatePackages.
+// It covers the identifiers derived from a single resource: the model type
+// (its code symbol, checked against reserved package-level symbols), and the
+// generated field-name set — a belongs_to derives its key as the code symbol
+// plus "ID", which the spec validator never saw. Each generated field name
+// must be unique, must not shadow a gorm.Model field, and must not collide with
+// a method this stage emits onto the model (TableName). These are checked here
+// rather than left for go build (ADR-001 §36 build health; §12 reserve, do not
+// discover). Package identity is checked once across the graph in
+// validatePackages.
 func validateNames(resource *graph.Resource) error {
+	// The resource's code symbol becomes the model type. It must not collide
+	// with another exported package-level symbol the generated package defines
+	// (the handler type, the Register func).
+	if _, reserved := reservedPackageSymbols[resource.CodeName()]; reserved {
+		return fmt.Errorf(
+			"gen: resource %s code_name %q collides with a generated package-level symbol; rename the resource code symbol",
+			resource.Spec.ID, resource.CodeName())
+	}
+
 	// Every generated struct-field name must be unique and must not shadow a
 	// field promoted from gorm.Model.
 	seen := make(map[string]spec.ID, len(resource.Fields))

@@ -212,6 +212,25 @@ func TestFieldCollidingWithGeneratedMethodRejected(t *testing.T) {
 	}
 }
 
+// TestResourceNameCollidingWithPackageSymbolRejected covers a resource whose
+// code symbol is a package-level identifier the generated code defines (the
+// handler type or the Register func). Both stages that emit the package must
+// reject it, since the model type would redeclare the symbol.
+func TestResourceNameCollidingWithPackageSymbolRejected(t *testing.T) {
+	for _, name := range []string{"Handler", "Register"} {
+		t.Run(name, func(t *testing.T) {
+			g := oneResourceGraph(t, name, "things", field("Name", "name", spec.TypeString))
+
+			if _, err := Models(g); err == nil {
+				t.Errorf("Models must reject a resource named %q", name)
+			}
+			if _, err := Handlers(g); err == nil {
+				t.Errorf("Handlers must reject a resource named %q", name)
+			}
+		})
+	}
+}
+
 // TestGeneratedFieldShadowingGormModelRejected covers a belongs_to whose
 // derived name would shadow a gorm.Model field. (Scalar code_names like "ID"
 // are already rejected by the spec validator; the FK "+ID" derivation is not.)
