@@ -32,3 +32,18 @@ jobs:
 
       - name: Test with race detector
         run: make race
+
+      # The control plane is a separate nested module (it imports Gombit), so
+      # root ./... never covers it. Build, vet and test it explicitly.
+      - name: Control plane — vet
+        run: make cp-vet
+
+      - name: Control plane — build
+        run: make cp-build
+
+      # -short here, like the M0 e2e gate: the boot test drives a throwaway
+      # Postgres under Docker and is the local acceptance proof, but bringing a
+      # cold container up inside the test is too slow/flaky for the merge gate.
+      # `make cp-test` (no -short) runs it locally where the image is warm.
+      - name: Control plane — test (short)
+        run: make cp-test-short

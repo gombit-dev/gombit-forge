@@ -27,10 +27,30 @@ generation, which the `internal/gombit` boundary drives through
 M0 (the go/no-go gate) is **cleared**: issues #2–#12 shipped (PRs #86–#94 plus
 the e2e harness). The end-to-end test in `internal/compiler` scaffolds a real
 Gombit app, compiles the spec, applies the migration on Postgres, builds, boots
-and serves customers/invoices/admin with no Forge runtime dependency. M1
-(control plane) is next. There is no control plane, no editor, no
-build
+and serves customers/invoices/admin with no Forge runtime dependency.
+
+M1 (control plane) is **in progress**. The control-plane bootstrap (#35) exists:
+`controlplane/` is a nested Go module holding the control plane as an ordinary
+Gombit application (Forge dogfoods Gombit, D7) — cookie/session auth,
+Postgres-backed, with the admin plane auto-mounted by `framework.New` in cookie
+mode. It has **no domain models yet** (User/Organization/Project and the rest
+arrive with #36–#38), no project/revision API (#39), no editor, no build
 pipeline, no deploy path. Don't describe those as existing.
+
+The repo is **two Go modules**. The root module
+(`github.com/gombit-dev/gombit-forge`) is the compiler and stays gombit-free —
+it drives Gombit only through the CLI. The `controlplane/` module
+(`…/controlplane`) is the Gombit app and *does* import Gombit; it is where the
+runtime dependency on Gombit is allowed to live. Root `./...` never reaches into
+the nested module, so `make test`/`make vet` stay gombit-free; the control plane
+has its own `cp-build`/`cp-vet`/`cp-test` targets that `cd controlplane` first,
+folded into `make all` and mirrored in CI. A `go.work` at the repo root is a
+local-dev convenience for editing both modules at once — create it with `go work
+init . ./controlplane`. It is **gitignored, not committed** (the explicit
+per-module targets are what CI relies on), so don't assume it exists in a fresh
+checkout. Never run `go work sync`: it rewrites the root module's go.sum to the
+workspace-wide versions, which reintroduces a Gombit-derived dependency graph
+into the gombit-free compiler module and breaks its module-mode build.
 
 Milestones: `F0` (identity + extension ABI, ADR-001) and `M0`–`M7`. Every issue
 carries an area label and lives under exactly one milestone. Check `gh issue
