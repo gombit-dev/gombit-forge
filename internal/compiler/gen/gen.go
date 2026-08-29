@@ -74,6 +74,18 @@ var generatedMethods = map[string]struct{}{
 	"TableName": {},
 }
 
+// reservedPackageSymbols are exported package-level identifiers the generated
+// code defines in every resource package besides the model type itself: the
+// handler type and the route entry point. A resource whose code symbol is one
+// of these would redeclare it — model `type Handler` clashing with the handler
+// struct, or `type Register` with the Register func — so the code symbol is
+// rejected here rather than by go build (ADR-001 §12). Later stages that add
+// package-level symbols extend this set.
+var reservedPackageSymbols = map[string]struct{}{
+	"Handler":  {},
+	"Register": {},
+}
+
 // reservedPackageNames are names the go tool treats specially, so a resource
 // may not fold to one. Our fold is both the directory basename and the package
 // clause, so this is the union of both go/build rules — derived from go/build,

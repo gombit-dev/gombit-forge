@@ -1,0 +1,251 @@
+package gen
+
+// handlersSrc renders handlers.go: the DTO, Huma input/output types, the CRUD
+// handler methods, and the model→DTO converter. gofmt normalizes whitespace
+// afterward, so the template favors clarity over precise indentation.
+//
+// Read semantics follow Gombit's own generated handlers: pagination via
+// contract.ClampPage/PageOffset, the {data, meta} envelope via contract.Data
+// and contract.DataMeta, and error translation via the database.Map*Error
+// helpers (ADR-004 D3 — public APIs only).
+const handlersSrc = `{{.Banner}}
+
+package {{.Package}}
+
+{{.ImportBlock}}
+
+// {{.Type}}Data is the API representation of a {{.Type}}.
+type {{.Data}} struct {
+	ID uint ` + "`" + `json:"id" doc:"{{.Type}} identifier"` + "`" + `
+{{- range .Fields}}
+	{{.GoName}} {{.GoType}} ` + "`" + `json:"{{.JSONName}}" doc:"{{.GoName}}"` + "`" + `
+{{- end}}
+}
+
+type list{{.Type}}Input struct {
+	Page    int ` + "`" + `query:"page" doc:"1-based page"` + "`" + `
+	PerPage int ` + "`" + `query:"per_page" doc:"Page size"` + "`" + `
+}
+
+type list{{.Type}}Output struct {
+	Body contract.DataMeta[[]{{.Data}}, contract.PageMeta]
+}
+
+type get{{.Type}}Input struct {
+	ID string ` + "`" + `path:"id" doc:"{{.Type}} identifier"` + "`" + `
+}
+
+type get{{.Type}}Output struct {
+	Body contract.Data[{{.Data}}]
+}
+{{if or .Create .Update}}
+// {{.Type}}Write is the writable body shared by create and update.
+type {{.Type}}Write struct {
+{{- range .Fields}}
+	{{.GoName}} {{.GoType}} ` + "`" + `json:"{{.JSONName}}{{if .Optional}},omitempty{{end}}" doc:"{{.GoName}}"` + "`" + `
+{{- end}}
+}
+{{end}}
+{{- if .Create}}
+type create{{.Type}}Input struct {
+	Body {{.Type}}Write
+}
+
+type create{{.Type}}Output struct {
+	Body contract.Data[{{.Data}}]
+}
+{{- end}}
+{{- if .Update}}
+type update{{.Type}}Input struct {
+	ID   string ` + "`" + `path:"id" doc:"{{.Type}} identifier"` + "`" + `
+	Body {{.Type}}Write
+}
+
+type update{{.Type}}Output struct {
+	Body contract.Data[{{.Data}}]
+}
+{{- end}}
+{{- if .Delete}}
+type delete{{.Type}}Input struct {
+	ID string ` + "`" + `path:"id" doc:"{{.Type}} identifier"` + "`" + `
+}
+
+type delete{{.Type}}Output struct{}
+{{- end}}
+
+// Handler serves {{.Package}} HTTP operations over GORM.
+type Handler struct {
+	DB *gorm.DB
+}
+
+func (h *Handler) list(ctx context.Context, input *list{{.Type}}Input) (*list{{.Type}}Output, error) {
+	page, perPage := contract.ClampPage(input.Page, input.PerPage)
+	q := h.DB.WithContext(ctx).Model(&{{.Type}}{})
+
+	var total int64
+	if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+		return nil, contract.WithContext(ctx, contract.Internal("list {{.PluralID}}"))
+	}
+
+	var rows []{{.Type}}
+	if err := q.Order("id").Offset(contract.PageOffset(page, perPage)).Limit(perPage).Find(&rows).Error; err != nil {
+		return nil, contract.WithContext(ctx, contract.Internal("list {{.PluralID}}"))
+	}
+
+	items := make([]{{.Data}}, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, to{{.Data}}(row))
+	}
+	return &list{{.Type}}Output{
+		Body: contract.DataMeta[[]{{.Data}}, contract.PageMeta]{
+			Data: items,
+			Meta: &contract.PageMeta{Page: page, PerPage: perPage, Total: total},
+		},
+	}, nil
+}
+
+func (h *Handler) get(ctx context.Context, input *get{{.Type}}Input) (*get{{.Type}}Output, error) {
+	id, err := strconv.ParseUint(input.ID, 10, 64)
+	if err != nil {
+		return nil, contract.WithContext(ctx, contract.NotFound("{{.SingularID}} not found"))
+	}
+	var row {{.Type}}
+	if err := h.DB.WithContext(ctx).First(&row, uint(id)).Error; err != nil {
+		return nil, database.MapLoadError(ctx, err, "{{.SingularID}} not found", "load {{.SingularID}}")
+	}
+	return &get{{.Type}}Output{Body: contract.Data[{{.Data}}]{Data: to{{.Data}}(row)}}, nil
+}
+{{- if .Create}}
+
+func (h *Handler) create(ctx context.Context, input *create{{.Type}}Input) (*create{{.Type}}Output, error) {
+	row := {{.Type}}{
+{{- range .Fields}}
+		{{.GoName}}: input.Body.{{.GoName}},
+{{- end}}
+	}
+	if err := h.DB.WithContext(ctx).Create(&row).Error; err != nil {
+		return nil, database.MapPersistError(ctx, err, "{{.SingularID}} already exists", "create {{.SingularID}}")
+	}
+	return &create{{.Type}}Output{Body: contract.Data[{{.Data}}]{Data: to{{.Data}}(row)}}, nil
+}
+{{- end}}
+{{- if .Update}}
+
+func (h *Handler) update(ctx context.Context, input *update{{.Type}}Input) (*update{{.Type}}Output, error) {
+	id, err := strconv.ParseUint(input.ID, 10, 64)
+	if err != nil {
+		return nil, contract.WithContext(ctx, contract.NotFound("{{.SingularID}} not found"))
+	}
+	var row {{.Type}}
+	if err := h.DB.WithContext(ctx).First(&row, uint(id)).Error; err != nil {
+		return nil, database.MapLoadError(ctx, err, "{{.SingularID}} not found", "load {{.SingularID}}")
+	}
+{{- range .Fields}}
+	row.{{.GoName}} = input.Body.{{.GoName}}
+{{- end}}
+	if err := h.DB.WithContext(ctx).Save(&row).Error; err != nil {
+		return nil, database.MapPersistError(ctx, err, "{{.SingularID}} already exists", "update {{.SingularID}}")
+	}
+	return &update{{.Type}}Output{Body: contract.Data[{{.Data}}]{Data: to{{.Data}}(row)}}, nil
+}
+{{- end}}
+{{- if .Delete}}
+
+func (h *Handler) delete(ctx context.Context, input *delete{{.Type}}Input) (*delete{{.Type}}Output, error) {
+	id, err := strconv.ParseUint(input.ID, 10, 64)
+	if err != nil {
+		return nil, contract.WithContext(ctx, contract.NotFound("{{.SingularID}} not found"))
+	}
+	result := h.DB.WithContext(ctx).Delete(&{{.Type}}{}, uint(id))
+	if result.Error != nil {
+		return nil, database.MapDeleteError(ctx, result.Error, "{{.SingularID}} is referenced by other records", "delete {{.SingularID}}")
+	}
+	if result.RowsAffected == 0 {
+		return nil, contract.WithContext(ctx, contract.NotFound("{{.SingularID}} not found"))
+	}
+	return &delete{{.Type}}Output{}, nil
+}
+{{- end}}
+
+func to{{.Data}}(row {{.Type}}) {{.Data}} {
+	return {{.Data}}{
+		ID: row.ID,
+{{- range .Fields}}
+		{{.GoName}}: row.{{.GoName}},
+{{- end}}
+	}
+}
+`
+
+// routesSrc renders routes.go: the package's Register entry point. Gombit does
+// not discover feature packages by reflection, so main.go calls Register
+// explicitly (ADR-001 §34 static, deterministic registration). Only the
+// operations the resource enables are mounted.
+const routesSrc = `{{.Banner}}
+
+package {{.Package}}
+
+import (
+	"net/http"
+
+	"github.com/danielgtaylor/huma/v2"
+
+	"github.com/gombit-dev/gombit/framework"
+)
+
+// Register mounts {{.Package}} Huma routes onto the application. Gombit emits
+// the OpenAPI document and TypeScript client from these registrations.
+func Register(app *framework.App) {
+	h := &Handler{DB: app.DB()}
+	prefix := app.Config().API.Prefix
+	api := app.API()
+
+	huma.Register(api, huma.Operation{
+		OperationID: "list-{{.PluralID}}",
+		Method:      http.MethodGet,
+		Path:        prefix + "{{.CollectionPath}}",
+		Summary:     "List {{.PluralID}}",
+		Tags:        []string{"{{.Type}}"},
+	}, h.list)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "get-{{.SingularID}}",
+		Method:      http.MethodGet,
+		Path:        prefix + "{{.CollectionPath}}/{id}",
+		Summary:     "Get a {{.SingularID}}",
+		Tags:        []string{"{{.Type}}"},
+	}, h.get)
+{{- if .Create}}
+
+	huma.Register(api, huma.Operation{
+		OperationID:   "create-{{.SingularID}}",
+		Method:        http.MethodPost,
+		Path:          prefix + "{{.CollectionPath}}",
+		Summary:       "Create a {{.SingularID}}",
+		Tags:          []string{"{{.Type}}"},
+		DefaultStatus: http.StatusCreated,
+	}, h.create)
+{{- end}}
+{{- if .Update}}
+
+	huma.Register(api, huma.Operation{
+		OperationID: "update-{{.SingularID}}",
+		Method:      http.MethodPut,
+		Path:        prefix + "{{.CollectionPath}}/{id}",
+		Summary:     "Update a {{.SingularID}}",
+		Tags:        []string{"{{.Type}}"},
+	}, h.update)
+{{- end}}
+{{- if .Delete}}
+
+	huma.Register(api, huma.Operation{
+		OperationID:   "delete-{{.SingularID}}",
+		Method:        http.MethodDelete,
+		Path:          prefix + "{{.CollectionPath}}/{id}",
+		Summary:       "Delete a {{.SingularID}}",
+		Tags:          []string{"{{.Type}}"},
+		DefaultStatus: http.StatusNoContent,
+	}, h.delete)
+{{- end}}
+}
+`

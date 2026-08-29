@@ -16,12 +16,12 @@ Pre-alpha. `internal/spec` holds `ProjectSpec`, stable IDs, canonical JSON and
 the semantic validator; `internal/compiler/graph` holds the resolved domain
 graph; `internal/gombit` is the project-level toolchain boundary and can
 scaffold an application shell; `internal/compiler/gen` generates GORM models
-into `internal/forge_generated/<resource>/model.go`. No handlers, routes,
-admin, frontend or migrations yet.
+plus Huma handlers and route registration into
+`internal/forge_generated/<resource>/`. No admin, frontend or migrations yet.
 
-M0 (the go/no-go gate) is the active milestone: issues #2, #3 and #5 shipped in
-PR #86, #4 in PR #88, and #6 (model generation) on the `m0-generate-models`
-branch; #7–#12 remain. There is no control plane, no editor, no build
+M0 (the go/no-go gate) is the active milestone: issues #2–#6 shipped (PRs #86,
+#88, #89); #7 (handlers + routes) on the `m0-generate-handlers` branch; #8–#12
+remain. There is no control plane, no editor, no build
 pipeline, no deploy path. Don't describe those as existing.
 
 Milestones: `F0` (identity + extension ABI, ADR-001) and `M0`–`M7`. Every issue
