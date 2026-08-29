@@ -23,8 +23,9 @@ runtime dependency on Forge**.
 
 **Pre-alpha.** The **M0 compiler spike — the go/no-go gate — is cleared.** From
 a `ProjectSpec`, Forge generates a Gombit application that compiles, migrates on
-Postgres, boots, serves CRUD and `/admin/`, and carries no Forge dependency.
-This is proven end to end by `TestM0EndToEnd`.
+Postgres, boots, serves CRUD over its JSON API (`/api/v1/...`), catalogs
+resources through the admin API (`/api/v1/admin/meta`), and carries no Forge
+dependency. This is proven end to end by `TestM0EndToEnd`.
 
 What exists today is the **compiler**, as a Go library:
 
@@ -167,9 +168,12 @@ frontend/src/forge_generated/resources.tsx
 internal/forge_generated/register.go
 ```
 
-`invoice` has no `admin.go` and no form page because it is not admin-visible and
-enables only create. The output is **deterministic**: the same compiler version
-and spec produce byte-identical files.
+`invoice` has no `admin.go` because it is not admin-visible — that is the only
+file its toggles drop. It still gets all three pages: a create-only resource
+needs a form page to create, so the form is emitted whenever create *or* update
+is enabled; only a fully read-only resource drops it. The output is
+**deterministic**: the same compiler version and spec produce byte-identical
+files.
 
 To turn this into a running application — scaffold, migrate, build, and run —
 follow the [tutorial](docs/tutorial.md).

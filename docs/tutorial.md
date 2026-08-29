@@ -5,9 +5,13 @@ application model, compile it into a Gombit app, apply the migration on Postgres
 build it, boot it, and exercise the real HTTP contract — CRUD plus admin — on an
 app that carries **no dependency on Forge**.
 
-Every step here is exactly what the go/no-go gate,
-[`TestM0EndToEnd`](../internal/compiler/e2e_test.go), does automatically. If you
-just want to see it run, that test *is* the tutorial in executable form:
+This mirrors the go/no-go gate,
+[`TestM0EndToEnd`](../internal/compiler/e2e_test.go), which does the same flow
+automatically — scaffold, `Compile`, write the bytes, wire `RegisterAll`,
+`makemigrations`, `migrate` on Postgres, build, boot, and exercise CRUD + admin
+over HTTP. The steps below use the same module path (`example.com/app`) and the
+same commands the harness runs, so you can cross-check either way. If you just
+want to see it go, that test *is* the tutorial in executable form:
 
 ```bash
 go test ./internal/compiler -run TestM0EndToEnd -v
@@ -110,8 +114,9 @@ refuses to build over an invalid spec.
 func main() {
 	s := buildSpec()
 
-	// module is the *generated app's* Go module path.
-	const module = "example.com/acme"
+	// module is the *generated app's* Go module path — the same one we'll pass
+	// to `gombit new` in Step 3, so register.go's imports resolve.
+	const module = "example.com/app"
 
 	files, err := compiler.Compile(s, module)
 	if err != nil {
@@ -145,11 +150,13 @@ frontend/src/forge_generated/resources.tsx
 internal/forge_generated/register.go
 ```
 
-Note what the behavior toggles produced: Invoice has **no** `admin.go` (it's not
-admin-visible) and **no** form page (it enables only create). Everything lives
-under `internal/forge_generated/**` and `frontend/src/forge_generated/**` — the
-compiler-owned roots. Forge never mixes generated and hand-written code
-(ADR-001).
+Note what the behavior toggles produced: Invoice has **no** `admin.go` because
+it isn't admin-visible — that's the only file its toggles drop. It still gets all
+three frontend pages: a create-only resource needs a form page to create, so the
+form is emitted whenever create *or* update is on, and only a fully read-only
+resource drops it. Everything lives under `internal/forge_generated/**` and
+`frontend/src/forge_generated/**` — the compiler-owned roots. Forge never mixes
+generated and hand-written code (ADR-001).
 
 `register.go` is the composition root: it exposes `RegisterAll(app *framework.App) error`,
 which mounts every resource's routes and admin declarations through Gombit's
@@ -181,10 +188,26 @@ Use the same module path you passed to `Compile`. `--database postgres` and
 
 ## Step 4 — Drop in the generated tree and own `main`
 
-Write each file from Step 2 into the scaffolded project at its path, then replace
-the scaffold's `cmd/server/main.go` with a Forge-owned composition root that
-wires every resource through `RegisterAll` and — crucially — does **not** call
-`AutoMigrate`. Migrations are applied out of band (DESIGN.md §14):
+Step 2 only *printed* the paths. Now actually write the compiled bytes into the
+scaffolded project — each `gen.File` carries its repo-relative `Path` and its
+`Content`. This is the `writeAppFile` loop the e2e harness uses:
+
+```go
+// dir is the scaffolded project root, e.g. "./app".
+for _, f := range files {
+	full := filepath.Join(dir, filepath.FromSlash(f.Path))
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		log.Fatal(err)
+	}
+	if err := os.WriteFile(full, f.Content, 0o644); err != nil {
+		log.Fatal(err)
+	}
+}
+```
+
+Then replace the scaffold's `cmd/server/main.go` with a Forge-owned composition
+root that wires every resource through `RegisterAll` and — crucially — does
+**not** call `AutoMigrate`. Migrations are applied out of band (DESIGN.md §14):
 
 ```go
 package main
@@ -247,12 +270,20 @@ Gombit's public APIs and vanished the compiler from the dependency graph
 ## Step 5 — Generate and apply the migration
 
 Forge does not diff schemas; Gombit does (via Atlas). Forge derives the model set
-and hands it to `gombit db makemigrations` through the `internal/gombit` boundary
-(`MigrationModelsForSpec` → `CLI.MakeMigrations`). By hand:
+with `MigrationModelsForSpec` and hands it to `gombit db makemigrations` through
+the `internal/gombit` boundary (`CLI.MakeMigrations`). Each model is passed as a
+`--model <import-path>.<Type>` so it enters the Atlas registry; the driver flag
+is `--driver` (not `--database`). That's exactly the argv the boundary builds —
+by hand it is:
 
 ```bash
-gombit db makemigrations initial --database postgres
+gombit db makemigrations initial --driver postgres \
+  --model example.com/app/internal/forge_generated/customer.Customer \
+  --model example.com/app/internal/forge_generated/invoice.Invoice
 ```
+
+Without the `--model` flags, Customer and Invoice never enter the registry and
+the migration would be empty.
 
 Start a throwaway Postgres and point the app at it:
 
@@ -302,7 +333,8 @@ sends.)
 ## Step 7 — Exercise the real contract
 
 **Create a customer and read it back.** Responses use Gombit's `{data: ...}`
-envelope (decision **D10**):
+response envelope — the generated handlers consume it rather than inventing their
+own (ADR-004 D3):
 
 ```bash
 curl -s -b jar.txt -X POST http://127.0.0.1:8080/api/v1/customers \
@@ -344,8 +376,8 @@ docker stop forge-tutorial-db    # --rm removes it
 
 From a declarative `ProjectSpec`, Forge synthesized an ordinary Gombit
 application that compiles, migrates on Postgres, boots, serves CRUD with a real
-relationship and a decimal, and exposes an admin — all with **no runtime
-dependency on Forge**. Delete the compiler and this app keeps running. That is
+relationship and a decimal, and catalogs its resources through the admin API —
+all with **no runtime dependency on Forge**. Delete the compiler and this app keeps running. That is
 the M0 go/no-go gate, and it's the contract every later milestone builds on.
 
 ## Where to go next
