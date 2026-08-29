@@ -227,7 +227,7 @@ func TestScaffoldAgainstInstalledToolchain(t *testing.T) {
 		}
 	}
 
-	// ADR-002 D5: generated applications must depend on the renamed module.
+	// ADR-004 D5: generated applications must depend on the renamed module.
 	goMod, err := os.ReadFile(filepath.Join(dir, "go.mod"))
 	if err != nil {
 		t.Fatalf("read go.mod: %v", err)

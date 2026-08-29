@@ -1,13 +1,13 @@
 // Package gombit is Forge's boundary to the Gombit toolchain.
 //
 // Gombit owns framework primitives; Forge owns application synthesis
-// (ADR-002). This package covers the framework-primitive side: scaffolding an
+// (ADR-004). This package covers the framework-primitive side: scaffolding an
 // application, and later migrations, OpenAPI and client generation.
 //
 // Every operation here is project-level. Forge never invokes Gombit once per
 // resource, page or field (ADR-001 §68–69), and never drives
 // `gombit make resource`, which is a convenience for hand-written
-// applications (ADR-002 D4).
+// applications (ADR-004 D4).
 package gombit
 
 import (
@@ -20,7 +20,7 @@ import (
 //
 // v0.1.2 renamed the module from github.com/LAA-Software-Engineering/gombit
 // to github.com/gombit-dev/gombit. Generated applications import the latter,
-// so anything older produces a tree that cannot resolve (ADR-002 D5).
+// so anything older produces a tree that cannot resolve (ADR-004 D5).
 var MinimumVersion = Version{Major: 0, Minor: 1, Patch: 2}
 
 // ModulePath is the Go module generated applications depend on.

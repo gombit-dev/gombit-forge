@@ -32,9 +32,21 @@ const (
 
 // AuthModes lists every mode this package may emit, in a stable order.
 //
-// Validation and tests both read this list, so adding a mode here without
-// confirming the toolchain accepts it is caught rather than shipped.
+// ScaffoldRequest.Validate and the parity test both read this list, so it is
+// the single source of truth for scaffoldable auth modes: adding one here
+// without confirming the toolchain accepts it fails the test rather than
+// shipping a request `gombit new` will reject.
 func AuthModes() []Auth { return []Auth{AuthCookie, AuthJWT} }
+
+// scaffoldable reports whether mode is one this package may emit.
+func scaffoldable(mode Auth) bool {
+	for _, candidate := range AuthModes() {
+		if candidate == mode {
+			return true
+		}
+	}
+	return false
+}
 
 // UI is a frontend preset Gombit can scaffold.
 type UI string
@@ -48,7 +60,7 @@ const (
 //
 // It is deliberately project-level: one request produces one application
 // shell, and resources are not part of it. Forge synthesizes resource code
-// itself under internal/forge_generated/** (ADR-002 D1).
+// itself under internal/forge_generated/** (ADR-004 D1).
 type ScaffoldRequest struct {
 	// Dir is the directory the application is written into.
 	Dir string
@@ -86,12 +98,10 @@ func (r ScaffoldRequest) Validate() error {
 	default:
 		return fmt.Errorf("gombit: unsupported database %q", r.Database)
 	}
-	switch r.Auth {
-	case AuthCookie, AuthJWT:
-	default:
+	if !scaffoldable(r.Auth) {
 		return fmt.Errorf(
-			"gombit: unsupported auth mode %q (the toolchain scaffolds only %q and %q)",
-			r.Auth, AuthJWT, AuthCookie)
+			"gombit: unsupported auth mode %q (the toolchain scaffolds only %v)",
+			r.Auth, AuthModes())
 	}
 	switch r.UI {
 	case UIMinimal, UIMUI:

@@ -21,7 +21,7 @@ type Runner func(ctx context.Context, dir string, name string, args ...string) (
 // CLI drives Gombit through its command-line interface.
 //
 // The CLI is the transport, not the contract: Forge issues one coarse
-// invocation per project-level operation (ADR-002 D4).
+// invocation per project-level operation (ADR-004 D4).
 type CLI struct {
 	// Binary is the gombit executable; DefaultBinary when empty.
 	Binary string
