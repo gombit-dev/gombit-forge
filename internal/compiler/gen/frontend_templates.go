@@ -1,12 +1,37 @@
 package gen
 
-import "text/template"
+import (
+	"encoding/json"
+	"text/template"
+)
+
+// frontendFuncs escapes untrusted spec strings (labels, enum values) for the
+// JS/JSX context. json.Marshal of a string yields a valid JavaScript string
+// literal — quoted, with ", \, control characters and <, >, & all escaped — so
+// a label like `Items {n}` or `Day "start"` becomes an inert string rather than
+// a JSX expression or a broken literal. Identifiers derived from validated
+// code/storage names (Type, RouteBase, …) are already safe and are not escaped.
+var frontendFuncs = template.FuncMap{
+	"js": func(s string) string {
+		out, err := json.Marshal(s)
+		if err != nil {
+			// A Go string always marshals; fall back to an empty literal rather
+			// than emitting something unquoted.
+			return `""`
+		}
+		return string(out)
+	},
+}
+
+func mustTemplate(name, src string) *template.Template {
+	return template.Must(template.New(name).Funcs(frontendFuncs).Parse(src))
+}
 
 var (
-	listPageTemplate   = template.Must(template.New("listpage").Parse(listPageSrc))
-	detailPageTemplate = template.Must(template.New("detailpage").Parse(detailPageSrc))
-	formPageTemplate   = template.Must(template.New("formpage").Parse(formPageSrc))
-	registryTemplate   = template.Must(template.New("registry").Parse(registrySrc))
+	listPageTemplate   = mustTemplate("listpage", listPageSrc)
+	detailPageTemplate = mustTemplate("detailpage", detailPageSrc)
+	formPageTemplate   = mustTemplate("formpage", formPageSrc)
+	registryTemplate   = mustTemplate("registry", registrySrc)
 )
 
 // listPageSrc renders a resource list: a table populated from the collection
@@ -27,7 +52,7 @@ type {{.Type}}Row = NonNullable<ListResponse["data"]>[number];
 export function {{.Type}}ListPage() {
   const client = useApiClient();
   const [rows, setRows] = useState<{{.Type}}Row[]>([]);
-  const [status, setStatus] = useState("Loading {{.Title}}…");
+  const [status, setStatus] = useState({{js (printf "Loading %s…" .Title)}});
 
   useEffect(() => {
     let cancelled = false;
@@ -39,7 +64,7 @@ export function {{.Type}}ListPage() {
         }
         const data = Array.isArray(listed.data) ? listed.data : [];
         setRows(data);
-        setStatus(data.length === 0 ? "No {{.Title}} yet." : "");
+        setStatus(data.length === 0 ? {{js (printf "No %s yet." .Title)}} : "");
       } catch (err: unknown) {
         if (cancelled) {
           return;
@@ -54,7 +79,7 @@ export function {{.Type}}ListPage() {
 
   return (
     <section>
-      <h1>{{.Title}}</h1>
+      <h1>{ {{js .Title}} }</h1>
 {{- if .Create}}
       <p>
         <Link to="/{{.RouteBase}}/new">New {{.Type}}</Link>
@@ -65,7 +90,7 @@ export function {{.Type}}ListPage() {
           <tr>
             <th>id</th>
 {{- range .Fields}}
-            <th>{{.Label}}</th>
+            <th>{ {{js .Label}} }</th>
 {{- end}}
           </tr>
         </thead>
@@ -135,7 +160,7 @@ export function {{.Type}}DetailPage() {
     <section>
       <h1>{{.Type}}</h1>
       <p>
-        <Link to="/{{.RouteBase}}">Back to {{.Title}}</Link>
+        <Link to="/{{.RouteBase}}">Back to { {{js .Title}} }</Link>
 {{- if .Update}}
         {" · "}
         <Link to={` + "`/{{.RouteBase}}/${id}/edit`" + `}>Edit</Link>
@@ -146,7 +171,7 @@ export function {{.Type}}DetailPage() {
           <dt>id</dt>
           <dd>{String(record.id)}</dd>
 {{- range .Fields}}
-          <dt>{{.Label}}</dt>
+          <dt>{ {{js .Label}} }</dt>
           <dd>{String(record["{{.JSONName}}"] ?? "")}</dd>
 {{- end}}
         </dl>
@@ -160,7 +185,9 @@ export function {{.Type}}DetailPage() {
 // formPageSrc renders the write form. Its shape follows the resource's toggles:
 // with both create and update it loads on an id and chooses POST or PUT; with
 // only one, it is fixed to that operation, and the unused imports, load effect
-// and branch are omitted so the module stays lint-clean.
+// and branch are omitted so the module stays lint-clean. Empty date/datetime
+// fields are dropped from the request body, since the API's time.Time rejects
+// "" (only RFC 3339 or a missing/null key unmarshal).
 const formPageSrc = `{{.Banner}}
 import { useState{{if .Update}}, useEffect{{end}} } from "react";
 import { useForm } from "react-hook-form";
@@ -240,21 +267,29 @@ export function {{.Type}}FormPage() {
 
   async function onSubmit(values: {{.Type}}FormValues) {
     setStatus("");
+    const body = { ...values };
+{{- range .Fields}}
+{{- if .IsDate}}
+    if (body.{{.JSONName}} === "") {
+      delete (body as Partial<{{$.Type}}FormValues>).{{.JSONName}};
+    }
+{{- end}}
+{{- end}}
     try {
 {{- if and .Create .Update}}
       if (editing) {
         await unwrap(
-          await client.PUT("{{.CollectionPath}}/{id}", { params: { path: { id } }, body: values }),
+          await client.PUT("{{.CollectionPath}}/{id}", { params: { path: { id } }, body }),
         );
       } else {
-        await unwrap(await client.POST("{{.CollectionPath}}", { body: values }));
+        await unwrap(await client.POST("{{.CollectionPath}}", { body }));
       }
 {{- else if .Update}}
       await unwrap(
-        await client.PUT("{{.CollectionPath}}/{id}", { params: { path: { id } }, body: values }),
+        await client.PUT("{{.CollectionPath}}/{id}", { params: { path: { id } }, body }),
       );
 {{- else}}
-      await unwrap(await client.POST("{{.CollectionPath}}", { body: values }));
+      await unwrap(await client.POST("{{.CollectionPath}}", { body }));
 {{- end}}
       navigate("/{{.RouteBase}}");
     } catch (err: unknown) {
@@ -268,25 +303,25 @@ export function {{.Type}}FormPage() {
     <section>
       <h1>{editing ? "Edit {{.Type}}" : "New {{.Type}}"}</h1>
       <p>
-        <Link to="/{{.RouteBase}}">Back to {{.Title}}</Link>
+        <Link to="/{{.RouteBase}}">Back to { {{js .Title}} }</Link>
       </p>
       <form onSubmit={handleSubmit(onSubmit)}>
 {{- range .Fields}}
         <label>
-          {{.Label}}
+          { {{js .Label}} }
 {{- if eq .Input "checkbox"}}
           <input type="checkbox" {...register("{{.JSONName}}")} />
 {{- else if eq .Input "number"}}
-          <input type="number" {...register("{{.JSONName}}", { setValueAs: (value) => (value === "" ? 0 : Number(value)){{if .Required}}, required: "{{.Label}} is required"{{end}} })} />
+          <input type="number" {...register("{{.JSONName}}", { setValueAs: (value) => (value === "" ? 0 : Number(value)){{if .Required}}, required: {{js (printf "%s is required" .Label)}}{{end}} })} />
 {{- else if eq .Input "select"}}
-          <select {...register("{{.JSONName}}"{{if .Required}}, { required: "{{.Label}} is required" }{{end}})}>
+          <select {...register("{{.JSONName}}"{{if .Required}}, { required: {{js (printf "%s is required" .Label)}} }{{end}})}>
             <option value="">—</option>
 {{- range .Options}}
-            <option value="{{.Value}}">{{if .Label}}{{.Label}}{{else}}{{.Value}}{{end}}</option>
+            <option value={{js .Value}}>{ {{if .Label}}{{js .Label}}{{else}}{{js .Value}}{{end}} }</option>
 {{- end}}
           </select>
 {{- else}}
-          <input type="text"{{if .Placeholder}} placeholder="{{.Placeholder}}"{{end}} {...register("{{.JSONName}}"{{if .Required}}, { required: "{{.Label}} is required" }{{end}})} />
+          <input type="text"{{if .Placeholder}} placeholder="{{.Placeholder}}"{{end}} {...register("{{.JSONName}}"{{if .Required}}, { required: {{js (printf "%s is required" .Label)}} }{{end}})} />
 {{- end}}
         </label>
         {errors.{{.JSONName}}?.message ? <p>{errors.{{.JSONName}}.message}</p> : null}
@@ -301,9 +336,9 @@ export function {{.Type}}FormPage() {
 }
 `
 
-// registrySrc renders resources.tsx: the routes, navigation and branding the
-// application shell consumes. Routes are RouteObjects so the scaffold router
-// can spread them in.
+// registrySrc renders resources.tsx: the routes and metadata the application
+// shell consumes. Routes are RouteObjects so the scaffold router can spread
+// them in; only the operations a resource enables are registered.
 const registrySrc = `{{.Banner}}
 import type { RouteObject } from "react-router";
 
@@ -322,7 +357,7 @@ export type GeneratedResource = {
 
 export const generatedResources: GeneratedResource[] = [
 {{- range .Resources}}
-  { slug: "{{.Package}}", title: "{{.Title}}", listPath: "/{{.RouteBase}}" },
+  { slug: "{{.Package}}", title: {{js .Title}}, listPath: "/{{.RouteBase}}" },
 {{- end}}
 ];
 

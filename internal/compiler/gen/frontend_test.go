@@ -77,7 +77,7 @@ func TestFrontendConsumesGeneratedClient(t *testing.T) {
 		`from "react-hook-form"`,
 		`from "../../api/formErrors"`,
 		`applyContractErrors(setError, err)`,
-		`await client.POST("/api/v1/customers", { body: values })`,
+		`await client.POST("/api/v1/customers", { body })`,
 		`await client.PUT("/api/v1/customers/{id}"`,
 	}
 	for _, w := range formWants {
@@ -109,7 +109,7 @@ func TestFrontendFieldInputs(t *testing.T) {
 		{"string is text input", customer, `<input type="text" {...register("contact_email"`},
 		{"boolean is checkbox", customer, `<input type="checkbox" {...register("active")`},
 		{"enum is a select", customer, `<select {...register("tier")`},
-		{"enum option free", customer, `<option value="free">free</option>`},
+		{"enum option free", customer, `<option value="free">{ "free" }</option>`},
 		{"datetime is text (RFC3339 round-trips)", customer, `<input type="text" placeholder="YYYY-MM-DDTHH:MM:SSZ" {...register("joined_at")`},
 		{"belongs_to FK is number", invoice, `<input type="number" {...register("customer_id"`},
 		{"decimal is text", invoice, `<input type="text" {...register("total"`},
@@ -334,6 +334,66 @@ func TestFrontendDateFieldsRoundTrip(t *testing.T) {
 	// The values are typed as strings (the wire format), not Date objects.
 	if !strings.Contains(form, "day: string;") || !strings.Contains(form, "at: string;") {
 		t.Error("date/datetime form values must be strings")
+	}
+	// An empty date must be dropped from the request body: time.Time rejects
+	// "" but accepts a missing key.
+	if !strings.Contains(form, `if (body.day === "") {`) || !strings.Contains(form, `delete (body as Partial<EventFormValues>).day;`) {
+		t.Errorf("empty date must be omitted from the request body:\n%s", form)
+	}
+	if !strings.Contains(form, `if (body.at === "") {`) {
+		t.Error("empty datetime must be omitted from the request body")
+	}
+}
+
+// TestFrontendEscapesLabels guards against a spec label breaking the module:
+// unconstrained human text must become an inert JS string, not JSX or an
+// unterminated literal.
+func TestFrontendEscapesLabels(t *testing.T) {
+	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
+	s := &spec.ProjectSpec{
+		SpecVersion: spec.SpecVersion,
+		Project:     spec.Project{ID: id(spec.KindProject), Name: "Acme", Slug: "acme"},
+		Database:    spec.Database{Driver: spec.DriverPostgres},
+		Auth:        spec.Auth{Mode: spec.AuthCookie},
+		Resources: []*spec.Resource{
+			{
+				ID: id(spec.KindResource), Label: `Item "X"`, LabelPlural: "Items {n}",
+				CodeName: "Item", StorageName: "items",
+				Behavior: spec.ResourceBehavior{CreateEnabled: true},
+				Fields: []*spec.Field{
+					{ID: id(spec.KindField), Label: `Day "d"`, Type: spec.TypeString, CodeName: "Day", StorageName: "day", Required: true},
+					{ID: id(spec.KindField), Label: "Tier", Type: spec.TypeEnum, CodeName: "Tier", StorageName: "tier",
+						EnumValues: []spec.EnumValue{{Value: `a"b`}}},
+				},
+			},
+		},
+	}
+	if d := spec.Validate(s); d != nil {
+		t.Fatalf("fixture invalid: %s", d.Error())
+	}
+	g, err := graph.Build(s)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	files := frontendFiles(t, g)
+	list := files["frontend/src/forge_generated/item/ItemListPage.tsx"]
+	form := files["frontend/src/forge_generated/item/ItemFormPage.tsx"]
+
+	// The plural "Items {n}" must be an inert string, not a JSX expression.
+	if !strings.Contains(list, `<h1>{ "Items {n}" }</h1>`) {
+		t.Errorf("plural label must be escaped as a JS string:\n%s", list)
+	}
+	// A quote in a field label must be escaped inside the required message.
+	if !strings.Contains(form, `required: "Day \"d\" is required"`) {
+		t.Errorf("field label with a quote must be escaped in the required message:\n%s", form)
+	}
+	// A quote in an enum value must be escaped in both the attribute and text.
+	if !strings.Contains(form, `<option value="a\"b">{ "a\"b" }</option>`) {
+		t.Errorf("enum value with a quote must be escaped:\n%s", form)
+	}
+	// The raw unescaped forms must not appear.
+	if strings.Contains(list, `<h1>Items {n}</h1>`) {
+		t.Error("raw unescaped plural leaked into JSX")
 	}
 }
 

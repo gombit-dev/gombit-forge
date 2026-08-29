@@ -124,6 +124,10 @@ type frontendField struct {
 	Placeholder string // format hint for text inputs (dates), or ""
 	Options     []spec.EnumValue
 	Required    bool
+	// IsDate marks date/datetime fields: an empty one must be omitted from the
+	// request body, since the API's time.Time rejects "" (only RFC 3339 or a
+	// missing/null key unmarshal).
+	IsDate bool
 }
 
 // rfc3339Placeholder is the format hint shown in a date/datetime text input.
@@ -179,8 +183,9 @@ func frontendFieldFor(field *graph.Field) frontendField {
 		// produces "2026-08-29" / "2026-08-29T06:00", which the handler's
 		// json.Unmarshal rejects, and cannot display the "…Z" wire value. So
 		// the control is a text input holding the RFC 3339 string verbatim,
-		// which round-trips; Placeholder documents the format.
-		f.Input, f.Placeholder = "text", rfc3339Placeholder(field.Spec.Type)
+		// which round-trips; Placeholder documents the format. IsDate drives
+		// omitting an empty value from the request body on submit.
+		f.Input, f.Placeholder, f.IsDate = "text", rfc3339Placeholder(field.Spec.Type), true
 	case spec.TypeEnum:
 		f.Input, f.Options = "select", field.Spec.EnumValues
 	case spec.TypeString, spec.TypeText:
