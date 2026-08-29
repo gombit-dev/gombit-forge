@@ -17,11 +17,14 @@ the semantic validator; `internal/compiler/graph` holds the resolved domain
 graph; `internal/gombit` is the project-level toolchain boundary and can
 scaffold an application shell; `internal/compiler/gen` generates GORM models,
 Huma handlers, route registration and admin registration into
-`internal/forge_generated/<resource>/`. No frontend or migrations yet.
+`internal/forge_generated/<resource>/`; `internal/compiler` is the pipeline —
+`Compile(spec)` builds the graph and runs every backend stage into one
+deterministic file tree. No frontend or migrations yet.
 
-M0 (the go/no-go gate) is the active milestone: issues #2–#7 shipped (PRs #86,
-#88, #89, #90); #8 (admin registry) on the `m0-generate-admin` branch; #9–#12
-remain. There is no control plane, no editor, no build
+M0 (the go/no-go gate) is the active milestone: issues #2–#8 shipped (PRs #86,
+#88, #89, #90, #91); #10 (compile pipeline) on the `m0-compile-pipeline`
+branch; #9, #11 and #12 remain. There is no control plane, no editor, no
+build
 pipeline, no deploy path. Don't describe those as existing.
 
 Milestones: `F0` (identity + extension ABI, ADR-001) and `M0`–`M7`. Every issue
