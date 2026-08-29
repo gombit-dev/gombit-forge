@@ -197,6 +197,21 @@ func TestBelongsToFieldCollisionRejected(t *testing.T) {
 	}
 }
 
+// TestFieldCollidingWithGeneratedMethodRejected covers a field whose code
+// symbol matches a method this stage emits onto the model. Go forbids a field
+// and method sharing a name, so this must be rejected before emit rather than
+// surfacing as a go build error.
+func TestFieldCollidingWithGeneratedMethodRejected(t *testing.T) {
+	g := oneResourceGraph(t, "Report", "reports", field("TableName", "table_name", spec.TypeString))
+	_, err := Models(g)
+	if err == nil {
+		t.Fatal("expected a field named TableName to be rejected (collides with the generated method)")
+	}
+	if !strings.Contains(err.Error(), "generated method") {
+		t.Errorf("rejection should name the method collision, got: %v", err)
+	}
+}
+
 // TestGeneratedFieldShadowingGormModelRejected covers a belongs_to whose
 // derived name would shadow a gorm.Model field. (Scalar code_names like "ID"
 // are already rejected by the spec validator; the FK "+ID" derivation is not.)

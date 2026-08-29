@@ -66,6 +66,14 @@ var gormModelFields = map[string]struct{}{
 	"Model": {}, "ID": {}, "CreatedAt": {}, "UpdatedAt": {}, "DeletedAt": {},
 }
 
+// generatedMethods are methods this stage emits onto the model type. A field
+// may not share a name with one: Go rejects "field and method with the same
+// name". Currently only TableName (see modelFile). Later stages that add
+// methods to the model must extend this set.
+var generatedMethods = map[string]struct{}{
+	"TableName": {},
+}
+
 // reservedPackageNames are names the go tool treats specially, so a resource
 // may not fold to one. Our fold is both the directory basename and the package
 // clause, so this is the union of both go/build rules — derived from go/build,
