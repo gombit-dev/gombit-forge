@@ -111,6 +111,17 @@ var reservedPackageNames = map[string]string{
 	"testdata":      "a directory the go tool ignores, so the generated model would be invisible to the build",
 }
 
+// reservedImportPackages are the base names of the third-party packages the
+// generated code imports as bare identifiers (framework, contract, database,
+// admin, gorm, huma, decimal). A resource folding to one of these would put two
+// imports with the same local name in one file — the generated package plus the
+// import it uses — which does not compile ("X redeclared in this block"). This
+// closes the whole class rather than one example.
+var reservedImportPackages = map[string]struct{}{
+	"framework": {}, "contract": {}, "database": {}, "admin": {},
+	"gorm": {}, "huma": {}, "decimal": {},
+}
+
 // formatGo runs gofmt over generated Go source.
 //
 // Formatting is part of the determinism contract, and it doubles as a

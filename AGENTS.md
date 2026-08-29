@@ -24,9 +24,11 @@ file tree. `compiler.MigrationModels` derives the model set for migration
 generation, which the `internal/gombit` boundary drives through
 `gombit db makemigrations` (Forge does not diff schemas itself).
 
-M0 (the go/no-go gate) is the active milestone: issues #2–#8, #10 and #11
-shipped (PRs #86–#93); #9 (frontend) on the `m0-frontend` branch; #12 remains.
-There is no control plane, no editor, no
+M0 (the go/no-go gate) is **cleared**: issues #2–#12 shipped (PRs #86–#94 plus
+the e2e harness). The end-to-end test in `internal/compiler` scaffolds a real
+Gombit app, compiles the spec, applies the migration on Postgres, builds, boots
+and serves customers/invoices/admin with no Forge runtime dependency. M1
+(control plane) is next. There is no control plane, no editor, no
 build
 pipeline, no deploy path. Don't describe those as existing.
 
@@ -156,10 +158,12 @@ contract covers **compiler-owned output** (`internal/forge_generated/**`,
 `frontend/src/forge_generated/**`), which is generated from the spec and is
 reproducible.
 
-Before #12 can assert byte-identical builds, decide explicitly what the
-determinism claim covers: either exclude environment files from the comparison
-or have a later stage own secret material. Don't quietly narrow the claim to
-whatever happens to pass.
+M0's determinism criterion is exactly that compiler-owned-output reproducibility,
+which the unit tests pin; the M0 gate does **not** claim a byte-identical *whole
+app* build, and `gombit new`'s random secret is why. A future claim of
+byte-identical full builds must decide explicitly what it covers — exclude
+environment files from the comparison, or have a later stage own secret material
+— and not quietly narrow the claim to whatever happens to pass.
 
 ## Conventions
 

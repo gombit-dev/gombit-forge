@@ -91,6 +91,11 @@ func validatePackages(g *graph.Graph) error {
 				"gen: resource %s code_name %q folds to package %q, %s; rename the resource code symbol",
 				resource.Spec.ID, resource.CodeName(), name, reason)
 		}
+		if _, reserved := reservedImportPackages[name]; reserved {
+			return fmt.Errorf(
+				"gen: resource %s code_name %q folds to package %q, which the generated code imports; it would redeclare the import; rename the resource code symbol",
+				resource.Spec.ID, resource.CodeName(), name)
+		}
 
 		if other, clash := byPackage[name]; clash {
 			return fmt.Errorf(

@@ -14,6 +14,8 @@ import (
 // gofmtBytes is the independent gofmt check the formatter test uses, so it
 // verifies the generator's output rather than reusing the generator's own
 // formatter.
+const testModule = "example.com/app"
+
 func gofmtBytes(src []byte) ([]byte, error) { return format.Source(src) }
 
 // sampleSpec is a two-resource project exercising relationships, every CRUD
@@ -64,7 +66,7 @@ func sampleSpec(t *testing.T) *spec.ProjectSpec {
 func TestCompileIsDeterministic(t *testing.T) {
 	s := sampleSpec(t)
 
-	first, err := Compile(s)
+	first, err := Compile(s, testModule)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -73,7 +75,7 @@ func TestCompileIsDeterministic(t *testing.T) {
 	}
 
 	for i := 0; i < 30; i++ {
-		next, err := Compile(s)
+		next, err := Compile(s, testModule)
 		if err != nil {
 			t.Fatalf("compile %d: %v", i, err)
 		}
@@ -94,7 +96,7 @@ func TestCompileIsDeterministic(t *testing.T) {
 // TestCompileTreeShape checks the full set of files produced for the sample:
 // model/handlers/routes for every resource, admin only for the visible one.
 func TestCompileTreeShape(t *testing.T) {
-	files, err := Compile(sampleSpec(t))
+	files, err := Compile(sampleSpec(t), testModule)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -116,6 +118,8 @@ func TestCompileTreeShape(t *testing.T) {
 		"frontend/src/forge_generated/customer/CustomerListPage.tsx",
 		"frontend/src/forge_generated/customer/CustomerFormPage.tsx",
 		"frontend/src/forge_generated/resources.tsx",
+		// Composition root (wiring stage).
+		"internal/forge_generated/register.go",
 	}
 	for _, path := range mustHave {
 		if !got[path] {
@@ -131,7 +135,7 @@ func TestCompileTreeShape(t *testing.T) {
 // TestCompilePathsAreUnique guards the invariant Generate enforces: no two
 // files share a path, so nothing is dropped when the tree is written out.
 func TestCompilePathsAreUnique(t *testing.T) {
-	files, err := Compile(sampleSpec(t))
+	files, err := Compile(sampleSpec(t), testModule)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -147,7 +151,7 @@ func TestCompilePathsAreUnique(t *testing.T) {
 // TestCompileOrderIsStageThenAuthored checks stages emit in order (models,
 // handlers, admin) and resources within a stage in authored order.
 func TestCompileOrderIsStageThenAuthored(t *testing.T) {
-	files, err := Compile(sampleSpec(t))
+	files, err := Compile(sampleSpec(t), testModule)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -188,7 +192,7 @@ func TestCompileOrderIsStageThenAuthored(t *testing.T) {
 // TestCompileEveryFileIsFormatted confirms the formatter stage ran: every Go
 // file is already gofmt-clean, so writing the tree needs no post-processing.
 func TestCompileEveryFileIsFormatted(t *testing.T) {
-	files, err := Compile(sampleSpec(t))
+	files, err := Compile(sampleSpec(t), testModule)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -211,7 +215,7 @@ func TestCompileEveryFileIsFormatted(t *testing.T) {
 func TestCompileRefusesInvalidSpec(t *testing.T) {
 	s := sampleSpec(t)
 	s.Project.Slug = "Not A Slug"
-	if _, err := Compile(s); err == nil {
+	if _, err := Compile(s, testModule); err == nil {
 		t.Fatal("compile must refuse an invalid spec")
 	}
 }
@@ -219,9 +223,9 @@ func TestCompileRefusesInvalidSpec(t *testing.T) {
 // TestGenerateRejectsDuplicatePaths gives the path-collision guard teeth by
 // running a stage twice, so two stages emit the same paths.
 func TestGenerateRejectsDuplicatePaths(t *testing.T) {
-	saved := stages
-	defer func() { stages = saved }()
-	stages = []stage{
+	saved := fileStages
+	defer func() { fileStages = saved }()
+	fileStages = []stage{
 		{"models", gen.Models},
 		{"models-again", gen.Models},
 	}
@@ -230,16 +234,16 @@ func TestGenerateRejectsDuplicatePaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
-	if _, err := Generate(g); err == nil {
+	if _, err := Generate(g, testModule); err == nil {
 		t.Fatal("Generate must reject two stages producing the same path")
 	}
 }
 
 func TestCompileNilAndEmpty(t *testing.T) {
-	if _, err := Compile(nil); err == nil {
+	if _, err := Compile(nil, testModule); err == nil {
 		t.Error("compile(nil) must error")
 	}
-	if _, err := Generate(nil); err == nil {
+	if _, err := Generate(nil, testModule); err == nil {
 		t.Error("generate(nil) must error")
 	}
 }

@@ -25,36 +25,52 @@ type stage struct {
 	run  func(*graph.Graph) ([]gen.File, error)
 }
 
-// stages are the file generators, in emission order. Migration generation is
-// not here: it emits SQL through Gombit/Atlas, driven from the gombit boundary
-// with the model set from MigrationModels, rather than producing files.
-var stages = []stage{
+// fileStages are the per-graph file generators, in emission order. The wiring
+// stage is added per compile because it also needs the module path. Migration
+// generation is not here: it emits SQL through Gombit/Atlas, driven from the
+// gombit boundary with the model set from MigrationModels, rather than files.
+var fileStages = []stage{
 	{"models", gen.Models},
 	{"handlers", gen.Handlers},
 	{"admin", gen.Admin},
 	{"frontend", gen.Frontend},
 }
 
-// Compile turns a ProjectSpec into the complete compiler-owned file tree.
+// Compile turns a ProjectSpec into the complete compiler-owned file tree,
+// including the composition root register.go.
 //
 // It builds the domain graph (which validates the spec and refuses to build
 // over an invalid one, so the generators never see a malformed model) and runs
-// every backend stage. The returned files are ordered stage-by-stage, and
-// within a stage in the graph's authored resource order.
-func Compile(s *spec.ProjectSpec) ([]gen.File, error) {
+// every stage. module is the generated application's Go module path, needed so
+// register.go can import the resource packages; the returned files are ordered
+// stage-by-stage, and within a stage in the graph's authored resource order.
+func Compile(s *spec.ProjectSpec, module string) ([]gen.File, error) {
 	g, err := graph.Build(s)
 	if err != nil {
 		return nil, fmt.Errorf("compiler: %w", err)
 	}
-	return Generate(g)
+	return Generate(g, module)
 }
 
-// Generate runs the backend stages over an already-built graph. Compile is the
-// usual entry point; Generate exists for callers that already hold a graph.
-func Generate(g *graph.Graph) ([]gen.File, error) {
+// Generate runs every stage over an already-built graph. Compile is the usual
+// entry point; Generate exists for callers that already hold a graph.
+//
+// The wiring stage (register.go) goes through the same path-collision guard as
+// every other stage, so the returned tree is the whole compiler-owned output —
+// a caller cannot ship an unwired app by using a different entry point.
+func Generate(g *graph.Graph, module string) ([]gen.File, error) {
 	if g == nil {
 		return nil, fmt.Errorf("compiler: nil graph")
 	}
+	if module == "" {
+		return nil, fmt.Errorf("compiler: empty module path")
+	}
+
+	stages := append([]stage(nil), fileStages...)
+	stages = append(stages, stage{
+		name: "wiring",
+		run:  func(g *graph.Graph) ([]gen.File, error) { return gen.Wiring(g, module) },
+	})
 
 	var files []gen.File
 	seen := make(map[string]string) // path -> producing stage
