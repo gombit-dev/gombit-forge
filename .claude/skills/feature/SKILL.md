@@ -42,12 +42,12 @@ Hold these invariants; they are the product, not preferences:
   one-time stub.
 - **Separate states.** Spec validity, ABI compatibility and build health are
   three questions. Don't collapse them.
-- **Use Gombit.** Migrations, OpenAPI, TS client, auth, admin, GORM and
-  resource scaffolding semantics belong to Gombit (DESIGN.md P4). If Forge
-  needs framework behavior, prefer adding it to Gombit first. Before writing
-  any code generator, read the Gombit integration boundary in `AGENTS.md`:
-  whether Forge may own model/handler/route generation at all is an open
-  tension, not a settled question, and it is issue #4's job to resolve it.
+- **Use Gombit.** Gombit owns framework primitives; Forge owns application
+  synthesis (ADR-004). Forge generates resource-specific code under
+  `internal/forge_generated/**`, and that generated output must consume
+  Gombit's public APIs — never a Forge-specific router, ORM, auth, admin or
+  response envelope, never vendored or `internal` Gombit packages. If Forge
+  needs framework behavior, add it to Gombit first.
 
 Make invalid states unrepresentable where you can; reject them early where you
 can't. A comment claiming a contract the code doesn't implement is a defect —

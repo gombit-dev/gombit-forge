@@ -109,10 +109,19 @@ Forge must not independently implement:
 * authentication
 * admin
 * GORM database abstractions
-* resource scaffolding semantics
+* resource scaffolding semantics for hand-written Gombit applications (`gombit make resource`)
 * embedded builds
 
 If Forge needs behavior that also belongs in normal Gombit applications, prefer adding the capability to Gombit first.
+
+> **Amended by ADR-004.** The scaffolding bullet above originally read
+> "resource scaffolding semantics" without qualification. Compiling a
+> `ProjectSpec` into resource-specific application code under
+> `internal/forge_generated/**` is Forge's own responsibility — Gombit owns
+> framework primitives, Forge owns application synthesis — and remains subject
+> to ADR-004 D3: generated output consumes Gombit's public APIs and never
+> duplicates Gombit infrastructure. Every other bullet in this list is
+> unchanged and still binding, as is the preference stated immediately above.
 
 ---
 

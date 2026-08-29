@@ -70,13 +70,17 @@ const (
 
 // AuthMode is the authentication mode of the generated application.
 //
-// Managed applications default to cookie/session auth (DESIGN.md D5).
+// Managed applications default to cookie/session auth (DESIGN.md D5); JWT
+// stays available for exported, API-oriented applications (§20).
+//
+// There is deliberately no "none": Gombit scaffolds jwt or cookie only, so an
+// unauthenticated mode could be written into a spec but never built. Adding it
+// would mean teaching Gombit the mode first (DESIGN.md P4).
 type AuthMode string
 
 const (
 	AuthCookie AuthMode = "cookie"
 	AuthJWT    AuthMode = "jwt"
-	AuthNone   AuthMode = "none"
 )
 
 // PageType enumerates the structured MVP page types (DESIGN.md §4.4).

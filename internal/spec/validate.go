@@ -181,10 +181,14 @@ func (v *validator) validateProject() {
 	}
 
 	switch v.spec.Auth.Mode {
-	case AuthCookie, AuthJWT, AuthNone:
+	case AuthCookie, AuthJWT:
 	default:
+		// "none" lands here on purpose: Gombit scaffolds jwt or cookie only,
+		// so rejecting it at spec validation is the earliest honest failure
+		// rather than letting it reach the toolchain and be refused there.
 		v.report(CodeInvalidAuth, "$.auth.mode", project.ID,
-			"unsupported auth mode %q", v.spec.Auth.Mode)
+			"unsupported auth mode %q (want %q or %q)",
+			v.spec.Auth.Mode, AuthCookie, AuthJWT)
 	}
 }
 
