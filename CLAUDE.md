@@ -21,8 +21,10 @@
 
 ## Cursor skills
 
-Cursor counterparts live under `.cursor/skills/` with the same three names and
-shared `references/`. Keep the two sets aligned with each other and with
-AGENTS.md; the adversarial review contract in
-`references/adversarial-review.md` is duplicated verbatim between them and must
-not drift.
+Cursor counterparts live under `.cursor/skills/` with the same three names.
+The two trees are **duplicated, not shared** — Cursor does not reliably follow
+symlinks — so `make skills-check` (run in CI) diffs them and fails on drift.
+Everything must match byte for byte except each `review/SKILL.md`'s one-line
+pointer to its counterpart.
+
+Edit both sides, then run `make skills-check` before committing.

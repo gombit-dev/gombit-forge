@@ -48,6 +48,8 @@ From DESIGN.md §33:
 - **D5 cookie/session auth** for managed apps.
 - **D6 structured pages, not a freeform canvas.** Tables, forms, details,
   dashboard. No absolute positioning.
+- **D7 Forge itself uses Gombit.** The control plane is a Gombit application;
+  dogfooding is locked, not a preference.
 - **D8 builds are asynchronous.** No HTTP request performs a build.
 - **D9 build execution is isolated.** Generated source is untrusted.
 - **D10 export is mandatory MVP functionality**, not a later feature.
@@ -78,21 +80,56 @@ From ADR-001:
 Forge drives Gombit through coarse, project-level operations (ADR-001 §68–69),
 never a per-entity subprocess protocol.
 
-**`gombit make resource` is not the integration point.** As of gombit v0.1.0 it
-supports 4 of Forge's 9 MVP field types, rejects relationships outright
-(`references=` is refused), writes `internal/<name>/` rather than
-`internal/forge_generated/`, and wires AutoMigrate — which DESIGN.md §14
-forbids in deployed apps. Forge generates models, handlers, routes and the
-admin registry itself.
+Gombit owns what DESIGN.md P4 forbids Forge from reimplementing: migration
+diffing, OpenAPI generation, TypeScript client generation, authentication,
+admin, GORM abstractions, **resource scaffolding semantics**, and embedded
+builds. Never reimplement those.
 
-Gombit still owns everything DESIGN.md P4 lists: app scaffolding (`gombit new`),
-Atlas migrations, OpenAPI, the TypeScript client, auth, admin, GORM and
-`gombit build --embed`. Never reimplement those.
+### The `make resource` CLI is not the integration point
 
-Unresolved: the installed binary generates apps requiring
-`github.com/LAA-Software-Engineering/gombit v0.1.0` while the checkout's module
-path is `github.com/gombit-dev/gombit`. ADR-001 §68 requires a pinned version;
-settle this before writing generator imports (issue #4).
+Verified against gombit v0.1.5: `gombit make resource` supports 6 scalar types
+(`string, text, int, int64, bool, uint`) against Forge's 9 MVP field types,
+refuses the `references=` modifier so it cannot express a relationship at all,
+writes `internal/<name>/` rather than `internal/forge_generated/`, and wires
+AutoMigrate — which DESIGN.md §14 forbids in deployed apps.
+
+Note the installed binary on a given machine may be older. Check
+`gombit version` before trusting a limitation you observed from the CLI.
+
+### Open tension — do not treat as settled
+
+P4's forbidden list includes *resource scaffolding semantics*, and that is
+exactly what a model/handler/route generator is. So "Forge generates them
+itself" is **not** P4-compliant on its face, and no ADR currently amends P4.
+
+DESIGN.md §9 describes the compliant route: the compiler "may reuse Gombit's
+generator packages directly rather than spawning CLI commands" — reuse the
+semantics as a library, don't reimplement them, and don't drive the CLI
+per-entity. The obstacle is that `resourcegen` today cannot express Forge's
+model (the type and relationship gaps above), so reusing it unchanged is
+impossible for the MVP field set.
+
+That leaves two legitimate paths, and issue #4 has to pick one:
+
+1. **Extend Gombit's generator packages** so they can express Forge's model.
+   P4 states this preference directly: "If Forge needs behavior that also
+   belongs in normal Gombit applications, prefer adding the capability to
+   Gombit first."
+2. **Write an ADR amending P4**, scoping exactly which scaffolding semantics
+   Forge owns and why, with `internal/forge_generated/**` ownership.
+
+Do not resolve this by paraphrasing P4 into something it does not say.
+
+### Version pinning
+
+Pin **≥ v0.1.2**: the module path was renamed there from
+`github.com/LAA-Software-Engineering/gombit` to `github.com/gombit-dev/gombit`,
+and current scaffolding emits the latter. Earlier notes in this repo described
+the two paths as an unresolved question — that was an artifact of a stale
+v0.1.0 binary, not an open decision.
+
+The remaining ADR-001 §68 work for issue #4 is the versioned generation
+*protocol*, not the module path.
 
 ## Conventions
 
@@ -118,14 +155,19 @@ settle this before writing generator imports (issue #4).
 ## Commands
 
 ```bash
-make all        # fmt-check + vet + test — the CI gate
-make test       # go test ./... -count=1
-make race       # go test ./... -race
-make cover      # coverage summary
-make golden     # rewrite the canonical-JSON golden file (deliberate only)
+make all           # fmt-check + vet + test + skills-check — the CI gate
+make test          # go test ./... -count=1
+make race          # go test ./... -race
+make cover         # coverage summary
+make golden        # rewrite the canonical-JSON golden file (deliberate only)
+make skills-check  # .claude and .cursor skill trees must match byte for byte
 ```
 
-CI runs `fmt-check`, `vet`, `test` and `race` on push and PR.
+CI runs `fmt-check`, `vet`, `skills-check`, `test` and `race` on push and PR.
+
+The `.cursor/skills/` tree duplicates `.claude/skills/` because Cursor does not
+reliably follow symlinks. Edit both sides; `skills-check` fails the build if
+they drift.
 
 ## Working agreement
 

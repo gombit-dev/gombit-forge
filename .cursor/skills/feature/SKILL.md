@@ -42,8 +42,12 @@ Hold these invariants; they are the product, not preferences:
   one-time stub.
 - **Separate states.** Spec validity, ABI compatibility and build health are
   three questions. Don't collapse them.
-- **Use Gombit.** Migrations, OpenAPI, TS client, auth, admin and GORM belong
-  to Gombit. If Forge needs framework behavior, prefer adding it to Gombit.
+- **Use Gombit.** Migrations, OpenAPI, TS client, auth, admin, GORM and
+  resource scaffolding semantics belong to Gombit (DESIGN.md P4). If Forge
+  needs framework behavior, prefer adding it to Gombit first. Before writing
+  any code generator, read the Gombit integration boundary in `AGENTS.md`:
+  whether Forge may own model/handler/route generation at all is an open
+  tension, not a settled question, and it is issue #4's job to resolve it.
 
 Make invalid states unrepresentable where you can; reject them early where you
 can't. A comment claiming a contract the code doesn't implement is a defect —
