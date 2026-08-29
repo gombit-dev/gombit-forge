@@ -32,3 +32,16 @@ jobs:
 
       - name: Test with race detector
         run: make race
+
+      # The control plane is a separate nested module (it imports Gombit), so
+      # root ./... never covers it. Build, vet and test it explicitly. Its boot
+      # test drives a throwaway Postgres under Docker (available on the runner)
+      # and skips if Docker is absent.
+      - name: Control plane — vet
+        run: make cp-vet
+
+      - name: Control plane — build
+        run: make cp-build
+
+      - name: Control plane — test
+        run: make cp-test

@@ -1,15 +1,34 @@
 # skills-check uses process substitution, which /bin/sh does not provide.
 SHELL := /bin/bash
 
-.PHONY: all test lint fmt fmt-check vet tidy clean skills-check
+# The control plane is a separate nested module (it imports Gombit; the compiler
+# must not). Root `./...` never descends into it, so its build/vet/test are
+# explicit targets, folded into `all` and mirrored in CI.
+CONTROLPLANE := controlplane
 
-all: fmt-check vet test skills-check
+.PHONY: all test lint fmt fmt-check vet tidy clean skills-check \
+	cp-build cp-vet cp-test cp-race
+
+all: fmt-check vet cp-vet test cp-test skills-check
 
 test:
 	go test ./... -count=1
 
 race:
 	go test ./... -race -count=1
+
+# Control-plane module (github.com/gombit-dev/gombit-forge/controlplane).
+cp-build:
+	cd $(CONTROLPLANE) && go build ./...
+
+cp-vet:
+	cd $(CONTROLPLANE) && go vet ./...
+
+cp-test:
+	cd $(CONTROLPLANE) && go test ./... -count=1
+
+cp-race:
+	cd $(CONTROLPLANE) && go test ./... -race -count=1
 
 cover:
 	go test ./... -coverprofile=coverage.out
