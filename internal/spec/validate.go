@@ -358,7 +358,12 @@ func (v *validator) validateFieldDefault(field *Field, path string) {
 
 	switch field.Type {
 	case TypeString, TypeText:
-		// Any string is a legal default.
+		// Any string is a legal value, but the default must also be
+		// representable in generated output.
+		if ok, bad := IsSafeDefaultValue(value); !ok {
+			v.report(CodeInvalidDefault, defaultPath, field.ID,
+				"default %q contains %q, which cannot be represented in generated output", value, bad)
+		}
 
 	case TypeInteger:
 		// Base 10 is explicit so hex and Go underscore literals are refused.
@@ -396,9 +401,15 @@ func (v *validator) validateFieldDefault(field *Field, path string) {
 		}
 
 	case TypeEnum:
-		// A default outside the declared values can never be selected.
+		// A default outside the declared values can never be selected. When it
+		// is a declared value it is also emitted as a literal, so it must be
+		// representable too.
 		for _, enumValue := range field.EnumValues {
 			if enumValue.Value == value {
+				if ok, bad := IsSafeDefaultValue(value); !ok {
+					v.report(CodeInvalidDefault, defaultPath, field.ID,
+						"default %q contains %q, which cannot be represented in generated output", value, bad)
+				}
 				return
 			}
 		}

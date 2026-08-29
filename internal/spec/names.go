@@ -1,6 +1,9 @@
 package spec
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // goKeywords are reserved words that can never be used as a generated symbol.
 var goKeywords = map[string]struct{}{
@@ -137,6 +140,28 @@ func isDecimalLiteral(value string) bool {
 		}
 	}
 	return digits > 0
+}
+
+// IsSafeDefaultValue reports whether a string-valued default can be carried
+// into generated output, and if not, the first offending rune.
+//
+// The compiler emits defaults inside a GORM struct tag. Empirically, neither
+// Go's struct-tag unquoting nor GORM's ';'-separated tag grammar can
+// round-trip a value containing ';', '"', a backtick, a backslash, or a
+// control character: the tag either fails to unquote or is truncated at the
+// separator. A default that cannot be emitted is not a usable default, so the
+// validator rejects it here — keeping "spec-valid" in step with "emittable"
+// (the generator relies on this rather than re-deriving it).
+func IsSafeDefaultValue(value string) (ok bool, bad string) {
+	for _, r := range value {
+		switch {
+		case r == ';', r == '"', r == '`', r == '\\':
+			return false, string(r)
+		case r < 0x20: // control characters, including newline and tab
+			return false, fmt.Sprintf("\\x%02x", r)
+		}
+	}
+	return true, ""
 }
 
 // IsSlug reports whether value is a legal lower kebab-case URL slug.
