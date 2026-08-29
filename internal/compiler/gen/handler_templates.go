@@ -249,3 +249,35 @@ func Register(app *framework.App) {
 {{- end}}
 }
 `
+
+// adminSrc renders admin.go: registration of the model with Gombit's admin via
+// admin.Register (ADR-004 D3). Fields are left to Gombit's derivation from the
+// GORM model; slug, labels and the action toggles are declared here.
+const adminSrc = `{{.Banner}}
+
+package {{.Package}}
+
+import (
+	"github.com/gombit-dev/gombit/admin"
+	"github.com/gombit-dev/gombit/framework"
+)
+
+// RegisterAdmin registers {{.Type}} with the Gombit admin. Called explicitly
+// from main; Gombit does not discover feature packages by reflection.
+func RegisterAdmin(app *framework.App) error {
+	return admin.Register(app, {{.Type}}{}, admin.Options{
+		Slug:     {{.Slug}},
+		Singular: {{.Singular}},
+{{- if .Plural}}
+		Plural:   {{.Plural}},
+{{- end}}
+		Actions: admin.Actions{
+			List:   true,
+			Detail: true,
+			Create: {{.Create}},
+			Update: {{.Update}},
+			Delete: {{.Delete}},
+		},
+	})
+}
+`

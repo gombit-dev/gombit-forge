@@ -82,8 +82,9 @@ var generatedMethods = map[string]struct{}{
 // rejected here rather than by go build (ADR-001 §12). Later stages that add
 // package-level symbols extend this set.
 var reservedPackageSymbols = map[string]struct{}{
-	"Handler":  {},
-	"Register": {},
+	"Handler":       {},
+	"Register":      {},
+	"RegisterAdmin": {},
 }
 
 // reservedPackageNames are names the go tool treats specially, so a resource

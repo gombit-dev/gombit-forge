@@ -39,12 +39,13 @@ func TestGeneratedHandlersCompileInGombitApp(t *testing.T) {
 		t.Skipf("installed toolchain unsupported: %v", err)
 	}
 
-	// A resource with every toggle on, so create/update/delete are generated.
+	// A resource with every toggle on and admin visible, so every stage emits.
 	g, _ := buildGraph(t)
 	for _, resource := range g.Resources {
 		resource.Spec.Behavior.CreateEnabled = true
 		resource.Spec.Behavior.UpdateEnabled = true
 		resource.Spec.Behavior.DeleteEnabled = true
+		resource.Spec.Behavior.AdminVisible = true
 	}
 
 	models, err := Models(g)
@@ -54,6 +55,10 @@ func TestGeneratedHandlersCompileInGombitApp(t *testing.T) {
 	handlers, err := Handlers(g)
 	if err != nil {
 		t.Fatalf("Handlers: %v", err)
+	}
+	adminFiles, err := Admin(g)
+	if err != nil {
+		t.Fatalf("Admin: %v", err)
 	}
 
 	dir := filepath.Join(t.TempDir(), "sample")
@@ -66,7 +71,8 @@ func TestGeneratedHandlersCompileInGombitApp(t *testing.T) {
 		t.Fatalf("scaffold: %v", err)
 	}
 
-	for _, file := range append(models, handlers...) {
+	generated := append(append(models, handlers...), adminFiles...)
+	for _, file := range generated {
 		writeFile(t, filepath.Join(dir, filepath.FromSlash(file.Path)), string(file.Content))
 	}
 
