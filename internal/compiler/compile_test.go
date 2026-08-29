@@ -1,0 +1,241 @@
+package compiler
+
+import (
+	"bytes"
+	"go/format"
+	"strings"
+	"testing"
+
+	"github.com/gombit-dev/gombit-forge/internal/compiler/gen"
+	"github.com/gombit-dev/gombit-forge/internal/compiler/graph"
+	"github.com/gombit-dev/gombit-forge/internal/spec"
+)
+
+// gofmtBytes is the independent gofmt check the formatter test uses, so it
+// verifies the generator's output rather than reusing the generator's own
+// formatter.
+func gofmtBytes(src []byte) ([]byte, error) { return format.Source(src) }
+
+// sampleSpec is a two-resource project exercising relationships, every CRUD
+// toggle and admin visibility — the M0 target shape.
+func sampleSpec(t *testing.T) *spec.ProjectSpec {
+	t.Helper()
+
+	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
+	customer := id(spec.KindResource)
+	invoice := id(spec.KindResource)
+
+	s := &spec.ProjectSpec{
+		SpecVersion: spec.SpecVersion,
+		Project:     spec.Project{ID: id(spec.KindProject), Name: "Acme", Slug: "acme"},
+		Database:    spec.Database{Driver: spec.DriverPostgres},
+		Auth:        spec.Auth{Mode: spec.AuthCookie},
+		Resources: []*spec.Resource{
+			{
+				ID: customer, Label: "Customer", LabelPlural: "Customers",
+				CodeName: "Customer", StorageName: "customers",
+				Behavior: spec.ResourceBehavior{
+					CreateEnabled: true, UpdateEnabled: true, DeleteEnabled: true, AdminVisible: true,
+				},
+				Fields: []*spec.Field{
+					{ID: id(spec.KindField), Label: "Email", Type: spec.TypeString, CodeName: "Email", StorageName: "email", Required: true, Unique: true},
+					{ID: id(spec.KindField), Label: "Active", Type: spec.TypeBoolean, CodeName: "Active", StorageName: "active"},
+				},
+			},
+			{
+				ID: invoice, Label: "Invoice", LabelPlural: "Invoices",
+				CodeName: "Invoice", StorageName: "invoices",
+				Behavior: spec.ResourceBehavior{CreateEnabled: true, AdminVisible: false},
+				Fields: []*spec.Field{
+					{ID: id(spec.KindField), Label: "Customer", Type: spec.TypeBelongsTo, CodeName: "Customer", StorageName: "customer_id", Required: true, Target: customer},
+					{ID: id(spec.KindField), Label: "Total", Type: spec.TypeDecimal, CodeName: "Total", StorageName: "total", Required: true},
+				},
+			},
+		},
+	}
+	if d := spec.Validate(s); d != nil {
+		t.Fatalf("sample spec invalid: %s", d.Error())
+	}
+	return s
+}
+
+// TestCompileIsDeterministic is the issue #10 acceptance criterion: the same
+// spec compiles to a byte-identical tree, every time.
+func TestCompileIsDeterministic(t *testing.T) {
+	s := sampleSpec(t)
+
+	first, err := Compile(s)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	if len(first) == 0 {
+		t.Fatal("compile produced no files")
+	}
+
+	for i := 0; i < 30; i++ {
+		next, err := Compile(s)
+		if err != nil {
+			t.Fatalf("compile %d: %v", i, err)
+		}
+		if len(next) != len(first) {
+			t.Fatalf("run %d: file count changed %d -> %d", i, len(first), len(next))
+		}
+		for j := range first {
+			if first[j].Path != next[j].Path {
+				t.Fatalf("run %d: file %d path changed %q -> %q", i, j, first[j].Path, next[j].Path)
+			}
+			if !bytes.Equal(first[j].Content, next[j].Content) {
+				t.Fatalf("run %d: content of %s changed", i, first[j].Path)
+			}
+		}
+	}
+}
+
+// TestCompileTreeShape checks the full set of files produced for the sample:
+// model/handlers/routes for every resource, admin only for the visible one.
+func TestCompileTreeShape(t *testing.T) {
+	files, err := Compile(sampleSpec(t))
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	got := map[string]bool{}
+	for _, f := range files {
+		got[f.Path] = true
+	}
+
+	mustHave := []string{
+		"internal/forge_generated/customer/model.go",
+		"internal/forge_generated/customer/handlers.go",
+		"internal/forge_generated/customer/routes.go",
+		"internal/forge_generated/customer/admin.go",
+		"internal/forge_generated/invoice/model.go",
+		"internal/forge_generated/invoice/handlers.go",
+		"internal/forge_generated/invoice/routes.go",
+	}
+	for _, path := range mustHave {
+		if !got[path] {
+			t.Errorf("missing generated file %s", path)
+		}
+	}
+	// Invoice is not admin-visible, so it has no admin.go.
+	if got["internal/forge_generated/invoice/admin.go"] {
+		t.Error("invoice is not admin-visible and must not have admin.go")
+	}
+}
+
+// TestCompilePathsAreUnique guards the invariant Generate enforces: no two
+// files share a path, so nothing is dropped when the tree is written out.
+func TestCompilePathsAreUnique(t *testing.T) {
+	files, err := Compile(sampleSpec(t))
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, f := range files {
+		if seen[f.Path] {
+			t.Errorf("duplicate path %s", f.Path)
+		}
+		seen[f.Path] = true
+	}
+}
+
+// TestCompileOrderIsStageThenAuthored checks stages emit in order (models,
+// handlers, admin) and resources within a stage in authored order.
+func TestCompileOrderIsStageThenAuthored(t *testing.T) {
+	files, err := Compile(sampleSpec(t))
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	// The first files must be the model stage (both resources) before any
+	// handler file appears.
+	firstHandler, firstModel := -1, -1
+	for i, f := range files {
+		if strings.HasSuffix(f.Path, "/model.go") && firstModel == -1 {
+			firstModel = i
+		}
+		if strings.HasSuffix(f.Path, "/handlers.go") && firstHandler == -1 {
+			firstHandler = i
+		}
+	}
+	if firstModel == -1 || firstHandler == -1 {
+		t.Fatal("expected both model and handler files")
+	}
+	if firstModel > firstHandler {
+		t.Error("model stage must be emitted before the handler stage")
+	}
+
+	// Within the model stage, customer precedes invoice (authored order).
+	custModel, invModel := -1, -1
+	for i, f := range files {
+		switch f.Path {
+		case "internal/forge_generated/customer/model.go":
+			custModel = i
+		case "internal/forge_generated/invoice/model.go":
+			invModel = i
+		}
+	}
+	if custModel > invModel {
+		t.Error("resources must be emitted in authored order (customer before invoice)")
+	}
+}
+
+// TestCompileEveryFileIsFormatted confirms the formatter stage ran: every Go
+// file is already gofmt-clean, so writing the tree needs no post-processing.
+func TestCompileEveryFileIsFormatted(t *testing.T) {
+	files, err := Compile(sampleSpec(t))
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	for _, f := range files {
+		if !strings.HasSuffix(f.Path, ".go") {
+			continue
+		}
+		formatted, err := gofmtBytes(f.Content)
+		if err != nil {
+			t.Fatalf("gofmt %s: %v", f.Path, err)
+		}
+		if !bytes.Equal(formatted, f.Content) {
+			t.Errorf("%s is not gofmt-clean; the formatter stage did not run", f.Path)
+		}
+	}
+}
+
+// TestCompileRefusesInvalidSpec confirms the pipeline rejects a spec the graph
+// will not build.
+func TestCompileRefusesInvalidSpec(t *testing.T) {
+	s := sampleSpec(t)
+	s.Project.Slug = "Not A Slug"
+	if _, err := Compile(s); err == nil {
+		t.Fatal("compile must refuse an invalid spec")
+	}
+}
+
+// TestGenerateRejectsDuplicatePaths gives the path-collision guard teeth by
+// running a stage twice, so two stages emit the same paths.
+func TestGenerateRejectsDuplicatePaths(t *testing.T) {
+	saved := backendStages
+	defer func() { backendStages = saved }()
+	backendStages = []stage{
+		{"models", gen.Models},
+		{"models-again", gen.Models},
+	}
+
+	g, err := graph.Build(sampleSpec(t))
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if _, err := Generate(g); err == nil {
+		t.Fatal("Generate must reject two stages producing the same path")
+	}
+}
+
+func TestCompileNilAndEmpty(t *testing.T) {
+	if _, err := Compile(nil); err == nil {
+		t.Error("compile(nil) must error")
+	}
+	if _, err := Generate(nil); err == nil {
+		t.Error("generate(nil) must error")
+	}
+}
