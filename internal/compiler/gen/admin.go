@@ -3,6 +3,7 @@ package gen
 import (
 	"fmt"
 	"path"
+	"strconv"
 	"strings"
 
 	"github.com/gombit-dev/gombit-forge/internal/compiler/graph"
@@ -52,24 +53,29 @@ func Admin(g *graph.Graph) ([]File, error) {
 }
 
 // adminView augments resourceView with the admin registration fields.
+//
+// Slug, Singular and Plural are Go string literals (already quoted), not raw
+// values: labels are unconstrained human text (ADR-001 D2) and would otherwise
+// break the generated composite literal or be reinterpreted through Go's
+// escape rules — the same representation rule the model defaults follow.
 type adminView struct {
 	resourceView
-	Slug     string
-	Singular string
-	Plural   string // empty means "let Gombit derive it"
+	Slug     string // quoted, e.g. `"customers"`
+	Singular string // quoted, e.g. `"Customer"`
+	Plural   string // quoted, or "" meaning "let Gombit derive it"
 }
 
 func newAdminView(resource *graph.Resource) adminView {
-	plural := resource.Spec.LabelPlural
-	if strings.TrimSpace(plural) == resource.Spec.Label {
-		// Identical to the singular label carries no information; let Gombit
-		// derive the plural instead of emitting a redundant value.
-		plural = ""
+	// A specified plural is a label even when it equals the singular, so it is
+	// emitted; only an empty plural is left for Gombit to derive (ADR-001 D2).
+	plural := ""
+	if strings.TrimSpace(resource.Spec.LabelPlural) != "" {
+		plural = strconv.Quote(resource.Spec.LabelPlural)
 	}
 	return adminView{
 		resourceView: newResourceView(resource),
-		Slug:         resource.Spec.StorageName,
-		Singular:     resource.Spec.Label,
+		Slug:         strconv.Quote(resource.Spec.StorageName),
+		Singular:     strconv.Quote(resource.Spec.Label),
 		Plural:       plural,
 	}
 }

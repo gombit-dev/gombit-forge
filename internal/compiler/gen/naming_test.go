@@ -217,9 +217,10 @@ func TestFieldCollidingWithGeneratedMethodRejected(t *testing.T) {
 // handler type or the Register func). Both stages that emit the package must
 // reject it, since the model type would redeclare the symbol.
 func TestResourceNameCollidingWithPackageSymbolRejected(t *testing.T) {
-	for _, name := range []string{"Handler", "Register"} {
+	for _, name := range []string{"Handler", "Register", "RegisterAdmin"} {
 		t.Run(name, func(t *testing.T) {
 			g := oneResourceGraph(t, name, "things", field("Name", "name", spec.TypeString))
+			g.Resources[0].Spec.Behavior.AdminVisible = true
 
 			if _, err := Models(g); err == nil {
 				t.Errorf("Models must reject a resource named %q", name)
@@ -227,7 +228,20 @@ func TestResourceNameCollidingWithPackageSymbolRejected(t *testing.T) {
 			if _, err := Handlers(g); err == nil {
 				t.Errorf("Handlers must reject a resource named %q", name)
 			}
+			if _, err := Admin(g); err == nil {
+				t.Errorf("Admin must reject a resource named %q", name)
+			}
 		})
+	}
+}
+
+// TestReservedPackageSymbolsAreComplete pins the set against the symbols the
+// generator actually emits, so removing one from the map fails here.
+func TestReservedPackageSymbolsAreComplete(t *testing.T) {
+	for _, want := range []string{"Handler", "Register", "RegisterAdmin"} {
+		if _, ok := reservedPackageSymbols[want]; !ok {
+			t.Errorf("%q must be a reserved package symbol; the generator emits it", want)
+		}
 	}
 }
 

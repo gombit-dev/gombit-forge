@@ -2,6 +2,7 @@ package gen
 
 import (
 	"bytes"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -119,17 +120,23 @@ func assertContains(t *testing.T, haystack, needle string, want bool) {
 	}
 }
 
-// TestAdminPluralOmittedWhenRedundant checks the plural label is emitted only
-// when it adds information over the singular.
-func TestAdminPluralOmittedWhenRedundant(t *testing.T) {
+// TestAdminPluralEmittedWhenSpecified encodes ADR-001 D2: a specified plural is
+// a label and is emitted, even when it equals the singular; only an empty
+// plural is left for Gombit to derive.
+func TestAdminPluralEmittedWhenSpecified(t *testing.T) {
 	g, ids := buildGraph(t)
+
+	// distinct plural
 	cust := g.Resource(ids["customer"]).Spec
 	cust.Behavior.AdminVisible = true
+	cust.Label = "Customer"
 	cust.LabelPlural = "Customers"
 
+	// plural equal to singular — still a specified label, must be emitted
 	inv := g.Resource(ids["invoice"]).Spec
 	inv.Behavior.AdminVisible = true
-	inv.LabelPlural = "" // no plural -> let Gombit derive
+	inv.Label = "Client"
+	inv.LabelPlural = "Client"
 
 	files, _ := Admin(g)
 
@@ -138,8 +145,49 @@ func TestAdminPluralOmittedWhenRedundant(t *testing.T) {
 		t.Error("a distinct plural label should be emitted")
 	}
 	invSrc, _ := adminSource(t, files, "invoice")
+	if !strings.Contains(invSrc, `Plural:   "Client"`) {
+		t.Errorf("a plural equal to the singular is still a label and must be emitted:\n%s", invSrc)
+	}
+}
+
+// TestAdminPluralOmittedWhenEmpty checks an empty plural is left to Gombit.
+func TestAdminPluralOmittedWhenEmpty(t *testing.T) {
+	g, ids := buildGraph(t)
+	inv := g.Resource(ids["invoice"]).Spec
+	inv.Behavior.AdminVisible = true
+	inv.LabelPlural = ""
+
+	files, _ := Admin(g)
+	invSrc, _ := adminSource(t, files, "invoice")
 	if strings.Contains(invSrc, "Plural:") {
 		t.Error("an empty plural should be omitted so Gombit derives it")
+	}
+}
+
+// TestAdminQuotesLabels covers labels containing Go-hostile characters: they
+// must be emitted as valid, faithful Go string literals rather than breaking
+// generation or being reinterpreted.
+func TestAdminQuotesLabels(t *testing.T) {
+	labels := []string{`Widget "Pro"`, "Line\nBreak", `Back\slash`, "Tab\tHere"}
+	for _, label := range labels {
+		t.Run(label, func(t *testing.T) {
+			g, ids := buildGraph(t)
+			cust := g.Resource(ids["customer"]).Spec
+			cust.Behavior.AdminVisible = true
+			cust.Label = label
+			cust.LabelPlural = label
+
+			files, err := Admin(g)
+			if err != nil {
+				t.Fatalf("Admin must not fail on a label with special characters: %v", err)
+			}
+			src, _ := adminSource(t, files, "customer")
+			// The faithful Go literal of the label must appear verbatim.
+			want := "Singular: " + strconv.Quote(label)
+			if !strings.Contains(src, want) {
+				t.Errorf("label not faithfully quoted; want %q in:\n%s", want, src)
+			}
+		})
 	}
 }
 
@@ -205,9 +253,11 @@ func TestAdminNilGraph(t *testing.T) {
 }
 
 func TestAdminRejectsReservedResourceName(t *testing.T) {
-	g := oneResourceGraph(t, "Register", "things", field("Name", "name", spec.TypeString))
+	// RegisterAdmin is the symbol this stage adds; a resource named that must
+	// be rejected, or the model type would redeclare the func.
+	g := oneResourceGraph(t, "RegisterAdmin", "things", field("Name", "name", spec.TypeString))
 	g.Resources[0].Spec.Behavior.AdminVisible = true
 	if _, err := Admin(g); err == nil {
-		t.Fatal("Admin must reject a resource whose code symbol is a reserved package symbol")
+		t.Fatal("Admin must reject a resource named RegisterAdmin")
 	}
 }

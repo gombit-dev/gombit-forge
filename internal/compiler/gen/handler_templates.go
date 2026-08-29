@@ -266,10 +266,10 @@ import (
 // from main; Gombit does not discover feature packages by reflection.
 func RegisterAdmin(app *framework.App) error {
 	return admin.Register(app, {{.Type}}{}, admin.Options{
-		Slug:     "{{.Slug}}",
-		Singular: "{{.Singular}}",
+		Slug:     {{.Slug}},
+		Singular: {{.Singular}},
 {{- if .Plural}}
-		Plural:   "{{.Plural}}",
+		Plural:   {{.Plural}},
 {{- end}}
 		Actions: admin.Actions{
 			List:   true,
