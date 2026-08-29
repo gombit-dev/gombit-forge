@@ -45,12 +45,24 @@ func PackageDir(resource *graph.Resource) string {
 
 // PackageName is the Go package name for a resource's generated code.
 //
-// It is the lowercased frozen code symbol, which is a valid lowercase Go
-// package identifier because the code symbol is already a valid exported
-// identifier (ADR-001 §6). Deriving it from the frozen symbol rather than the
-// label keeps the package name stable across relabels.
+// It is the lowercased frozen code symbol. Deriving it from the frozen symbol
+// rather than the label keeps the package name stable across relabels. The
+// lowercased symbol can still collide with a Go keyword (code symbol "Type" →
+// package "type"), which validateNames rejects before any source is emitted.
 func PackageName(resource *graph.Resource) string {
 	return strings.ToLower(resource.CodeName())
+}
+
+// gormModelFields are the exported fields gorm.Model promotes onto every
+// model. A generated field may not collide with one of them, or the struct
+// would declare a duplicate field (ADR-001 §12: reserved names are checked
+// here, not discovered by go build).
+//
+// This is a focused, M0-scoped reservation. F0 centralizes symbol reservation
+// in the ledger; until then the generator refuses to emit a colliding symbol
+// rather than relying on the Go compiler to catch it.
+var gormModelFields = map[string]struct{}{
+	"Model": {}, "ID": {}, "CreatedAt": {}, "UpdatedAt": {}, "DeletedAt": {},
 }
 
 // formatGo runs gofmt over generated Go source.

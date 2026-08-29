@@ -84,7 +84,10 @@ func resolveType(field *graph.Field) (goMapping, error) {
 // `gorm:"..."`. The column is always emitted explicitly because storage_name
 // is an independent naming domain and need not match what GORM would derive
 // from the Go field name (ADR-001 D2).
-func gormTag(field *graph.Field, mapping goMapping) string {
+//
+// It returns an error when a default cannot be represented safely; see
+// gormDefault.
+func gormTag(field *graph.Field, mapping goMapping) (string, error) {
 	parts := []string{"column:" + field.Spec.StorageName}
 
 	if mapping.gormType != "" {
@@ -106,24 +109,56 @@ func gormTag(field *graph.Field, mapping goMapping) string {
 	}
 
 	if field.Spec.Default != nil {
-		parts = append(parts, "default:"+gormDefault(field))
+		def, err := gormDefault(field)
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, "default:"+def)
 	}
 
-	return strings.Join(parts, ";")
+	return strings.Join(parts, ";"), nil
 }
 
-// gormDefault renders a field's default for a GORM default: tag.
+// gormDefault renders a field's default for a GORM `default:` tag setting.
 //
 // The value is validated against its type before it reaches here (a spec with
-// a bad default never builds a graph), so this only quotes it for the tag.
-func gormDefault(field *graph.Field) string {
+// a bad default never builds a graph), so this only encodes it for the tag.
+//
+// String-valued defaults become SQL string literals with ” escaping. They
+// must survive two carriers before GORM sees them: Go's struct-tag unquoting
+// (reflect.StructTag.Get) and GORM's own ';'-separated tag grammar. Empirical
+// testing against gorm v1.31.2 shows neither carrier can round-trip a value
+// containing ';', '"', a backtick, a backslash, or a control character — the
+// tag either fails to unquote (yielding an empty tag) or is truncated at the
+// separator. Rather than emit a silently corrupted default, such a value is
+// rejected here. A single quote is fine: ” escaping round-trips cleanly.
+func gormDefault(field *graph.Field) (string, error) {
 	value := *field.Spec.Default
 	switch field.Spec.Type {
 	case spec.TypeString, spec.TypeText, spec.TypeEnum, spec.TypeDate, spec.TypeDatetime:
-		// Wrap in single quotes so a value containing a semicolon or space
-		// does not corrupt the surrounding tag or SQL.
-		return "'" + value + "'"
+		if ok, bad := tagSafe(value); !ok {
+			return "", fmt.Errorf(
+				"gen: default %q for field %s contains %q, which cannot be represented in a GORM struct tag; remove it from the default",
+				value, field.Spec.ID, bad)
+		}
+		return "'" + strings.ReplaceAll(value, "'", "''") + "'", nil
 	default:
-		return value
+		// Booleans, integers and decimals are validated to a safe token set
+		// (true/false, digits, sign, decimal point) and need no quoting.
+		return value, nil
 	}
+}
+
+// tagSafe reports whether value can be carried in a GORM struct tag, and if
+// not, the first offending rune.
+func tagSafe(value string) (ok bool, bad string) {
+	for _, r := range value {
+		switch {
+		case r == ';', r == '"', r == '`', r == '\\':
+			return false, string(r)
+		case r < 0x20: // control characters, including newline and tab
+			return false, fmt.Sprintf("\\x%02x", r)
+		}
+	}
+	return true, ""
 }
