@@ -140,7 +140,7 @@ func readMigration(t *testing.T, dir, name string) string {
 
 func writeCompiled(t *testing.T, dir string, s *spec.ProjectSpec) {
 	t.Helper()
-	files, err := Compile(s)
+	files, err := Compile(s, testModule)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}

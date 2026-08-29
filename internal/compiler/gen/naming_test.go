@@ -116,6 +116,29 @@ func TestPackageNameReservedRejected(t *testing.T) {
 	}
 }
 
+// TestPackageFoldCollidingWithImportRejected covers a resource whose package
+// name matches a package the generated code imports (framework, contract, gorm,
+// …): the generated file would have two imports with the same local name and
+// not compile.
+func TestPackageFoldCollidingWithImportRejected(t *testing.T) {
+	for _, name := range []string{"Framework", "Contract", "Gorm", "Admin"} {
+		t.Run(name, func(t *testing.T) {
+			g := oneResourceGraph(t, name, "things", field("Name", "name", spec.TypeString))
+			g.Resources[0].Spec.Behavior.AdminVisible = true
+
+			if _, err := Models(g); err == nil {
+				t.Errorf("Models must reject a resource folding to imported package %q", strings.ToLower(name))
+			}
+			if _, err := Handlers(g); err == nil {
+				t.Errorf("Handlers must reject a resource folding to imported package %q", strings.ToLower(name))
+			}
+			if _, err := Wiring(g, "example.com/app"); err == nil {
+				t.Errorf("Wiring must reject a resource folding to imported package %q", strings.ToLower(name))
+			}
+		})
+	}
+}
+
 // TestPackageFoldCollisionRejected covers two distinct code symbols that fold
 // to the same package, whose generated directories would collide.
 func TestPackageFoldCollisionRejected(t *testing.T) {

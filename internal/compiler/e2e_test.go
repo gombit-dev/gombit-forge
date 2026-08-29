@@ -3,12 +3,17 @@ package compiler
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -18,13 +23,16 @@ import (
 
 // TestM0EndToEnd is the M0 go/no-go gate (DESIGN.md §31–32): from a fixed
 // two-resource ProjectSpec, generate a Gombit application, apply its migration
-// on Postgres, build and boot it, and confirm the resource and admin routes are
-// mounted — with no Forge runtime dependency.
+// on Postgres, build and boot it, then exercise the real contract over HTTP —
+// create a customer and read it back, create an invoice with the belongs_to
+// foreign key and a decimal that round-trips, and confirm the admin catalog
+// lists the admin-visible resource and not the hidden one (so RegisterAll
+// actually ran RegisterAdmin) — all with no Forge runtime dependency.
 //
 // It orchestrates the real toolchain and a throwaway Postgres, so it needs
 // gombit, atlas, go and docker, and skips in -short or when any is absent. The
 // determinism, structure and per-stage contracts are covered by the unit tests;
-// this proves they compose into a running application.
+// this proves they compose into a working application.
 func TestM0EndToEnd(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping end-to-end harness in -short")
@@ -59,7 +67,7 @@ func TestM0EndToEnd(t *testing.T) {
 	}
 
 	s := sampleSpec(t)
-	files, err := CompileApp(s, module)
+	files, err := Compile(s, module)
 	if err != nil {
 		t.Fatalf("compile app: %v", err)
 	}
@@ -95,6 +103,12 @@ func TestM0EndToEnd(t *testing.T) {
 	env := []string{
 		"GOMBIT_DATABASE_DRIVER=postgres",
 		"GOMBIT_DATABASE_DSN=" + pg.dsn,
+		// Cookie-mode auth for the admin plane and CSRF; the secret also signs
+		// sessions. Cookies are insecure because the test speaks plain HTTP.
+		"GOMBIT_JWT_SECRET=forge-e2e-secret-please-change-0001",
+		"GOMBIT_AUTH_MODE=cookie",
+		"GOMBIT_COOKIE_SECURE=false",
+		"GOMBIT_COOKIE_SAMESITE=Lax",
 	}
 	runCmd(t, ctx, dir, env, gombit.DefaultBinary, "db", "migrate")
 
@@ -107,24 +121,60 @@ func TestM0EndToEnd(t *testing.T) {
 	runCmd(t, ctx, dir, nil, "go", "build", "-o", bin, "./cmd/server")
 
 	port := freePort(t)
-	appEnv := append(env,
-		"GOMBIT_HTTP_ADDR=127.0.0.1:"+port,
-		"GOMBIT_ENV=production",
-	)
+	appEnv := append(env, "GOMBIT_HTTP_ADDR=127.0.0.1:"+port)
 	server := startServer(t, ctx, dir, bin, appEnv)
 	defer server.stop()
 
 	base := "http://127.0.0.1:" + port
 	waitForHTTP(t, base+"/livez")
 
-	// --- routes + admin mounted --------------------------------------------
-	// The resource routes exist (200 or an auth 401/403, never 404).
-	assertMounted(t, base+"/api/v1/customers")
-	assertMounted(t, base+"/api/v1/invoices")
-	// The admin data plane is mounted.
-	assertMounted(t, base+"/api/v1/admin/meta")
+	// --- exercise the real contract ----------------------------------------
+	// An authenticated session, since cookie mode gates writes with CSRF and
+	// the admin plane with a superuser.
+	runCmd(t, ctx, dir, appEnv, gombit.DefaultBinary, "createsuperuser",
+		"--no-input", "--email", superuserEmail, "--password", superuserPassword)
 
-	t.Logf("M0 gate: app built, migrated, booted, and served customers/invoices/admin at %s", base)
+	session := login(t, base)
+
+	// React CRUD works: create a customer, read it back. (sampleSpec's customer
+	// is email + active.)
+	customerID := session.create(t, base+"/api/v1/customers", map[string]any{
+		"email":  "e2e@example.test",
+		"active": true,
+	})
+	got := session.get(t, base+"/api/v1/customers/"+customerID)
+	if got["email"] != "e2e@example.test" {
+		t.Errorf("read-back customer email = %v, want e2e@example.test", got["email"])
+	}
+
+	// belongs_to and decimal round-trip: an invoice referencing the customer.
+	fkNum, err := strconvAtoi(customerID)
+	if err != nil {
+		t.Fatalf("customer id %q is not numeric: %v", customerID, err)
+	}
+	invoiceID := session.create(t, base+"/api/v1/invoices", map[string]any{
+		"customer_id": fkNum,
+		"total":       "19.95",
+	})
+	invoice := session.get(t, base+"/api/v1/invoices/"+invoiceID)
+	if fmt.Sprint(invoice["customer_id"]) != customerID {
+		t.Errorf("invoice customer_id = %v, want %s", invoice["customer_id"], customerID)
+	}
+	if invoice["total"] != "19.95" {
+		t.Errorf("invoice total = %v, want 19.95 (decimal round-trip)", invoice["total"])
+	}
+
+	// Admin works, and RegisterAll actually ran RegisterAdmin: the admin
+	// catalog lists the admin-visible customer but not the hidden invoice.
+	slugs := session.adminSlugs(t, base+"/api/v1/admin/meta")
+	if !slugs["customers"] {
+		t.Errorf("admin meta must list customers (RegisterAdmin did not run); got %v", slugs)
+	}
+	if slugs["invoices"] {
+		t.Errorf("admin meta must not list invoices (not admin-visible); got %v", slugs)
+	}
+
+	t.Logf("M0 gate cleared: created customer %s + invoice %s, admin catalog=%v", customerID, invoiceID, keysOf(slugs))
 }
 
 // forgeMainGo is the composition root Forge owns: it boots the framework and
@@ -221,17 +271,162 @@ func assertNoForgeDependency(t *testing.T, dir string) {
 	}
 }
 
-func assertMounted(t *testing.T, url string) {
+const (
+	superuserEmail    = "admin@e2e.test"
+	superuserPassword = "Password123!"
+)
+
+// session is an authenticated cookie-mode client: a cookie jar plus the CSRF
+// token cookie mode requires on writes.
+type session struct {
+	client *http.Client
+	csrf   string
+}
+
+func login(t *testing.T, base string) *session {
 	t.Helper()
-	resp, err := http.Get(url)
+	jar, err := cookiejar.New(nil)
 	if err != nil {
-		t.Errorf("GET %s: %v", url, err)
-		return
+		t.Fatalf("cookie jar: %v", err)
 	}
+	c := &http.Client{Jar: jar, Timeout: 15 * time.Second}
+
+	csrf := fetchCSRF(t, c, base)
+	// Log in; the response sets the HttpOnly session cookie in the jar.
+	post(t, c, base+"/api/v1/auth/login", csrf, map[string]any{
+		"email": superuserEmail, "password": superuserPassword,
+	})
+	// Re-fetch the CSRF token now that the session cookie is set.
+	return &session{client: c, csrf: fetchCSRF(t, c, base)}
+}
+
+func fetchCSRF(t *testing.T, c *http.Client, base string) string {
+	t.Helper()
+	resp, err := c.Get(base + "/api/v1/auth/csrf")
+	if err != nil {
+		t.Fatalf("GET csrf: %v", err)
+	}
+	data := decodeData(t, readBody(t, resp))
+	token, _ := data["csrf_token"].(string)
+	if token == "" {
+		t.Fatalf("no csrf_token in response: %v", data)
+	}
+	return token
+}
+
+// create POSTs a resource and returns its id as a string.
+func (s *session) create(t *testing.T, url string, body map[string]any) string {
+	t.Helper()
+	data := decodeData(t, post(t, s.client, url, s.csrf, body))
+	if data["id"] == nil {
+		t.Fatalf("create %s: no id in response %v", url, data)
+	}
+	return fmt.Sprint(numericID(t, data["id"]))
+}
+
+func (s *session) get(t *testing.T, url string) map[string]any {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, url, nil)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s: status %d\n%s", url, resp.StatusCode, readBody(t, resp))
+	}
+	return decodeData(t, mustRead(t, resp))
+}
+
+// adminSlugs returns the set of resource slugs the admin catalog lists.
+func (s *session) adminSlugs(t *testing.T, url string) map[string]bool {
+	t.Helper()
+	data := s.get(t, url)
+	slugs := map[string]bool{}
+	models, _ := data["models"].([]any)
+	for _, m := range models {
+		if entry, ok := m.(map[string]any); ok {
+			if slug, ok := entry["slug"].(string); ok {
+				slugs[slug] = true
+			}
+		}
+	}
+	return slugs
+}
+
+// post sends a JSON body with the CSRF header and returns the response bytes,
+// failing on a non-2xx status.
+func post(t *testing.T, c *http.Client, url, csrf string, body map[string]any) []byte {
+	t.Helper()
+	payload, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", csrf)
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Fatalf("POST %s: %v", url, err)
+	}
+	data := mustRead(t, resp)
+	if resp.StatusCode/100 != 2 {
+		t.Fatalf("POST %s: status %d\n%s", url, resp.StatusCode, data)
+	}
+	return data
+}
+
+// decodeData unwraps the D10 {data: ...} envelope, tolerating a bare object.
+func decodeData(t *testing.T, body []byte) map[string]any {
+	t.Helper()
+	var env map[string]any
+	if err := json.Unmarshal(body, &env); err != nil {
+		t.Fatalf("decode json: %v\n%s", err, body)
+	}
+	if d, ok := env["data"].(map[string]any); ok {
+		return d
+	}
+	return env
+}
+
+func readBody(t *testing.T, resp *http.Response) []byte {
+	t.Helper()
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotFound {
-		t.Errorf("GET %s: route not mounted (404)", url)
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
 	}
+	return data
+}
+
+func mustRead(t *testing.T, resp *http.Response) []byte { return readBody(t, resp) }
+
+// numericID normalizes a JSON id (number or string) to an integer.
+func numericID(t *testing.T, v any) int {
+	t.Helper()
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case string:
+		i, err := strconvAtoi(n)
+		if err != nil {
+			t.Fatalf("id %q not numeric: %v", n, err)
+		}
+		return i
+	default:
+		t.Fatalf("unexpected id type %T", v)
+		return 0
+	}
+}
+
+func strconvAtoi(s string) (int, error) { return strconv.Atoi(s) }
+
+func keysOf(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func waitForHTTP(t *testing.T, url string) {
