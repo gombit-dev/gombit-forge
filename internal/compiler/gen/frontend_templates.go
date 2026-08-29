@@ -186,7 +186,8 @@ export function {{.Type}}DetailPage() {
 // with both create and update it loads on an id and chooses POST or PUT; with
 // only one, it is fixed to that operation, and the unused imports, load effect
 // and branch are omitted so the module stays lint-clean. Empty date/datetime
-// fields are dropped from the request body, since the API's time.Time rejects
+// values with a wire type that rejects "" (time.Time, decimal.Decimal) are
+// dropped from the request body, since the API rejects
 // "" (only RFC 3339 or a missing/null key unmarshal).
 const formPageSrc = `{{.Banner}}
 import { useState{{if .Update}}, useEffect{{end}} } from "react";
@@ -269,7 +270,7 @@ export function {{.Type}}FormPage() {
     setStatus("");
     const body = { ...values };
 {{- range .Fields}}
-{{- if .IsDate}}
+{{- if .OmitEmpty}}
     if (body.{{.JSONName}} === "") {
       delete (body as Partial<{{$.Type}}FormValues>).{{.JSONName}};
     }

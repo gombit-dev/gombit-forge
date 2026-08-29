@@ -124,10 +124,12 @@ type frontendField struct {
 	Placeholder string // format hint for text inputs (dates), or ""
 	Options     []spec.EnumValue
 	Required    bool
-	// IsDate marks date/datetime fields: an empty one must be omitted from the
-	// request body, since the API's time.Time rejects "" (only RFC 3339 or a
-	// missing/null key unmarshal).
-	IsDate bool
+	// OmitEmpty marks a field whose wire type rejects an empty string, so an
+	// empty value must be dropped from the request body rather than sent as "".
+	// time.Time (date, datetime) and decimal.Decimal both reject ""; a missing
+	// key unmarshals fine, and optional fields carry omitempty so the key is
+	// optional in the request schema.
+	OmitEmpty bool
 }
 
 // rfc3339Placeholder is the format hint shown in a date/datetime text input.
@@ -173,8 +175,10 @@ func frontendFieldFor(field *graph.Field) frontendField {
 	case spec.TypeInteger, spec.TypeBelongsTo:
 		f.TSType, f.Input = "number", "number"
 	case spec.TypeDecimal:
-		// A decimal is carried as a string to avoid float rounding.
-		f.TSType, f.Input = "string", "text"
+		// A decimal is carried as a string to avoid float rounding. Like a
+		// time, decimal.Decimal rejects "" on unmarshal, so an empty one is
+		// omitted from the request body.
+		f.TSType, f.Input, f.OmitEmpty = "string", "text", true
 	case spec.TypeBoolean:
 		f.TSType, f.Input = "boolean", "checkbox"
 	case spec.TypeDate, spec.TypeDatetime:
@@ -183,9 +187,9 @@ func frontendFieldFor(field *graph.Field) frontendField {
 		// produces "2026-08-29" / "2026-08-29T06:00", which the handler's
 		// json.Unmarshal rejects, and cannot display the "…Z" wire value. So
 		// the control is a text input holding the RFC 3339 string verbatim,
-		// which round-trips; Placeholder documents the format. IsDate drives
-		// omitting an empty value from the request body on submit.
-		f.Input, f.Placeholder, f.IsDate = "text", rfc3339Placeholder(field.Spec.Type), true
+		// which round-trips; Placeholder documents the format. OmitEmpty drives
+		// dropping an empty value from the request body on submit.
+		f.Input, f.Placeholder, f.OmitEmpty = "text", rfc3339Placeholder(field.Spec.Type), true
 	case spec.TypeEnum:
 		f.Input, f.Options = "select", field.Spec.EnumValues
 	case spec.TypeString, spec.TypeText:

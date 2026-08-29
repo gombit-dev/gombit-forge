@@ -345,6 +345,46 @@ func TestFrontendDateFieldsRoundTrip(t *testing.T) {
 	}
 }
 
+// TestFrontendOmitsEmptyDecimal covers the other wire type that rejects "":
+// decimal.Decimal. An empty optional decimal must be dropped from the body, not
+// POSTed as "".
+func TestFrontendOmitsEmptyDecimal(t *testing.T) {
+	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
+	s := &spec.ProjectSpec{
+		SpecVersion: spec.SpecVersion,
+		Project:     spec.Project{ID: id(spec.KindProject), Name: "Acme", Slug: "acme"},
+		Database:    spec.Database{Driver: spec.DriverPostgres},
+		Auth:        spec.Auth{Mode: spec.AuthCookie},
+		Resources: []*spec.Resource{
+			{
+				ID: id(spec.KindResource), Label: "Quote", CodeName: "Quote", StorageName: "quotes",
+				Behavior: spec.ResourceBehavior{CreateEnabled: true},
+				Fields: []*spec.Field{
+					// Optional decimal, and a plain string alongside it.
+					{ID: id(spec.KindField), Label: "Fee", Type: spec.TypeDecimal, CodeName: "Fee", StorageName: "fee"},
+					{ID: id(spec.KindField), Label: "Note", Type: spec.TypeString, CodeName: "Note", StorageName: "note"},
+				},
+			},
+		},
+	}
+	if d := spec.Validate(s); d != nil {
+		t.Fatalf("fixture invalid: %s", d.Error())
+	}
+	g, err := graph.Build(s)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	form := frontendFiles(t, g)["frontend/src/forge_generated/quote/QuoteFormPage.tsx"]
+
+	if !strings.Contains(form, `if (body.fee === "") {`) {
+		t.Errorf("empty decimal must be omitted from the request body:\n%s", form)
+	}
+	// A plain string must NOT be omitted — "" is a valid string value.
+	if strings.Contains(form, `if (body.note === "") {`) {
+		t.Error("a string field must not be omitted; \"\" is a valid value")
+	}
+}
+
 // TestFrontendEscapesLabels guards against a spec label breaking the module:
 // unconstrained human text must become an inert JS string, not JSX or an
 // unterminated literal.
