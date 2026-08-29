@@ -75,16 +75,40 @@ func TestControlPlaneBoots(t *testing.T) {
 		t.Errorf("GET /livez = %d, want 200", code)
 	}
 
-	// The admin plane is mounted (cookie mode auto-mounts it) and gated by the
-	// session cookie: unauthenticated it must be rejected, not missing. A 404
-	// would mean the plane never mounted.
+	// #35's acceptance path: /admin/. In cookie mode framework.New mounts the
+	// framework-owned admin SPA (gombit's internal/adminui) at /admin/,
+	// independently of the app's own frontend — so the control plane serves it
+	// now, with no embed of ours. This asserts the criterion directly, not a
+	// proxy for it.
+	adminCode, adminType := getWithContentType(t, base+"/admin/")
+	if adminCode != http.StatusOK {
+		t.Errorf("GET /admin/ = %d, want 200 (framework admin SPA)", adminCode)
+	}
+	if !strings.Contains(adminType, "text/html") {
+		t.Errorf("GET /admin/ Content-Type = %q, want text/html", adminType)
+	}
+
+	// The admin data plane is mounted and gated by the session cookie:
+	// unauthenticated it must be rejected, not missing. A 404 would mean the
+	// plane never mounted; a 200 would mean the cookie gate is off.
 	code := statusOf(t, base+"/api/v1/admin/meta")
 	if code == http.StatusNotFound {
-		t.Errorf("GET /api/v1/admin/meta = 404: admin plane not mounted")
+		t.Errorf("GET /api/v1/admin/meta = 404: admin data plane not mounted")
 	}
 	if code != http.StatusUnauthorized {
 		t.Errorf("GET /api/v1/admin/meta = %d, want 401 (cookie auth gate active)", code)
 	}
+}
+
+// getWithContentType GETs url and returns its status code and Content-Type.
+func getWithContentType(t *testing.T, url string) (int, string) {
+	t.Helper()
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode, resp.Header.Get("Content-Type")
 }
 
 // repoDir returns this module's root (the directory holding go.mod).

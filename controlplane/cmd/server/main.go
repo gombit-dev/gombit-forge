@@ -4,11 +4,11 @@
 // dogfoods Gombit rather than building a bespoke backend. It runs with
 // cookie/session auth (DESIGN.md §20, D5) and is PostgreSQL-backed (D4).
 //
-// In cookie mode framework.New mounts the admin plane automatically (see
-// gombit's admin.Mount), so /api/v1/admin/* is served and gated by the session
-// cookie without any explicit wiring here. The admin catalog is empty until a
-// model registers with it — the M1 model issues (User, Organization, Project,
-// …) fill it in.
+// In cookie mode framework.New mounts the admin surface automatically, with no
+// explicit wiring here: admin.Mount serves the gated data plane at
+// /api/v1/admin/*, and the framework-owned admin SPA (gombit's internal/adminui)
+// is served at /admin/. The admin catalog is empty until a model registers with
+// it — the M1 model issues (User, Organization, Project, …) fill it in.
 package main
 
 import (
