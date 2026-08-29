@@ -18,6 +18,7 @@ import (
 	"github.com/gombit-dev/gombit/config"
 	"github.com/gombit-dev/gombit/framework"
 
+	"github.com/gombit-dev/gombit-forge/controlplane/internal/org"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/platform"
 )
 
@@ -37,6 +38,14 @@ func main() {
 		framework.WithDatabase(db),
 	)
 	if err != nil {
+		_ = db.Close()
+		log.Fatal(err)
+	}
+
+	// Feature packages register explicitly (Gombit does not discover them by
+	// reflection). Tenancy is the first; projects, environments and the rest
+	// follow with their issues.
+	if err := org.Register(app); err != nil {
 		_ = db.Close()
 		log.Fatal(err)
 	}

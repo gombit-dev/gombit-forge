@@ -1,0 +1,76 @@
+package org
+
+// Role is a member's Forge-level role within one organization (DESIGN.md §22).
+//
+// Forge tenancy is per-organization: the same user can be an owner of one org
+// and a plain member of another. Gombit's users/groups/permissions are global
+// and cannot express that scoping on their own, so the org-scoped authorization
+// decision lives here — as a fixed capability matrix keyed by role, not a
+// second identity or permission store. It reuses Gombit's identity (auth.User)
+// for *who* the caller is and its permission keys' convention for *what*
+// actions are named; it does not reimplement group/permission storage (D12).
+type Role string
+
+const (
+	// RoleOwner has every capability, including destroying the org and managing
+	// other owners. The member who creates an org is its first owner.
+	RoleOwner Role = "owner"
+	// RoleAdmin manages members and projects but cannot destroy the org.
+	RoleAdmin Role = "admin"
+	// RoleMember can see the org and create projects in it.
+	RoleMember Role = "member"
+)
+
+// Valid reports whether r is a known role.
+func (r Role) Valid() bool {
+	switch r {
+	case RoleOwner, RoleAdmin, RoleMember:
+		return true
+	default:
+		return false
+	}
+}
+
+// Capability is a Forge-level action a role may or may not permit. The keys
+// follow Gombit's dotted permission-key convention (§4.6) so the vocabulary is
+// consistent with the permissions the generated apps use, even though these are
+// control-plane capabilities checked against the caller's org role.
+type Capability string
+
+const (
+	CapOrgView       Capability = "org.view"
+	CapOrgManage     Capability = "org.manage" // rename/delete the org
+	CapMembersView   Capability = "org.members.view"
+	CapMembersInvite Capability = "org.members.invite"
+	CapMembersRemove Capability = "org.members.remove"
+	CapProjectCreate Capability = "project.create"
+	CapProjectDelete Capability = "project.delete"
+)
+
+// capabilities is the role → allowed-capability matrix. It is the single source
+// of truth for org-scoped authorization; Can is the only reader. Owner is
+// intentionally not expressed as "all" so that adding a capability is a
+// deliberate per-role decision rather than something owner silently absorbs.
+var capabilities = map[Role]map[Capability]bool{
+	RoleOwner: {
+		CapOrgView: true, CapOrgManage: true,
+		CapMembersView: true, CapMembersInvite: true, CapMembersRemove: true,
+		CapProjectCreate: true, CapProjectDelete: true,
+	},
+	RoleAdmin: {
+		CapOrgView:     true,
+		CapMembersView: true, CapMembersInvite: true, CapMembersRemove: true,
+		CapProjectCreate: true, CapProjectDelete: true,
+	},
+	RoleMember: {
+		CapOrgView:       true,
+		CapMembersView:   true,
+		CapProjectCreate: true,
+	},
+}
+
+// Can reports whether role permits capability. An unknown role permits nothing
+// (fail closed).
+func Can(role Role, capability Capability) bool {
+	return capabilities[role][capability]
+}

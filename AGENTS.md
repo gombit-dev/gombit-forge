@@ -29,13 +29,23 @@ the e2e harness). The end-to-end test in `internal/compiler` scaffolds a real
 Gombit app, compiles the spec, applies the migration on Postgres, builds, boots
 and serves customers/invoices/admin with no Forge runtime dependency.
 
-M1 (control plane) is **in progress**. The control-plane bootstrap (#35) exists:
-`controlplane/` is a nested Go module holding the control plane as an ordinary
-Gombit application (Forge dogfoods Gombit, D7) — cookie/session auth,
-Postgres-backed, with the admin plane auto-mounted by `framework.New` in cookie
-mode. It has **no domain models yet** (User/Organization/Project and the rest
-arrive with #36–#38), no project/revision API (#39), no editor, no build
-pipeline, no deploy path. Don't describe those as existing.
+M1 (control plane) is **in progress**. `controlplane/` is a nested Go module
+holding the control plane as an ordinary Gombit application (Forge dogfoods
+Gombit, D7) — cookie/session auth, Postgres-backed, admin plane auto-mounted by
+`framework.New` in cookie mode (#35). Forge tenancy exists (#36): `internal/org`
+holds Organization, Member and Invitation with per-org Forge roles (owner/admin/
+member) and a capability matrix, plus the invitation flow (invite → hashed
+token → accept) over cookie-gated Huma routes; `internal/audit` is the minimal
+audit seam (§23) the invitation flow records to (the audit *service* is #40).
+Identity and RBAC are Gombit's (`auth.User`, cookie session) — the org role is
+tenancy Gombit can't express, not a second identity store (D12).
+
+`internal/platform.Models()` is the control plane's schema of record; tests
+AutoMigrate it, but **no Atlas migration is committed yet** — deployment can't
+create these tables until one is (§14 forbids AutoMigrate in the deployed app).
+Still missing: Project/ProjectRevision (#37), the rest of the core models (#38),
+the project/revision API (#39), the audit service (#40), secrets (#41), and any
+editor, build pipeline or deploy path. Don't describe those as existing.
 
 The repo is **two Go modules**. The root module
 (`github.com/gombit-dev/gombit-forge`) is the compiler and stays gombit-free —
