@@ -166,10 +166,10 @@ func kebab(storageName string) string {
 	return strings.ReplaceAll(storageName, "_", "-")
 }
 
-func renderTemplate(tmpl *template.Template, view resourceView) (string, error) {
+func renderTemplate(tmpl *template.Template, view any) (string, error) {
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, view); err != nil {
-		return "", fmt.Errorf("gen: execute %s template for %s: %w", tmpl.Name(), view.Package, err)
+		return "", fmt.Errorf("gen: execute %s template: %w", tmpl.Name(), err)
 	}
 	return buf.String(), nil
 }
@@ -177,3 +177,5 @@ func renderTemplate(tmpl *template.Template, view resourceView) (string, error) 
 var handlersTemplate = template.Must(template.New("handlers").Parse(handlersSrc))
 
 var routesTemplate = template.Must(template.New("routes").Parse(routesSrc))
+
+var adminTemplate = template.Must(template.New("admin").Parse(adminSrc))
