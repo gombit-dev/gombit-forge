@@ -27,6 +27,11 @@ cp-vet:
 cp-test:
 	cd $(CONTROLPLANE) && go test ./... -count=1
 
+# CI variant: skips the Docker/Postgres boot test (see boot_test.go), matching
+# how the M0 e2e harness stays out of the merge gate.
+cp-test-short:
+	cd $(CONTROLPLANE) && go test ./... -short -count=1
+
 cp-race:
 	cd $(CONTROLPLANE) && go test ./... -race -count=1
 
