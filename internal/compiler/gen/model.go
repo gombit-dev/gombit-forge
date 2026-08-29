@@ -10,6 +10,25 @@ import (
 	"github.com/gombit-dev/gombit-forge/internal/spec"
 )
 
+// Validate runs the generator's package and name guards over a graph without
+// emitting any files. Callers that need the generated identifiers to be legal
+// (e.g. deriving model import paths) use it to fail the same way generation
+// would, but cheaply.
+func Validate(g *graph.Graph) error {
+	if g == nil {
+		return fmt.Errorf("gen: nil graph")
+	}
+	if err := validatePackages(g); err != nil {
+		return err
+	}
+	for _, resource := range g.Resources {
+		if err := validateNames(resource); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Models generates one model.go per resource under
 // internal/forge_generated/<resource>/ (DESIGN.md §9 stage 3).
 //
