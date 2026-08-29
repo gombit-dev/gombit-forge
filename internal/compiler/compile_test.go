@@ -112,6 +112,10 @@ func TestCompileTreeShape(t *testing.T) {
 		"internal/forge_generated/invoice/model.go",
 		"internal/forge_generated/invoice/handlers.go",
 		"internal/forge_generated/invoice/routes.go",
+		// Frontend stage output.
+		"frontend/src/forge_generated/customer/CustomerListPage.tsx",
+		"frontend/src/forge_generated/customer/CustomerFormPage.tsx",
+		"frontend/src/forge_generated/resources.tsx",
 	}
 	for _, path := range mustHave {
 		if !got[path] {
@@ -215,9 +219,9 @@ func TestCompileRefusesInvalidSpec(t *testing.T) {
 // TestGenerateRejectsDuplicatePaths gives the path-collision guard teeth by
 // running a stage twice, so two stages emit the same paths.
 func TestGenerateRejectsDuplicatePaths(t *testing.T) {
-	saved := backendStages
-	defer func() { backendStages = saved }()
-	backendStages = []stage{
+	saved := stages
+	defer func() { stages = saved }()
+	stages = []stage{
 		{"models", gen.Models},
 		{"models-again", gen.Models},
 	}

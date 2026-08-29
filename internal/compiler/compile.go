@@ -25,14 +25,14 @@ type stage struct {
 	run  func(*graph.Graph) ([]gen.File, error)
 }
 
-// backendStages are the backend file generators, in emission order. The
-// frontend generator (#9) joins here as it lands. Migration generation is not
-// a file-producing stage — it emits SQL through Gombit/Atlas, driven from the
-// gombit boundary with the model set from MigrationModels — so it is not here.
-var backendStages = []stage{
+// stages are the file generators, in emission order. Migration generation is
+// not here: it emits SQL through Gombit/Atlas, driven from the gombit boundary
+// with the model set from MigrationModels, rather than producing files.
+var stages = []stage{
 	{"models", gen.Models},
 	{"handlers", gen.Handlers},
 	{"admin", gen.Admin},
+	{"frontend", gen.Frontend},
 }
 
 // Compile turns a ProjectSpec into the complete compiler-owned file tree.
@@ -59,7 +59,7 @@ func Generate(g *graph.Graph) ([]gen.File, error) {
 	var files []gen.File
 	seen := make(map[string]string) // path -> producing stage
 
-	for _, stage := range backendStages {
+	for _, stage := range stages {
 		produced, err := stage.run(g)
 		if err != nil {
 			return nil, fmt.Errorf("compiler: %s: %w", stage.name, err)
