@@ -66,18 +66,30 @@ func TestMakeMigrationsGeneratesVersionedSQL(t *testing.T) {
 		t.Fatalf("migration models: %v", err)
 	}
 
-	// First migration.
+	// The scaffold seeds a bootstrap migration when atlas is present, so
+	// "a migration was generated" must be observed as a file that did not
+	// exist before this call — not merely a non-empty directory.
+	beforeInitial := migrationSQLFiles(t, dir)
+
 	if err := cli.MakeMigrations(context.Background(), gombit.MakeMigrationsRequest{
 		Dir: dir, Name: "initial", Driver: gombit.DatabasePostgres, Models: models,
 	}); err != nil {
 		t.Fatalf("makemigrations initial: %v", err)
 	}
-	initial := migrationSQLFiles(t, dir)
-	if len(initial) == 0 {
-		t.Fatal("no versioned migration was generated")
+	initialNew := newFiles(beforeInitial, migrationSQLFiles(t, dir))
+	if len(initialNew) != 1 {
+		t.Fatalf("initial makemigrations should add exactly one migration, added %v", initialNew)
+	}
+	initialSQL := readMigration(t, dir, initialNew[0])
+	if !strings.Contains(initialSQL, "customers") || !strings.Contains(initialSQL, "invoices") {
+		t.Errorf("initial migration must create the resource tables:\n%s", initialSQL)
+	}
+	if strings.Contains(initialSQL, "nickname") {
+		t.Error("the field added later must not appear in the initial migration")
 	}
 
-	// Add a field, recompile, and generate again: a new migration must appear.
+	// Add a field, recompile, and generate again: a new migration referencing
+	// the added column must appear.
 	s.Resources[0].Fields = append(s.Resources[0].Fields, &spec.Field{
 		ID: spec.MustNewID(spec.KindField), Label: "Nickname", Type: spec.TypeString,
 		CodeName: "Nickname", StorageName: "nickname",
@@ -87,25 +99,43 @@ func TestMakeMigrationsGeneratesVersionedSQL(t *testing.T) {
 	}
 	writeCompiled(t, dir, s)
 
+	beforeAdd := migrationSQLFiles(t, dir)
 	if err := cli.MakeMigrations(context.Background(), gombit.MakeMigrationsRequest{
 		Dir: dir, Name: "add_nickname", Driver: gombit.DatabasePostgres, Models: models,
 	}); err != nil {
 		t.Fatalf("makemigrations add_nickname: %v", err)
 	}
-	after := migrationSQLFiles(t, dir)
-	if len(after) <= len(initial) {
-		t.Fatalf("adding a field did not produce a new migration: %d then %d", len(initial), len(after))
+	addNew := newFiles(beforeAdd, migrationSQLFiles(t, dir))
+	if len(addNew) != 1 {
+		t.Fatalf("adding a field should add exactly one migration, added %v", addNew)
 	}
+	if addSQL := readMigration(t, dir, addNew[0]); !strings.Contains(addSQL, "nickname") {
+		t.Errorf("the new migration must reference the added column:\n%s", addSQL)
+	}
+}
 
-	// The new migration should reference the added column.
-	newest := after[len(after)-1]
-	body, err := os.ReadFile(filepath.Join(dir, "database", "migrations", newest))
+// newFiles returns the entries in after that were not in before.
+func newFiles(before, after []string) []string {
+	prior := make(map[string]bool, len(before))
+	for _, f := range before {
+		prior[f] = true
+	}
+	var added []string
+	for _, f := range after {
+		if !prior[f] {
+			added = append(added, f)
+		}
+	}
+	return added
+}
+
+func readMigration(t *testing.T, dir, name string) string {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join(dir, "database", "migrations", name))
 	if err != nil {
-		t.Fatalf("read migration: %v", err)
+		t.Fatalf("read migration %s: %v", name, err)
 	}
-	if !strings.Contains(strings.ToLower(string(body)), "nickname") {
-		t.Errorf("new migration does not mention the added column:\n%s", body)
-	}
+	return strings.ToLower(string(body))
 }
 
 func writeCompiled(t *testing.T, dir string, s *spec.ProjectSpec) {

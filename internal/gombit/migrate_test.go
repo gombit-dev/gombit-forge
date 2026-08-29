@@ -56,6 +56,33 @@ func TestMakeMigrationsCustomDir(t *testing.T) {
 	}
 }
 
+func TestMakeMigrationsForgetModels(t *testing.T) {
+	rec := &recorder{}
+	cli := &CLI{Binary: "gombit", Run: rec.run}
+
+	req := validMigrateRequest("/tmp/app")
+	req.ForgetModels = []Model{
+		{ImportPath: "example.com/app/internal/forge_generated/legacy", TypeName: "Legacy"},
+	}
+	if err := cli.MakeMigrations(context.Background(), req); err != nil {
+		t.Fatalf("make migrations: %v", err)
+	}
+	got := strings.Join(rec.calls[0], " ")
+	if !strings.Contains(got, "--forget-model example.com/app/internal/forge_generated/legacy.Legacy") {
+		t.Errorf("forget-model not passed: %s", got)
+	}
+	// A request that only forgets is valid.
+	rec2 := &recorder{}
+	cli2 := &CLI{Binary: "gombit", Run: rec2.run}
+	onlyForget := MakeMigrationsRequest{
+		Dir: "/tmp/app", Name: "drop", Driver: DatabasePostgres,
+		ForgetModels: req.ForgetModels,
+	}
+	if err := cli2.MakeMigrations(context.Background(), onlyForget); err != nil {
+		t.Errorf("a forget-only request should be valid: %v", err)
+	}
+}
+
 func TestMakeMigrationsValidates(t *testing.T) {
 	tests := map[string]func(*MakeMigrationsRequest){
 		"no dir":            func(r *MakeMigrationsRequest) { r.Dir = "" },

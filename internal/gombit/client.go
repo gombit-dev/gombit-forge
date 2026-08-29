@@ -121,6 +121,9 @@ type Client interface {
 	Version(ctx context.Context) (Version, error)
 	// Scaffold creates one application shell.
 	Scaffold(ctx context.Context, request ScaffoldRequest) error
+	// MakeMigrations generates a versioned Atlas migration from the declared
+	// models.
+	MakeMigrations(ctx context.Context, request MakeMigrationsRequest) error
 }
 
 // ScaffoldRequestFor derives the scaffold request for a project.

@@ -34,10 +34,25 @@ func (m Model) Validate() error {
 // MakeMigrationsRequest describes one migration-generation invocation.
 //
 // It is project-level: every model is declared in a single call, not one
-// subprocess per model (ADR-001 §68–69). Gombit merges Models with the
-// registry persisted in the migration directory, so re-running after a schema
-// change diffs against the previous state and emits a new versioned migration
-// rather than restating the whole schema.
+// subprocess per model (ADR-001 §68–69).
+//
+// The model set is additive, matching Gombit's registry contract, not a
+// replacement of the desired schema. Gombit unions Models with the registry
+// persisted in the migration directory (database/migrations/models.json) and
+// removes ForgetModels; the net registry is the desired schema Atlas diffs
+// against. So:
+//
+//   - re-declaring the same Models after a field change diffs against the
+//     previous state and emits a new versioned migration;
+//   - a model already registered (including whatever `gombit new` seeded)
+//     stays in the schema unless named in ForgetModels;
+//   - dropping a resource's table requires putting its model in ForgetModels —
+//     listing only the survivors in Models does not drop it.
+//
+// Making Models the whole desired schema (computing ForgetModels from the
+// registry as resources are deleted) is future work tied to resource-deletion
+// semantics (ADR-001 §45–46); this boundary exposes the additive contract
+// faithfully rather than hiding it.
 type MakeMigrationsRequest struct {
 	// Dir is the application directory the command runs in.
 	Dir string
@@ -45,8 +60,13 @@ type MakeMigrationsRequest struct {
 	Name string
 	// Driver selects the SQL dialect Atlas diffs against.
 	Driver Database
-	// Models are the GORM model types the generated schema comprises.
+	// Models are the GORM model types to add to (or refresh in) the migration
+	// registry. Merged with the persisted registry — not the entire desired
+	// schema by themselves.
 	Models []Model
+	// ForgetModels are model types to remove from the registry, proposing a
+	// DROP for each one's table.
+	ForgetModels []Model
 	// MigrationDir is the migration output directory relative to Dir; empty
 	// uses Gombit's default (database/migrations).
 	MigrationDir string
@@ -65,10 +85,15 @@ func (r MakeMigrationsRequest) Validate() error {
 	default:
 		return fmt.Errorf("gombit: unsupported database %q", r.Driver)
 	}
-	if len(r.Models) == 0 {
+	if len(r.Models) == 0 && len(r.ForgetModels) == 0 {
 		return fmt.Errorf("gombit: make-migrations request declares no models")
 	}
 	for _, model := range r.Models {
+		if err := model.Validate(); err != nil {
+			return err
+		}
+	}
+	for _, model := range r.ForgetModels {
 		if err := model.Validate(); err != nil {
 			return err
 		}
@@ -108,6 +133,9 @@ func makeMigrationsArgs(request MakeMigrationsRequest) []string {
 	// Gombit sorts the persisted registry itself.
 	for _, model := range request.Models {
 		args = append(args, "--model", model.spec())
+	}
+	for _, model := range request.ForgetModels {
+		args = append(args, "--forget-model", model.spec())
 	}
 	return args
 }

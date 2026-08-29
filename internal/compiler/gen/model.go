@@ -10,15 +10,6 @@ import (
 	"github.com/gombit-dev/gombit-forge/internal/spec"
 )
 
-// Models generates one model.go per resource under
-// internal/forge_generated/<resource>/ (DESIGN.md §9 stage 3).
-//
-// Each model embeds gorm.Model — so it inherits ID, CreatedAt, UpdatedAt and
-// DeletedAt, matching how a hand-written Gombit app models a resource (ADR-004
-// D3) — and carries one field per spec field. Deployed apps never AutoMigrate
-// (DESIGN.md §14); these models feed Atlas migration generation instead.
-//
-// Files come back in the graph's authored resource order.
 // Validate runs the generator's package and name guards over a graph without
 // emitting any files. Callers that need the generated identifiers to be legal
 // (e.g. deriving model import paths) use it to fail the same way generation
@@ -38,6 +29,15 @@ func Validate(g *graph.Graph) error {
 	return nil
 }
 
+// Models generates one model.go per resource under
+// internal/forge_generated/<resource>/ (DESIGN.md §9 stage 3).
+//
+// Each model embeds gorm.Model — so it inherits ID, CreatedAt, UpdatedAt and
+// DeletedAt, matching how a hand-written Gombit app models a resource (ADR-004
+// D3) — and carries one field per spec field. Deployed apps never AutoMigrate
+// (DESIGN.md §14); these models feed Atlas migration generation instead.
+//
+// Files come back in the graph's authored resource order.
 func Models(g *graph.Graph) ([]File, error) {
 	if g == nil {
 		return nil, fmt.Errorf("gen: nil graph")

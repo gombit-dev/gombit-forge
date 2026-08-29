@@ -25,8 +25,10 @@ type stage struct {
 	run  func(*graph.Graph) ([]gen.File, error)
 }
 
-// backendStages are the backend generators, in emission order. The frontend
-// generator (#9) and migration generation (#11) join here as they land.
+// backendStages are the backend file generators, in emission order. The
+// frontend generator (#9) joins here as it lands. Migration generation is not
+// a file-producing stage — it emits SQL through Gombit/Atlas, driven from the
+// gombit boundary with the model set from MigrationModels — so it is not here.
 var backendStages = []stage{
 	{"models", gen.Models},
 	{"handlers", gen.Handlers},
