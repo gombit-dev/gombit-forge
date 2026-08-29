@@ -46,9 +46,10 @@ func Models(g *graph.Graph) ([]File, error) {
 // from it, so two facts the spec validator does not check must be checked
 // here (build health, not spec validity — ADR-001 §36):
 //
-//   - The folded name must be a legal, importable package identifier. A Go
-//     keyword ("Type" → package type) or "main" ("Main" → package main, which
-//     needs a func main and cannot be imported) does not build.
+//   - The folded name must be a legal, importable package identifier. It must
+//     not be a Go keyword ("Type" → package type) nor a directory basename the
+//     go tool treats specially (see reservedPackageNames): main, internal or
+//     testdata each break the build or hide the model.
 //   - Two resources must not fold to the same package. "Customer" and
 //     "CUSTOMER" are distinct code symbols the validator accepts, but both
 //     fold to package customer and the same PackageDir, so one model.go would
@@ -61,15 +62,15 @@ func validatePackages(g *graph.Graph) error {
 	for _, resource := range g.Resources {
 		name := PackageName(resource)
 
-		switch {
-		case spec.IsGoKeyword(name):
+		if spec.IsGoKeyword(name) {
 			return fmt.Errorf(
 				"gen: resource %s code_name %q folds to the Go keyword package name %q; rename the resource code symbol",
 				resource.Spec.ID, resource.CodeName(), name)
-		case name == "main":
+		}
+		if reason, reserved := reservedPackageNames[name]; reserved {
 			return fmt.Errorf(
-				"gen: resource %s code_name %q folds to package %q, which is not an importable package; rename the resource code symbol",
-				resource.Spec.ID, resource.CodeName(), name)
+				"gen: resource %s code_name %q folds to package %q, %s; rename the resource code symbol",
+				resource.Spec.ID, resource.CodeName(), name, reason)
 		}
 
 		if other, clash := byPackage[name]; clash {

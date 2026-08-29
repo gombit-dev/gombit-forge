@@ -88,16 +88,30 @@ func TestPackageNameKeywordRejected(t *testing.T) {
 	}
 }
 
-// TestPackageNameMainRejected covers a valid code symbol that folds to "main":
-// package main needs a func main and cannot be imported, so `go build` breaks.
-func TestPackageNameMainRejected(t *testing.T) {
-	g := oneResourceGraph(t, "Main", "mains", field("Name", "name", spec.TypeString))
-	_, err := Models(g)
-	if err == nil {
-		t.Fatal("expected a resource folding to package main to be rejected")
+// TestPackageNameReservedRejected covers valid code symbols that fold to a
+// directory basename the go tool treats specially. Each would build-break or
+// hide the model:
+//
+//	main      package main needs a func main and is not importable
+//	internal  cmd/ cannot import an internal package
+//	testdata  the go tool ignores testdata, so the compile gate never sees it
+func TestPackageNameReservedRejected(t *testing.T) {
+	cases := map[string]struct{ code, storage string }{
+		"main":     {"Main", "mains"},
+		"internal": {"Internal", "internals"},
+		"testdata": {"TestData", "test_data"},
 	}
-	if !strings.Contains(err.Error(), "importable") {
-		t.Errorf("rejection should explain main is not importable, got: %v", err)
+	for pkg, c := range cases {
+		t.Run(pkg, func(t *testing.T) {
+			g := oneResourceGraph(t, c.code, c.storage, field("Name", "name", spec.TypeString))
+			_, err := Models(g)
+			if err == nil {
+				t.Fatalf("expected a resource folding to package %q to be rejected", pkg)
+			}
+			if !strings.Contains(err.Error(), pkg) {
+				t.Errorf("rejection should name the reserved package %q, got: %v", pkg, err)
+			}
+		})
 	}
 }
 

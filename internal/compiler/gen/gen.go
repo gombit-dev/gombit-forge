@@ -66,6 +66,24 @@ var gormModelFields = map[string]struct{}{
 	"Model": {}, "ID": {}, "CreatedAt": {}, "UpdatedAt": {}, "DeletedAt": {},
 }
 
+// reservedPackageNames are directory basenames the go tool treats specially,
+// so a resource may not fold to one. These are the go-tool package-path rules,
+// not a list of examples:
+//
+//	main      a package that needs a func main and cannot be imported
+//	internal  an import-boundary directory; cmd/ could not import the model
+//	testdata  ignored by the go tool, so the compile gate would never see it
+//
+// (Go keywords are handled separately. A folded name never begins with "." or
+// "_", the other ignored forms, because it derives from an exported
+// identifier. "vendor" is not reserved: a nested vendor directory is an
+// ordinary package in module mode, verified against the go tool.)
+var reservedPackageNames = map[string]string{
+	"main":     "a package that needs a func main and cannot be imported",
+	"internal": "an internal-import-boundary directory the application shell could not import",
+	"testdata": "a directory the go tool ignores, so the generated model would be invisible to the build",
+}
+
 // formatGo runs gofmt over generated Go source.
 //
 // Formatting is part of the determinism contract, and it doubles as a
