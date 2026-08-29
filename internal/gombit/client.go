@@ -17,13 +17,24 @@ const (
 )
 
 // Auth is an authentication mode Gombit can scaffold.
+//
+// Verified against gombit v0.1.5: scaffold.validAuths is exactly
+// {jwt, cookie}, and `--auth none` is refused with "auth must be one of jwt,
+// cookie". There is no unmounted-auth flag, and an empty --auth defaults to
+// jwt rather than to none. So this type has no None: representing a mode the
+// toolchain rejects would only move the failure later.
 type Auth string
 
 const (
 	AuthCookie Auth = "cookie"
 	AuthJWT    Auth = "jwt"
-	AuthNone   Auth = "none"
 )
+
+// AuthModes lists every mode this package may emit, in a stable order.
+//
+// Validation and tests both read this list, so adding a mode here without
+// confirming the toolchain accepts it is caught rather than shipped.
+func AuthModes() []Auth { return []Auth{AuthCookie, AuthJWT} }
 
 // UI is a frontend preset Gombit can scaffold.
 type UI string
@@ -76,9 +87,11 @@ func (r ScaffoldRequest) Validate() error {
 		return fmt.Errorf("gombit: unsupported database %q", r.Database)
 	}
 	switch r.Auth {
-	case AuthCookie, AuthJWT, AuthNone:
+	case AuthCookie, AuthJWT:
 	default:
-		return fmt.Errorf("gombit: unsupported auth mode %q", r.Auth)
+		return fmt.Errorf(
+			"gombit: unsupported auth mode %q (the toolchain scaffolds only %q and %q)",
+			r.Auth, AuthJWT, AuthCookie)
 	}
 	switch r.UI {
 	case UIMinimal, UIMUI:
@@ -103,11 +116,13 @@ type Client interface {
 // ScaffoldRequestFor derives the scaffold request for a project.
 //
 // This is the only place ProjectSpec vocabulary is translated into Gombit
-// vocabulary. The mapping is total for valid specs: spec validation already
-// restricted drivers and auth modes to values Gombit accepts.
+// vocabulary. The spec must be valid; an invalid one is rejected rather than
+// translated, so a malformed project cannot reach the toolchain.
 //
-// The spec must be valid; an invalid one is rejected rather than translated,
-// so a malformed project cannot reach the toolchain.
+// Spec validity does not by itself imply the toolchain will accept the
+// result: the two vocabularies are maintained separately and can drift. Every
+// translation below therefore returns an error for anything it cannot map,
+// rather than assuming validation has already guaranteed it.
 func ScaffoldRequestFor(s *spec.ProjectSpec, dir, module string) (ScaffoldRequest, error) {
 	if diagnostics := spec.Validate(s); diagnostics != nil {
 		return ScaffoldRequest{}, fmt.Errorf(
@@ -155,9 +170,9 @@ func authFor(mode spec.AuthMode) (Auth, error) {
 		return AuthCookie, nil
 	case spec.AuthJWT:
 		return AuthJWT, nil
-	case spec.AuthNone:
-		return AuthNone, nil
 	default:
-		return "", fmt.Errorf("gombit: no Gombit auth mode for spec mode %q", mode)
+		return "", fmt.Errorf(
+			"gombit: no Gombit auth mode for spec mode %q (the toolchain scaffolds only %q and %q)",
+			mode, AuthJWT, AuthCookie)
 	}
 }

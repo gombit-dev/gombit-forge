@@ -67,9 +67,9 @@ a box to tick, and none of it substitutes for tracing the change end-to-end.
 - Does the extension surface leak GORM models or handler internals? The ABI is
   deliberately narrow.
 
-## Gombit boundary (ADR-002, ADR-001 §68–69)
+## Gombit boundary (ADR-004, ADR-001 §68–69)
 
-Gombit owns framework primitives; Forge owns application synthesis. ADR-002 D3
+Gombit owns framework primitives; Forge owns application synthesis. ADR-004 D3
 is a standing review obligation — no compiler enforces it, so drift toward a
 private framework has to be caught here.
 
@@ -82,7 +82,7 @@ private framework has to be caught here.
 - Any import of a Gombit `internal/` package, or vendored/copied Gombit
   source? Both are forbidden outright.
 - Is Forge reimplementing migrations, OpenAPI, TS client generation, auth,
-  admin, or GORM abstractions? Still never — ADR-002 did not widen that.
+  admin, or GORM abstractions? Still never — ADR-004 did not widen that.
 - Is a per-resource or per-page Gombit subprocess being introduced? The
   protocol is coarse and project-level.
 - Is Gombit pinned at ≥ v0.1.2, or is the integration floating?

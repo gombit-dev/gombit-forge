@@ -43,7 +43,7 @@ Hold these invariants; they are the product, not preferences:
 - **Separate states.** Spec validity, ABI compatibility and build health are
   three questions. Don't collapse them.
 - **Use Gombit.** Gombit owns framework primitives; Forge owns application
-  synthesis (ADR-002). Forge generates resource-specific code under
+  synthesis (ADR-004). Forge generates resource-specific code under
   `internal/forge_generated/**`, and that generated output must consume
   Gombit's public APIs — never a Forge-specific router, ORM, auth, admin or
   response envelope, never vendored or `internal` Gombit packages. If Forge

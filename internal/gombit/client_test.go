@@ -84,7 +84,6 @@ func TestScaffoldRequestForMapsEveryDriverAndAuthMode(t *testing.T) {
 	modes := map[spec.AuthMode]Auth{
 		spec.AuthCookie: AuthCookie,
 		spec.AuthJWT:    AuthJWT,
-		spec.AuthNone:   AuthNone,
 	}
 	for mode, want := range modes {
 		t.Run("auth "+string(mode), func(t *testing.T) {
@@ -100,6 +99,60 @@ func TestScaffoldRequestForMapsEveryDriverAndAuthMode(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestNoAuthModeEscapesThatGombitRejects is the guard for the real hazard:
+// gombit v0.1.5 scaffolds jwt and cookie only, and `--auth none` is refused
+// with "auth must be one of jwt, cookie". Nothing in this package may emit a
+// mode the toolchain will reject.
+func TestNoAuthModeEscapesThatGombitRejects(t *testing.T) {
+	// Every mode this package can produce must be one Gombit accepts.
+	gombitAccepts := map[Auth]bool{AuthJWT: true, AuthCookie: true}
+
+	// Reads the declared list rather than a hand-written one, so re-adding a
+	// mode the toolchain rejects fails here instead of at `gombit new`.
+	t.Run("every declared Auth is scaffoldable", func(t *testing.T) {
+		modes := AuthModes()
+		if len(modes) == 0 {
+			t.Fatal("AuthModes() is empty")
+		}
+		for _, mode := range modes {
+			if !gombitAccepts[mode] {
+				t.Errorf("%q is declared in AuthModes() but Gombit will not scaffold it", mode)
+			}
+		}
+	})
+
+	t.Run("spec rejects none before it reaches translation", func(t *testing.T) {
+		s := minimalSpec(t)
+		s.Auth.Mode = "none"
+
+		if diagnostics := spec.Validate(s); diagnostics == nil {
+			t.Fatal(`spec validation must reject auth mode "none"`)
+		}
+		if _, err := ScaffoldRequestFor(s, "/tmp/x", "example.com/x"); err == nil {
+			t.Fatal(`ScaffoldRequestFor must refuse auth mode "none"`)
+		}
+	})
+
+	t.Run("request validation refuses none", func(t *testing.T) {
+		request := ScaffoldRequest{
+			Dir: "/tmp/x", Name: "x", Module: "example.com/x",
+			Database: DatabasePostgres, Auth: "none", UI: UIMinimal,
+		}
+		if err := request.Validate(); err == nil {
+			t.Fatal(`ScaffoldRequest.Validate must refuse auth "none"`)
+		}
+	})
+
+	t.Run("translation refuses an unmappable mode", func(t *testing.T) {
+		if _, err := authFor("none"); err == nil {
+			t.Fatal(`authFor("none") must return an error`)
+		}
+		if _, err := authFor("saml"); err == nil {
+			t.Fatal(`authFor("saml") must return an error`)
+		}
+	})
 }
 
 // TestScaffoldRequestForRefusesInvalidSpec keeps a malformed project from
