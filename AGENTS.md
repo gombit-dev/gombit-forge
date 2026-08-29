@@ -18,15 +18,15 @@ graph; `internal/gombit` is the project-level toolchain boundary and can
 scaffold an application shell; `internal/compiler/gen` generates GORM models,
 Huma handlers, route registration and admin registration into
 `internal/forge_generated/<resource>/`; `internal/compiler` is the pipeline —
-`Compile(spec)` builds the graph and runs every backend stage into one
-deterministic file tree. `compiler.MigrationModels` derives the model set for
-migration generation, which the `internal/gombit` boundary drives through
-`gombit db makemigrations` (Forge does not diff schemas itself). No frontend
-yet.
+`Compile(spec)` builds the graph and runs every generator stage — models,
+handlers, routes, admin, and the React CRUD frontend — into one deterministic
+file tree. `compiler.MigrationModels` derives the model set for migration
+generation, which the `internal/gombit` boundary drives through
+`gombit db makemigrations` (Forge does not diff schemas itself).
 
-M0 (the go/no-go gate) is the active milestone: issues #2–#8 and #10 shipped
-(PRs #86–#92); #11 (migrations) on the `m0-migrations` branch; #9 and #12
-remain. There is no control plane, no editor, no
+M0 (the go/no-go gate) is the active milestone: issues #2–#8, #10 and #11
+shipped (PRs #86–#93); #9 (frontend) on the `m0-frontend` branch; #12 remains.
+There is no control plane, no editor, no
 build
 pipeline, no deploy path. Don't describe those as existing.
 
