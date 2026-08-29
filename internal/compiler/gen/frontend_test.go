@@ -110,7 +110,7 @@ func TestFrontendFieldInputs(t *testing.T) {
 		{"boolean is checkbox", customer, `<input type="checkbox" {...register("active")`},
 		{"enum is a select", customer, `<select {...register("tier")`},
 		{"enum option free", customer, `<option value="free">free</option>`},
-		{"datetime input", customer, `<input type="datetime-local" {...register("joined_at")`},
+		{"datetime is text (RFC3339 round-trips)", customer, `<input type="text" placeholder="YYYY-MM-DDTHH:MM:SSZ" {...register("joined_at")`},
 		{"belongs_to FK is number", invoice, `<input type="number" {...register("customer_id"`},
 		{"decimal is text", invoice, `<input type="text" {...register("total"`},
 	}
@@ -194,6 +194,146 @@ func TestFrontendPathUsesStorageName(t *testing.T) {
 	registry := frontendFiles(t, g)["frontend/src/forge_generated/resources.tsx"]
 	if !strings.Contains(registry, `{ path: "order-lines", element: <OrderLineListPage /> }`) {
 		t.Error("route should be the kebab-cased storage name")
+	}
+}
+
+// TestFrontendHonorsToggles is the contract the handlers already enforce: the
+// UI's write operations match the routes. It uses partial toggles so an
+// always-full-CRUD implementation fails.
+func TestFrontendHonorsToggles(t *testing.T) {
+	t.Run("create only", func(t *testing.T) {
+		g := toggledFrontendGraph(t, true, false, false)
+		files := frontendFiles(t, g)
+		form := files["frontend/src/forge_generated/customer/CustomerFormPage.tsx"]
+		list := files["frontend/src/forge_generated/customer/CustomerListPage.tsx"]
+		detail := files["frontend/src/forge_generated/customer/CustomerDetailPage.tsx"]
+		registry := files["frontend/src/forge_generated/resources.tsx"]
+
+		if !strings.Contains(form, `client.POST(`) {
+			t.Error("create-only form must POST")
+		}
+		if strings.Contains(form, `client.PUT(`) {
+			t.Error("create-only form must not PUT")
+		}
+		if strings.Contains(form, "useEffect") {
+			t.Error("create-only form must not load a record")
+		}
+		if !strings.Contains(list, `to="/customers/new"`) {
+			t.Error("create-only list must show a New link")
+		}
+		if strings.Contains(detail, "/edit") {
+			t.Error("create-only detail must not show an Edit link")
+		}
+		if !strings.Contains(registry, `{ path: "customers/new"`) {
+			t.Error("registry must route /new when create is on")
+		}
+		if strings.Contains(registry, `/:id/edit`) {
+			t.Error("registry must not route /:id/edit when update is off")
+		}
+	})
+
+	t.Run("update only", func(t *testing.T) {
+		g := toggledFrontendGraph(t, false, true, false)
+		files := frontendFiles(t, g)
+		form := files["frontend/src/forge_generated/customer/CustomerFormPage.tsx"]
+		list := files["frontend/src/forge_generated/customer/CustomerListPage.tsx"]
+		registry := files["frontend/src/forge_generated/resources.tsx"]
+
+		if !strings.Contains(form, `client.PUT(`) {
+			t.Error("update-only form must PUT")
+		}
+		if strings.Contains(form, `client.POST(`) {
+			t.Error("update-only form must not POST")
+		}
+		if !strings.Contains(form, "const editing = true;") {
+			t.Error("update-only form is always editing")
+		}
+		if strings.Contains(list, `/customers/new`) {
+			t.Error("update-only list must not show a New link")
+		}
+		if strings.Contains(registry, `{ path: "customers/new"`) {
+			t.Error("registry must not route /new when create is off")
+		}
+		if !strings.Contains(registry, `{ path: "customers/:id/edit"`) {
+			t.Error("registry must route /:id/edit when update is on")
+		}
+	})
+
+	t.Run("read only", func(t *testing.T) {
+		g := toggledFrontendGraph(t, false, false, false)
+		files := frontendFiles(t, g)
+
+		if _, ok := files["frontend/src/forge_generated/customer/CustomerFormPage.tsx"]; ok {
+			t.Error("a read-only resource must not get a form page")
+		}
+		registry := files["frontend/src/forge_generated/resources.tsx"]
+		if strings.Contains(registry, "FormPage") {
+			t.Error("registry must not import or route a form page for a read-only resource")
+		}
+		// list and detail still exist.
+		for _, p := range []string{"CustomerListPage.tsx", "CustomerDetailPage.tsx"} {
+			if _, ok := files["frontend/src/forge_generated/customer/"+p]; !ok {
+				t.Errorf("read-only resource still needs %s", p)
+			}
+		}
+	})
+}
+
+// toggledFrontendGraph applies the given toggles to every resource.
+func toggledFrontendGraph(t *testing.T, create, update, del bool) *graph.Graph {
+	t.Helper()
+	g, _ := buildGraph(t)
+	for _, resource := range g.Resources {
+		resource.Spec.Behavior.CreateEnabled = create
+		resource.Spec.Behavior.UpdateEnabled = update
+		resource.Spec.Behavior.DeleteEnabled = del
+	}
+	return g
+}
+
+// TestFrontendDateFieldsRoundTrip guards the RFC 3339 representation: date and
+// datetime use a text input holding the wire string, not a native
+// date/datetime-local control that would corrupt the time.Time JSON.
+func TestFrontendDateFieldsRoundTrip(t *testing.T) {
+	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
+	s := &spec.ProjectSpec{
+		SpecVersion: spec.SpecVersion,
+		Project:     spec.Project{ID: id(spec.KindProject), Name: "Acme", Slug: "acme"},
+		Database:    spec.Database{Driver: spec.DriverPostgres},
+		Auth:        spec.Auth{Mode: spec.AuthCookie},
+		Resources: []*spec.Resource{
+			{
+				ID: id(spec.KindResource), Label: "Event", CodeName: "Event", StorageName: "events",
+				Behavior: spec.ResourceBehavior{CreateEnabled: true},
+				Fields: []*spec.Field{
+					{ID: id(spec.KindField), Label: "Day", Type: spec.TypeDate, CodeName: "Day", StorageName: "day"},
+					{ID: id(spec.KindField), Label: "At", Type: spec.TypeDatetime, CodeName: "At", StorageName: "at"},
+				},
+			},
+		},
+	}
+	if d := spec.Validate(s); d != nil {
+		t.Fatalf("fixture invalid: %s", d.Error())
+	}
+	g, err := graph.Build(s)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	form := frontendFiles(t, g)["frontend/src/forge_generated/event/EventFormPage.tsx"]
+
+	// No native date controls, which cannot hold or produce RFC 3339.
+	if strings.Contains(form, `type="date"`) || strings.Contains(form, `type="datetime-local"`) {
+		t.Errorf("date fields must not use native date controls:\n%s", form)
+	}
+	if !strings.Contains(form, `<input type="text" placeholder="YYYY-MM-DDT00:00:00Z" {...register("day"`) {
+		t.Error("date field must be a text input with an RFC 3339 placeholder")
+	}
+	if !strings.Contains(form, `<input type="text" placeholder="YYYY-MM-DDTHH:MM:SSZ" {...register("at"`) {
+		t.Error("datetime field must be a text input with an RFC 3339 placeholder")
+	}
+	// The values are typed as strings (the wire format), not Date objects.
+	if !strings.Contains(form, "day: string;") || !strings.Contains(form, "at: string;") {
+		t.Error("date/datetime form values must be strings")
 	}
 }
 

@@ -55,9 +55,11 @@ export function {{.Type}}ListPage() {
   return (
     <section>
       <h1>{{.Title}}</h1>
+{{- if .Create}}
       <p>
         <Link to="/{{.RouteBase}}/new">New {{.Type}}</Link>
       </p>
+{{- end}}
       <table>
         <thead>
           <tr>
@@ -134,8 +136,10 @@ export function {{.Type}}DetailPage() {
       <h1>{{.Type}}</h1>
       <p>
         <Link to="/{{.RouteBase}}">Back to {{.Title}}</Link>
+{{- if .Update}}
         {" · "}
         <Link to={` + "`/{{.RouteBase}}/${id}/edit`" + `}>Edit</Link>
+{{- end}}
       </p>
       {record ? (
         <dl>
@@ -153,12 +157,14 @@ export function {{.Type}}DetailPage() {
 }
 `
 
-// formPageSrc renders one form used for both create and edit: when the route
-// carries an id it loads the record and PUTs, otherwise it POSTs.
+// formPageSrc renders the write form. Its shape follows the resource's toggles:
+// with both create and update it loads on an id and chooses POST or PUT; with
+// only one, it is fixed to that operation, and the unused imports, load effect
+// and branch are omitted so the module stays lint-clean.
 const formPageSrc = `{{.Banner}}
-import { useEffect, useState } from "react";
+import { useState{{if .Update}}, useEffect{{end}} } from "react";
 import { useForm } from "react-hook-form";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useNavigate{{if .Update}}, useParams{{end}} } from "react-router";
 
 import { useApiClient } from "../../api/client";
 import { applyContractErrors } from "../../api/formErrors";
@@ -179,16 +185,27 @@ const emptyValues: {{.Type}}FormValues = {
 export function {{.Type}}FormPage() {
   const client = useApiClient();
   const navigate = useNavigate();
+{{- if .Update}}
   const { id = "" } = useParams();
+{{- end}}
+{{- if and .Create .Update}}
   const editing = id !== "";
+{{- else if .Update}}
+  const editing = true;
+{{- else}}
+  const editing = false;
+{{- end}}
   const [status, setStatus] = useState("");
   const {
     register,
     handleSubmit,
+{{- if .Update}}
     reset,
+{{- end}}
     setError,
     formState: { errors, isSubmitting },
   } = useForm<{{.Type}}FormValues>({ defaultValues: emptyValues });
+{{- if .Update}}
 
   useEffect(() => {
     if (!editing) {
@@ -219,20 +236,26 @@ export function {{.Type}}FormPage() {
       cancelled = true;
     };
   }, [client, editing, id, reset]);
+{{- end}}
 
   async function onSubmit(values: {{.Type}}FormValues) {
     setStatus("");
     try {
+{{- if and .Create .Update}}
       if (editing) {
         await unwrap(
-          await client.PUT("{{.CollectionPath}}/{id}", {
-            params: { path: { id } },
-            body: values,
-          }),
+          await client.PUT("{{.CollectionPath}}/{id}", { params: { path: { id } }, body: values }),
         );
       } else {
         await unwrap(await client.POST("{{.CollectionPath}}", { body: values }));
       }
+{{- else if .Update}}
+      await unwrap(
+        await client.PUT("{{.CollectionPath}}/{id}", { params: { path: { id } }, body: values }),
+      );
+{{- else}}
+      await unwrap(await client.POST("{{.CollectionPath}}", { body: values }));
+{{- end}}
       navigate("/{{.RouteBase}}");
     } catch (err: unknown) {
       if (!applyContractErrors(setError, err)) {
@@ -263,7 +286,7 @@ export function {{.Type}}FormPage() {
 {{- end}}
           </select>
 {{- else}}
-          <input type="{{.Input}}" {...register("{{.JSONName}}"{{if .Required}}, { required: "{{.Label}} is required" }{{end}})} />
+          <input type="text"{{if .Placeholder}} placeholder="{{.Placeholder}}"{{end}} {...register("{{.JSONName}}"{{if .Required}}, { required: "{{.Label}} is required" }{{end}})} />
 {{- end}}
         </label>
         {errors.{{.JSONName}}?.message ? <p>{errors.{{.JSONName}}.message}</p> : null}
@@ -287,7 +310,9 @@ import type { RouteObject } from "react-router";
 {{range .Resources -}}
 import { {{.Type}}ListPage } from "./{{.Package}}/{{.Type}}ListPage";
 import { {{.Type}}DetailPage } from "./{{.Package}}/{{.Type}}DetailPage";
+{{if or .Create .Update -}}
 import { {{.Type}}FormPage } from "./{{.Package}}/{{.Type}}FormPage";
+{{end -}}
 {{end}}
 export type GeneratedResource = {
   slug: string;
@@ -304,9 +329,13 @@ export const generatedResources: GeneratedResource[] = [
 export const generatedResourceRoutes: RouteObject[] = [
 {{- range .Resources}}
   { path: "{{.RouteBase}}", element: <{{.Type}}ListPage /> },
+{{- if .Create}}
   { path: "{{.RouteBase}}/new", element: <{{.Type}}FormPage /> },
+{{- end}}
   { path: "{{.RouteBase}}/:id", element: <{{.Type}}DetailPage /> },
+{{- if .Update}}
   { path: "{{.RouteBase}}/:id/edit", element: <{{.Type}}FormPage /> },
+{{- end}}
 {{- end}}
 ];
 `
