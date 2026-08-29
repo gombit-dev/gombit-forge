@@ -19,6 +19,25 @@ import (
 // (DESIGN.md §14); these models feed Atlas migration generation instead.
 //
 // Files come back in the graph's authored resource order.
+// Validate runs the generator's package and name guards over a graph without
+// emitting any files. Callers that need the generated identifiers to be legal
+// (e.g. deriving model import paths) use it to fail the same way generation
+// would, but cheaply.
+func Validate(g *graph.Graph) error {
+	if g == nil {
+		return fmt.Errorf("gen: nil graph")
+	}
+	if err := validatePackages(g); err != nil {
+		return err
+	}
+	for _, resource := range g.Resources {
+		if err := validateNames(resource); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func Models(g *graph.Graph) ([]File, error) {
 	if g == nil {
 		return nil, fmt.Errorf("gen: nil graph")

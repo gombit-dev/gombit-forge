@@ -19,11 +19,12 @@ scaffold an application shell; `internal/compiler/gen` generates GORM models,
 Huma handlers, route registration and admin registration into
 `internal/forge_generated/<resource>/`; `internal/compiler` is the pipeline —
 `Compile(spec)` builds the graph and runs every backend stage into one
-deterministic file tree. No frontend or migrations yet.
+deterministic file tree, and drives Gombit's Atlas migration generation
+through the `internal/gombit` boundary. No frontend yet.
 
-M0 (the go/no-go gate) is the active milestone: issues #2–#8 shipped (PRs #86,
-#88, #89, #90, #91); #10 (compile pipeline) on the `m0-compile-pipeline`
-branch; #9, #11 and #12 remain. There is no control plane, no editor, no
+M0 (the go/no-go gate) is the active milestone: issues #2–#8 and #10 shipped
+(PRs #86–#92); #11 (migrations) on the `m0-migrations` branch; #9 and #12
+remain. There is no control plane, no editor, no
 build
 pipeline, no deploy path. Don't describe those as existing.
 
