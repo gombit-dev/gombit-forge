@@ -24,9 +24,11 @@ file tree. `compiler.MigrationModels` derives the model set for migration
 generation, which the `internal/gombit` boundary drives through
 `gombit db makemigrations` (Forge does not diff schemas itself).
 
-M0 (the go/no-go gate) is the active milestone: issues #2–#8, #10 and #11
-shipped (PRs #86–#93); #9 (frontend) on the `m0-frontend` branch; #12 remains.
-There is no control plane, no editor, no
+M0 (the go/no-go gate) is **cleared**: issues #2–#12 shipped (PRs #86–#94 plus
+the e2e harness). The end-to-end test in `internal/compiler` scaffolds a real
+Gombit app, compiles the spec, applies the migration on Postgres, builds, boots
+and serves customers/invoices/admin with no Forge runtime dependency. M1
+(control plane) is next. There is no control plane, no editor, no
 build
 pipeline, no deploy path. Don't describe those as existing.
 

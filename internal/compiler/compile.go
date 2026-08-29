@@ -49,6 +49,26 @@ func Compile(s *spec.ProjectSpec) ([]gen.File, error) {
 	return Generate(g)
 }
 
+// CompileApp is Compile plus the composition root: it returns the full file
+// tree and register.go (RegisterAll), which needs the generated application's
+// module path to import the resource packages. This is what a build worker
+// writes into a scaffolded app so main can wire every resource with one call.
+func CompileApp(s *spec.ProjectSpec, module string) ([]gen.File, error) {
+	files, err := Compile(s)
+	if err != nil {
+		return nil, err
+	}
+	g, err := graph.Build(s)
+	if err != nil {
+		return nil, fmt.Errorf("compiler: %w", err)
+	}
+	wiring, err := gen.Wiring(g, module)
+	if err != nil {
+		return nil, fmt.Errorf("compiler: wiring: %w", err)
+	}
+	return append(files, wiring...), nil
+}
+
 // Generate runs the backend stages over an already-built graph. Compile is the
 // usual entry point; Generate exists for callers that already hold a graph.
 func Generate(g *graph.Graph) ([]gen.File, error) {
