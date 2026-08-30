@@ -20,7 +20,10 @@ import (
 // own (D12), so those tables are part of the same managed schema.
 //
 // Deployment applies this schema through Atlas migrations, never AutoMigrate
-// (DESIGN.md §14). Tests may AutoMigrate this set to stand up a scratch schema.
+// (DESIGN.md §14). The initial migration (#101) is committed under
+// database/migrations, and tests apply it — not AutoMigrate — because the
+// schema's cyclic foreign keys and the project_revisions append-only trigger
+// cannot be expressed through GORM's AutoMigrate (see internal/dbtest).
 //
 // The set is deliberately the authoring loop only — Organization/Member/
 // Invitation (#36), Project/Revision (#37) and audit.Event (#36, service #40).
@@ -28,8 +31,12 @@ import (
 // Gombit Cloud, not the Forge control plane (ADR-005 D2/D6): Forge compiles a
 // revision to an ordinary Gombit application and hands it to Cloud, which owns
 // build, deployment, environments, databases, secrets and domains. The link to
-// the Cloud side is Project.CloudProjectID, not a table here. #101 authors this
-// (reduced) schema's initial Atlas migration.
+// the Cloud side is Project.CloudProjectID, not a table here.
+//
+// The model set is also the input to `gombit db makemigrations`; when it
+// changes, regenerate the migration from these types (see #101 for the exact
+// invocation). The append-only trigger is out-of-band — GORM cannot express it,
+// so makemigrations will not carry it; keep it across regenerations.
 func Models() []any {
 	return append(auth.Models(),
 		&org.Organization{},

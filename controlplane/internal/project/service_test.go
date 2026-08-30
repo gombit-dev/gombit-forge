@@ -3,12 +3,34 @@ package project_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
+	"github.com/gombit-dev/gombit/auth"
+	"gorm.io/gorm"
+
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/dbtest"
+	"github.com/gombit-dev/gombit-forge/controlplane/internal/org"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/project"
 	"github.com/gombit-dev/gombit-forge/internal/spec"
 )
+
+// seedFKDeps inserts the organization and users these tests reference by fixed
+// id (org 1, users 7 and 9), so the foreign keys the initial migration adds
+// (#101) are satisfied under the test AutoMigrate. The tests keep using those
+// literal ids; the ids are set explicitly so the references stay stable.
+func seedFKDeps(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	if err := db.Create(&org.Organization{ID: 1, Name: "Acme", Slug: "acme-org"}).Error; err != nil {
+		t.Fatalf("seed org: %v", err)
+	}
+	for _, id := range []uint{7, 9} {
+		u := auth.User{ID: id, Email: fmt.Sprintf("user%d@example.test", id), PasswordHash: "x"}
+		if err := db.Create(&u).Error; err != nil {
+			t.Fatalf("seed user %d: %v", id, err)
+		}
+	}
+}
 
 // validSpec builds a minimal valid one-resource ProjectSpec. name/slug let a
 // test vary the content so hashes differ when they should.
@@ -40,6 +62,7 @@ func validSpec(t *testing.T, name, slug string) *spec.ProjectSpec {
 
 func TestCreateProjectHasNoHead(t *testing.T) {
 	db := dbtest.DB(t)
+	seedFKDeps(t, db)
 	svc := project.NewService(db)
 
 	p, err := svc.CreateProject(context.Background(), 1, "Acme CRM", "acme-crm", 7)
@@ -61,6 +84,7 @@ func TestCreateProjectHasNoHead(t *testing.T) {
 
 func TestFirstRevisionAnchorsSpecAndAdvancesHead(t *testing.T) {
 	db := dbtest.DB(t)
+	seedFKDeps(t, db)
 	svc := project.NewService(db)
 	ctx := context.Background()
 
@@ -104,6 +128,7 @@ func TestFirstRevisionAnchorsSpecAndAdvancesHead(t *testing.T) {
 
 func TestSecondRevisionLinksToFirst(t *testing.T) {
 	db := dbtest.DB(t)
+	seedFKDeps(t, db)
 	svc := project.NewService(db)
 	ctx := context.Background()
 
@@ -140,6 +165,7 @@ func TestSecondRevisionLinksToFirst(t *testing.T) {
 // alone is a weaker claim that a no-enforcement implementation also satisfies.
 func TestRevisionIsImmutable(t *testing.T) {
 	db := dbtest.DB(t)
+	seedFKDeps(t, db)
 	svc := project.NewService(db)
 	ctx := context.Background()
 
@@ -168,11 +194,15 @@ func TestRevisionIsImmutable(t *testing.T) {
 	}
 }
 
-// TestHeadReportsCorruptLineage: a project whose head points at a missing
-// revision is an impossible state, and must be reported loudly rather than
-// disguised as a fresh project with no revisions.
-func TestHeadReportsCorruptLineage(t *testing.T) {
+// TestDeletingHeadRevisionNullsHead pins the ON DELETE SET NULL that #101 adds
+// on projects.head_revision_id. Deleting the head revision used to leave a
+// dangling pointer (the corrupt-lineage case); the foreign key now nulls the
+// head instead, so the project cleanly reports no head rather than a corrupt
+// one. Head still guards ErrCorruptLineage defensively, but the FK makes that
+// state unreachable through the database — which is the point of the rule.
+func TestDeletingHeadRevisionNullsHead(t *testing.T) {
 	db := dbtest.DB(t)
+	seedFKDeps(t, db)
 	svc := project.NewService(db)
 	ctx := context.Background()
 
@@ -184,18 +214,18 @@ func TestHeadReportsCorruptLineage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("revision: %v", err)
 	}
-	// Delete the head revision out from under the project, leaving a dangling
-	// pointer (what a rollback-prune bug would do before #38's ON DELETE rule).
+	// Deleting the head revision must SET NULL the project's head (the #101 FK),
+	// not leave it dangling.
 	if err := db.Delete(&project.Revision{}, rev.ID).Error; err != nil {
 		t.Fatalf("delete revision: %v", err)
 	}
 
 	_, ok, err := svc.Head(ctx, p.ID)
-	if !errors.Is(err, project.ErrCorruptLineage) {
-		t.Errorf("Head with dangling pointer err = %v, want ErrCorruptLineage", err)
+	if err != nil {
+		t.Fatalf("Head after its head revision is deleted: %v", err)
 	}
 	if ok {
-		t.Error("a corrupt head must not report a usable revision")
+		t.Error("after ON DELETE SET NULL, a project whose head revision was deleted must report no head")
 	}
 }
 
@@ -203,6 +233,7 @@ func TestHeadReportsCorruptLineage(t *testing.T) {
 // the same spec produces the same canonical bytes and hash in two projects.
 func TestSameSpecSameHash(t *testing.T) {
 	db := dbtest.DB(t)
+	seedFKDeps(t, db)
 	svc := project.NewService(db)
 	ctx := context.Background()
 
@@ -230,6 +261,7 @@ func TestSameSpecSameHash(t *testing.T) {
 
 func TestCreateRevisionRejectsInvalidSpec(t *testing.T) {
 	db := dbtest.DB(t)
+	seedFKDeps(t, db)
 	svc := project.NewService(db)
 	ctx := context.Background()
 
@@ -252,6 +284,7 @@ func TestCreateRevisionRejectsInvalidSpec(t *testing.T) {
 
 func TestCreateRevisionUnknownProject(t *testing.T) {
 	db := dbtest.DB(t)
+	seedFKDeps(t, db)
 	svc := project.NewService(db)
 
 	if _, err := svc.CreateRevision(context.Background(), 999999, validSpec(t, "X", "x"), 7); !errors.Is(err, project.ErrProjectNotFound) {
