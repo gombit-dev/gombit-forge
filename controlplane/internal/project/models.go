@@ -103,11 +103,14 @@ type Revision struct {
 	CreatedBy        uint  `gorm:"not null"`
 	CreatedAt        time.Time
 	// Foreign keys (#101). Project CASCADEs — a project's revisions die with it.
-	// Parent is the self-referential lineage link, ON DELETE SET NULL so pruning
-	// an ancestor cannot orphan a descendant (it matches ParentRevisionID's
-	// nullability). Creator RESTRICTs. Pointer associations carry only the DDL.
+	// Parent CASCADEs too: pruning a revision prunes its descendants (a revision
+	// whose parent is gone is not a lineage). It is CASCADE, not SET NULL,
+	// because SET NULL is implemented as an UPDATE of the child row, which the
+	// project_revisions append-only trigger rejects — a chain of DELETEs does
+	// not trip it, so pruning stays possible. Creator RESTRICTs. Pointer
+	// associations carry only the DDL.
 	Project *Project   `gorm:"foreignKey:ProjectID;constraint:OnDelete:CASCADE"`
-	Parent  *Revision  `gorm:"foreignKey:ParentRevisionID;constraint:OnDelete:SET NULL"`
+	Parent  *Revision  `gorm:"foreignKey:ParentRevisionID;constraint:OnDelete:CASCADE"`
 	Creator *auth.User `gorm:"foreignKey:CreatedBy;constraint:OnDelete:RESTRICT"`
 }
 

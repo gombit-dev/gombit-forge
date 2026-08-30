@@ -114,7 +114,7 @@ CREATE TABLE "project_revisions" (
   "created_by" bigint NOT NULL,
   "created_at" timestamptz NULL,
   PRIMARY KEY ("id"),
-  CONSTRAINT "fk_project_revisions_parent" FOREIGN KEY ("parent_revision_id") REFERENCES "project_revisions" ("id") ON UPDATE NO ACTION ON DELETE SET NULL
+  CONSTRAINT "fk_project_revisions_parent" FOREIGN KEY ("parent_revision_id") REFERENCES "project_revisions" ("id") ON UPDATE NO ACTION ON DELETE CASCADE
 );
 -- Create index "idx_project_revisions_parent_revision_id" to table: "project_revisions"
 CREATE INDEX "idx_project_revisions_parent_revision_id" ON "project_revisions" ("parent_revision_id");

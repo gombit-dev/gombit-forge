@@ -99,6 +99,47 @@ func TestProjectDeleteCascadesRevisions(t *testing.T) {
 	}
 }
 
+// TestDeletingParentRevisionCascadesToDescendants pins the fifth ON DELETE rule
+// and the one where the FK and the trigger must agree:
+// project_revisions.parent_revision_id is ON DELETE CASCADE. Pruning a revision
+// that has a descendant deletes the descendant too — a chain of DELETEs, which
+// the append-only trigger permits. SET NULL would instead UPDATE the child and
+// the trigger would refuse it, so a revision with descendants could never be
+// pruned; this test would fail against that schema.
+func TestDeletingParentRevisionCascadesToDescendants(t *testing.T) {
+	db := dbtest.DB(t)
+	seedFKDeps(t, db)
+	svc := project.NewService(db)
+	ctx := context.Background()
+
+	p, err := svc.CreateProject(ctx, 1, "P", "p", 7)
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	r1, err := svc.CreateRevision(ctx, p.ID, validSpec(t, "V1", "v1"), 7)
+	if err != nil {
+		t.Fatalf("first revision: %v", err)
+	}
+	r2, err := svc.CreateRevision(ctx, p.ID, validSpec(t, "V2", "v2"), 7)
+	if err != nil {
+		t.Fatalf("second revision: %v", err)
+	}
+	if r2.ParentRevisionID == nil || *r2.ParentRevisionID != r1.ID {
+		t.Fatalf("precondition: r2 must descend from r1 (got parent %v)", r2.ParentRevisionID)
+	}
+
+	// Prune r1, which has r2 as a descendant. CASCADE must delete r2 rather than
+	// try to null its parent (which the trigger would reject).
+	if err := db.Delete(&project.Revision{}, r1.ID).Error; err != nil {
+		t.Fatalf("pruning a revision with a descendant must succeed (CASCADE): %v", err)
+	}
+	var remaining int64
+	db.Model(&project.Revision{}).Count(&remaining)
+	if remaining != 0 {
+		t.Errorf("revisions after pruning r1 = %d, want 0 (r2 cascaded)", remaining)
+	}
+}
+
 // TestRevisionTriggerBlocksRawUpdate is the trigger's reason to exist: a raw
 // UPDATE that bypasses the Go BeforeUpdate hook (exec SQL directly, as
 // Session{SkipHooks:true} or a hand-written statement would) must still be

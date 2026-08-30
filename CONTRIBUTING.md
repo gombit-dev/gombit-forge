@@ -42,14 +42,23 @@ cd gombit-forge
 go test ./... -short
 ```
 
-The unit tests need no external toolchain. Only the end-to-end gate does — it
-scaffolds and runs a real application, so it wants the [`gombit`](https://github.com/gombit-dev/gombit)
-CLI (**≥ v0.1.2**), [`atlas`](https://atlasgo.io), and Docker on PATH. It skips
-automatically if any is missing or if run with `-short`:
+The root module's unit tests need no external toolchain. Two suites do:
 
-```bash
-go test ./internal/compiler -run TestM0EndToEnd -v
-```
+- The **M0 end-to-end gate** scaffolds and runs a real application, so it wants
+  the [`gombit`](https://github.com/gombit-dev/gombit) CLI (**≥ v0.1.2**),
+  [`atlas`](https://atlasgo.io), and Docker on PATH. It skips automatically if
+  any is missing or if run with `-short`:
+
+  ```bash
+  go test ./internal/compiler -run TestM0EndToEnd -v
+  ```
+
+- The **control-plane Postgres tests** (`controlplane/…`, via `make cp-test`)
+  apply the committed Atlas migration to a throwaway Postgres, so they need
+  `atlas` and Docker. They skip under `-short` and when Docker is absent; but
+  with Docker present and `atlas` missing they **fail** rather than skip, since
+  a green run that silently skipped every integration test is worse than a loud
+  one. CI runs them as `make cp-test-short`, which skips them.
 
 ## Commands
 

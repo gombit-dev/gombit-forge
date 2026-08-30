@@ -91,6 +91,7 @@ func StartPostgres(t *testing.T) *Container {
 // exactly the integrity rules the tests exist to check.
 func DB(t *testing.T) *gorm.DB {
 	t.Helper()
+	requireMigrationToolchain(t)
 	c := StartPostgres(t)
 	applyMigrations(t, c.DSN)
 	db, err := database.Open(config.DatabaseConfig{
@@ -104,16 +105,32 @@ func DB(t *testing.T) *gorm.DB {
 	return db.DB
 }
 
+// requireMigrationToolchain gates the integration toolchain before a container
+// is started, so a machine missing atlas does not pay for a Postgres boot per
+// test only to skip. -short and a missing Docker are absences and skip (as
+// StartPostgres also does). But when Docker is present the developer has opted
+// into integration tests, and every control-plane Postgres test now applies the
+// committed migration — so a missing atlas is a broken environment, not an
+// absent one, and fails loudly rather than skipping a whole suite to a
+// deceptively green run. CI exercises these tests only outside -short.
+func requireMigrationToolchain(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping Postgres-backed test in -short")
+	}
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skipf("docker not on PATH: %v", err)
+	}
+	if _, err := exec.LookPath("atlas"); err != nil {
+		t.Fatalf("atlas CLI is required to apply the control-plane migration in these tests, and Docker is present (an integration run): install atlas, or use -short. %v", err)
+	}
+}
+
 // applyMigrations applies the committed Atlas migration set — the same DDL the
-// deployed control plane runs — to the throwaway database. It skips (does not
-// fail) when the Atlas CLI is absent, matching StartPostgres's policy for
-// missing local tooling; CI runs these Postgres-backed tests only outside
-// -short, where the toolchain is present.
+// deployed control plane runs — to the throwaway database. requireMigrationToolchain
+// has already ensured atlas is present.
 func applyMigrations(t *testing.T, dsn string) {
 	t.Helper()
-	if _, err := exec.LookPath("atlas"); err != nil {
-		t.Skipf("atlas not on PATH: %v", err)
-	}
 	_, thisFile, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("cannot locate dbtest source to find the migration directory")
