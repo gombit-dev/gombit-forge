@@ -102,7 +102,7 @@ func TestFirstRevisionAnchorsSpecAndAdvancesHead(t *testing.T) {
 	}
 }
 
-func TestSecondRevisionLinksToFirstAndFirstIsImmutable(t *testing.T) {
+func TestSecondRevisionLinksToFirst(t *testing.T) {
 	db := dbtest.DB(t)
 	svc := project.NewService(db)
 	ctx := context.Background()
@@ -132,15 +132,70 @@ func TestSecondRevisionLinksToFirstAndFirstIsImmutable(t *testing.T) {
 	if head.ID != second.ID {
 		t.Errorf("head = %d, want %d (second)", head.ID, second.ID)
 	}
+}
 
-	// Immutability: the first revision is untouched by later writes.
-	reloaded, ok, err := svc.Revision(ctx, first.ID)
-	if err != nil || !ok {
-		t.Fatalf("reload first: ok=%v err=%v", ok, err)
+// TestRevisionIsImmutable attempts the thing that must fail: a direct UPDATE of
+// a revision. It must be rejected (by the BeforeUpdate hook) and the stored
+// bytes must be unchanged — asserting that CreateRevision merely leaves the row
+// alone is a weaker claim that a no-enforcement implementation also satisfies.
+func TestRevisionIsImmutable(t *testing.T) {
+	db := dbtest.DB(t)
+	svc := project.NewService(db)
+	ctx := context.Background()
+
+	p, err := svc.CreateProject(ctx, 1, "Acme", "acme", 7)
+	if err != nil {
+		t.Fatalf("create project: %v", err)
 	}
-	if reloaded.SpecHash != first.SpecHash || reloaded.SpecJSON != first.SpecJSON ||
-		reloaded.ParentRevisionID != nil || reloaded.ProjectID != first.ProjectID {
-		t.Error("first revision changed after a later revision was created; revisions must be immutable")
+	rev, err := svc.CreateRevision(ctx, p.ID, validSpec(t, "V1", "v1"), 7)
+	if err != nil {
+		t.Fatalf("revision: %v", err)
+	}
+
+	err = db.Model(&project.Revision{}).Where("id = ?", rev.ID).
+		Updates(map[string]any{"spec_json": `{"tampered":true}`, "spec_hash": "deadbeef"}).Error
+	if err == nil {
+		t.Fatal("a revision must reject an UPDATE")
+	}
+
+	// The bytes must still be the original ones.
+	reloaded, ok, err := svc.Revision(ctx, rev.ID)
+	if err != nil || !ok {
+		t.Fatalf("reload: ok=%v err=%v", ok, err)
+	}
+	if reloaded.SpecJSON != rev.SpecJSON || reloaded.SpecHash != rev.SpecHash {
+		t.Error("revision bytes changed despite the immutability guard")
+	}
+}
+
+// TestHeadReportsCorruptLineage: a project whose head points at a missing
+// revision is an impossible state, and must be reported loudly rather than
+// disguised as a fresh project with no revisions.
+func TestHeadReportsCorruptLineage(t *testing.T) {
+	db := dbtest.DB(t)
+	svc := project.NewService(db)
+	ctx := context.Background()
+
+	p, err := svc.CreateProject(ctx, 1, "Acme", "acme", 7)
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	rev, err := svc.CreateRevision(ctx, p.ID, validSpec(t, "V1", "v1"), 7)
+	if err != nil {
+		t.Fatalf("revision: %v", err)
+	}
+	// Delete the head revision out from under the project, leaving a dangling
+	// pointer (what a rollback-prune bug would do before #38's ON DELETE rule).
+	if err := db.Delete(&project.Revision{}, rev.ID).Error; err != nil {
+		t.Fatalf("delete revision: %v", err)
+	}
+
+	_, ok, err := svc.Head(ctx, p.ID)
+	if !errors.Is(err, project.ErrCorruptLineage) {
+		t.Errorf("Head with dangling pointer err = %v, want ErrCorruptLineage", err)
+	}
+	if ok {
+		t.Error("a corrupt head must not report a usable revision")
 	}
 }
 

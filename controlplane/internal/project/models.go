@@ -10,7 +10,12 @@
 // revision's stored bytes and the compiler's are the same bytes.
 package project
 
-import "time"
+import (
+	"errors"
+	"time"
+
+	"gorm.io/gorm"
+)
 
 // Project is a Forge project: a named, org-scoped container for a spec that
 // evolves through revisions. HeadRevisionID is the current revision, nil until
@@ -32,10 +37,18 @@ type Project struct {
 	UpdatedAt      time.Time
 }
 
-// Revision is one immutable snapshot of a project's spec (DESIGN.md §8). Once
-// written it is never updated: the service only ever inserts, and there is no
-// field to mutate but HeadRevisionID on the project, which lives on Project.
-// The absence of an UpdatedAt is deliberate — a revision has no second state.
+// Revision is one immutable snapshot of a project's spec (DESIGN.md §8). It is
+// append-only: once written it is never updated. That is enforced by the
+// BeforeUpdate hook below, not left to the service's call sites — every promise
+// this package makes (deterministic rebuild, rollback, diff, lineage) reduces to
+// "these bytes are the bytes that were accepted", and a silent UPDATE that
+// rewrote spec_json and spec_hash together would break all of them while the
+// stored hash still matched. The absence of an UpdatedAt is a signal of this,
+// but only the hook makes it a property.
+//
+// Append-only, not write-once-forever: deletion stays possible (there is no
+// BeforeDelete guard), because a rollback that prunes revisions is a legitimate
+// operation the HeadRevisionID comment above anticipates.
 type Revision struct {
 	ID          uint `gorm:"primaryKey"`
 	ProjectID   uint `gorm:"not null;index"`
@@ -57,3 +70,12 @@ type Revision struct {
 
 // TableName pins the table so renaming the Go type never migrates the data.
 func (Revision) TableName() string { return "project_revisions" }
+
+// BeforeUpdate makes immutability real: GORM would otherwise happily UPDATE any
+// column on this table. Insert and delete remain allowed (append-only); only
+// in-place mutation is refused. When #38 authors the migration this can be
+// reinforced with a database-level rule, but the hook is what enforces the AC
+// today.
+func (Revision) BeforeUpdate(*gorm.DB) error {
+	return errors.New("project: revisions are immutable")
+}

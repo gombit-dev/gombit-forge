@@ -19,10 +19,17 @@ var (
 	// ErrInvalidSpec means the candidate spec failed semantic validation; the
 	// wrapped error carries the diagnostics.
 	ErrInvalidSpec = errors.New("project: invalid spec")
+	// ErrCorruptLineage means a project's HeadRevisionID points at a revision
+	// that does not exist — an impossible state, distinct from "no revisions
+	// yet". The API layer maps it to a 500, not a 404.
+	ErrCorruptLineage = errors.New("project: head revision missing")
 )
 
-// Service holds project and revision operations. The clock is injectable for
-// deterministic tests.
+// Service holds project and revision operations.
+//
+// now is a seam for a future timestamp-ordering test to replace; today it is
+// always the system clock — there is no option or setter yet, so the comment
+// promises nothing the package cannot do.
 type Service struct {
 	db  *gorm.DB
 	now func() time.Time
@@ -123,7 +130,18 @@ func (s *Service) Head(ctx context.Context, projectID uint) (Revision, bool, err
 	if p.HeadRevisionID == nil {
 		return Revision{}, false, nil
 	}
-	return s.Revision(ctx, *p.HeadRevisionID)
+	rev, ok, err := s.Revision(ctx, *p.HeadRevisionID)
+	if err != nil {
+		return Revision{}, false, err
+	}
+	if !ok {
+		// The project claims a head, but that revision is gone: the chain is
+		// corrupt. Surface it loudly rather than disguising it as a fresh
+		// project with no revisions.
+		return Revision{}, false, fmt.Errorf("%w: project %d head %d",
+			ErrCorruptLineage, projectID, *p.HeadRevisionID)
+	}
+	return rev, true, nil
 }
 
 // Revision returns a single revision by id.
