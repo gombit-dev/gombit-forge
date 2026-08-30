@@ -24,8 +24,11 @@ import (
 // (DESIGN.md §14). Tests may AutoMigrate this set to stand up a scratch schema.
 //
 // audit.Event is here because the invitation flow (#36) records to it; #40
-// builds the audit service over it. With #38 the core model set is complete;
-// what remains for M1 is services and API, not schema.
+// builds the audit service over it. With #38 the *model set* is complete — but
+// the *schema* is not: no Atlas migration has been authored, so the foreign
+// keys and ON DELETE rules recorded on org.Member, project.Project and
+// deploy.Deployment exist nowhere yet, and the deployed control plane cannot
+// create these tables. That migration is #101.
 func Models() []any {
 	return append(auth.Models(),
 		&org.Organization{},

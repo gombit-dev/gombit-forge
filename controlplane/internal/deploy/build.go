@@ -9,7 +9,12 @@
 // remaining core model, already exists in internal/audit (#36).
 package deploy
 
-import "time"
+import (
+	"fmt"
+	"time"
+
+	"gorm.io/gorm"
+)
 
 // BuildState is a build's position in the pipeline (DESIGN.md §11). The zero
 // value is not a valid state; a build starts at BuildQueued.
@@ -30,9 +35,16 @@ const (
 // to next. The happy path is a linear pipeline (queued → generating → testing →
 // building → publishing → succeeded); failed and cancelled are reachable from
 // every non-terminal state (a build can break or be cancelled at any stage).
-// The three terminal states have no outgoing transitions — this is the model
-// half of "builds must be immutable" (§11): once a build reaches a terminal
-// state, its result cannot be walked back to a different one.
+// The three terminal states have no outgoing transitions, so a pipeline that
+// consults CanTransitionTo cannot walk a finished build back to a different
+// result (§11).
+//
+// The stored Build.State is bound to this table only at the ends: BeforeSave
+// rejects a state the machine does not know (no "banana" build). The transition
+// guard proper — refusing a legal-state-but-illegal-move write — is M4's
+// worker, and should be a compare-and-swap (UPDATE … WHERE id = ? AND state = ?
+// with the expected prior state) so two racing workers cannot lose an update; a
+// CHECK constraint reinforces the valid-state half at the database (#101).
 var buildTransitions = map[BuildState]map[BuildState]bool{
 	BuildQueued:     {BuildGenerating: true, BuildFailed: true, BuildCancelled: true},
 	BuildGenerating: {BuildTesting: true, BuildFailed: true, BuildCancelled: true},
@@ -65,21 +77,55 @@ func (s BuildState) CanTransitionTo(next BuildState) bool {
 
 // Build compiles one exact project revision into a deployable artifact
 // (DESIGN.md §11). Its inputs — the revision and the toolchain versions — are
-// what make a rebuild deterministic and are never changed after creation; the
-// pipeline advances State through buildTransitions.
+// what make a rebuild deterministic; only State and FailureReason advance after
+// creation, which BeforeUpdate enforces. The pipeline advances State through
+// buildTransitions.
 type Build struct {
 	ID        uint `gorm:"primaryKey"`
 	ProjectID uint `gorm:"not null;index"`
-	// RevisionID is the exact revision built (project_revisions). Immutable input.
+	// RevisionID is the exact revision built (project_revisions). Input, frozen
+	// after creation by BeforeUpdate.
 	RevisionID uint `gorm:"not null;index"`
 	// ForgeVersion and GombitVersion pin the toolchain (§11 build inputs), so a
-	// rebuild reproduces the artifact. Immutable inputs.
+	// rebuild reproduces the artifact. Inputs, frozen after creation.
 	ForgeVersion  string     `gorm:"size:64;not null"`
 	GombitVersion string     `gorm:"size:64;not null"`
 	State         BuildState `gorm:"size:20;not null;index"`
-	// FailureReason is set only when State is BuildFailed; never a secret value
-	// (§23).
+	// FailureReason carries a build's failure explanation. It is populated from
+	// build output, so §23's "no secret values" does NOT hold here by
+	// construction the way it does for audit.Event — build logs are the most
+	// likely place a DSN or key leaks. Redacting against the known secret set is
+	// M4's job (and #41's secret store is what makes it possible); this field is
+	// unredacted until then. The state/reason pairing is likewise a convention,
+	// not a constraint, until #101 adds a CHECK.
 	FailureReason string `gorm:"type:text"`
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+}
+
+// BeforeSave rejects a build state the machine does not know, on the struct
+// paths GORM routes through the model — Create and Save. It reads the instance's
+// State, so a column-level Update("state", …) bypasses it (the same model-API
+// caveat as the immutability hooks); #101's CHECK constraint is what closes
+// that path and is the durable guarantee. This hook is the cheap, in-process
+// half. The transition guard proper is M4's (see buildTransitions).
+func (b *Build) BeforeSave(*gorm.DB) error {
+	if !b.State.Valid() {
+		return fmt.Errorf("deploy: invalid build state %q", b.State)
+	}
+	return nil
+}
+
+// BeforeUpdate freezes the build's inputs: a rebuild is only reproducible if the
+// revision and toolchain versions that defined it cannot be repointed by a
+// later Updates/Save. Only State and FailureReason may advance. Like
+// project.Revision's hook this guards GORM's model API, not a raw Exec or
+// SkipHooks; the durable version is a trigger or column revoke in #101.
+func (b *Build) BeforeUpdate(tx *gorm.DB) error {
+	for _, col := range []string{"project_id", "revision_id", "forge_version", "gombit_version"} {
+		if tx.Statement.Changed(col) {
+			return fmt.Errorf("deploy: build %s is immutable after creation", col)
+		}
+	}
+	return nil
 }

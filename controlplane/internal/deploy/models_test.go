@@ -81,3 +81,65 @@ func TestBuildAndDeploymentReferences(t *testing.T) {
 		t.Errorf("deployment references = %+v, want env %d build %d revision 42", got, env.ID, build.ID)
 	}
 }
+
+// TestBuildRejectsUnknownState pins BeforeSave on the struct paths it guards:
+// an unknown state is refused on Create and on Save. (The column-level
+// Update("state", …) path is #101's CHECK constraint, not this hook — see
+// BeforeSave's doc.)
+func TestBuildRejectsUnknownState(t *testing.T) {
+	db := dbtest.DB(t)
+
+	if err := db.Create(&deploy.Build{
+		ProjectID: 1, RevisionID: 1, ForgeVersion: "v", GombitVersion: "v",
+		State: "banana",
+	}).Error; err == nil {
+		t.Error("creating a build with an unknown state must be rejected")
+	}
+
+	build := deploy.Build{ProjectID: 1, RevisionID: 1, ForgeVersion: "v", GombitVersion: "v", State: deploy.BuildQueued}
+	if err := db.Create(&build).Error; err != nil {
+		t.Fatalf("create valid build: %v", err)
+	}
+	build.State = "banana"
+	if err := db.Save(&build).Error; err == nil {
+		t.Error("saving a build with an unknown state must be rejected")
+	}
+}
+
+// TestBuildInputsAreImmutable pins BeforeUpdate: the revision and toolchain
+// versions are frozen after creation, while State and FailureReason advance.
+func TestBuildInputsAreImmutable(t *testing.T) {
+	db := dbtest.DB(t)
+
+	build := deploy.Build{
+		ProjectID: 1, RevisionID: 42, ForgeVersion: "v0.0.0", GombitVersion: "v0.1.7",
+		State: deploy.BuildQueued,
+	}
+	if err := db.Create(&build).Error; err != nil {
+		t.Fatalf("create build: %v", err)
+	}
+
+	// State and FailureReason may advance.
+	if err := db.Model(&build).Update("state", deploy.BuildGenerating).Error; err != nil {
+		t.Errorf("advancing state must be allowed: %v", err)
+	}
+
+	// Inputs are frozen.
+	if err := db.Model(&deploy.Build{}).Where("id = ?", build.ID).
+		Update("revision_id", 999).Error; err == nil {
+		t.Error("repointing a build's revision must be rejected")
+	}
+	if err := db.Model(&deploy.Build{}).Where("id = ?", build.ID).
+		Update("forge_version", "tampered").Error; err == nil {
+		t.Error("rewriting a build's toolchain version must be rejected")
+	}
+
+	// The inputs are unchanged.
+	var got deploy.Build
+	if err := db.First(&got, build.ID).Error; err != nil {
+		t.Fatalf("reload build: %v", err)
+	}
+	if got.RevisionID != 42 || got.ForgeVersion != "v0.0.0" {
+		t.Errorf("build inputs changed: revision=%d forge=%q", got.RevisionID, got.ForgeVersion)
+	}
+}

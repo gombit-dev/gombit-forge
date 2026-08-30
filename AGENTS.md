@@ -55,10 +55,14 @@ that drive them are not built.
 `internal/platform.Models()` is the control plane's schema of record; tests
 AutoMigrate it, but **no Atlas migration is committed yet** — deployment can't
 create these tables until one is (§14 forbids AutoMigrate in the deployed app).
-The core model set is now complete; what remains for M1 is services and API, not
-schema: the project/revision API (#39, which also adds the authorized
-project-create path), the audit service (#40), secrets (#41), and any editor,
-build pipeline or deploy path. Don't describe those as existing.
+With #38 the *model set* is complete, but the *schema* is not: the foreign keys,
+ON DELETE rules and integrity constraints the model comments defer (org/project
+FKs, the Deployment↔Build composite key, the Build state CHECK, durable
+immutability) live in **#101**, the initial-migration issue, and exist nowhere
+yet. Still open for M1: that migration (#101), the project/revision API (#39,
+which also adds the authorized project-create path), the audit service (#40),
+secrets (#41), and any editor, build pipeline or deploy path. Don't describe
+those as existing.
 
 The repo is **two Go modules**. The root module
 (`github.com/gombit-dev/gombit-forge`) is the compiler and stays gombit-free —

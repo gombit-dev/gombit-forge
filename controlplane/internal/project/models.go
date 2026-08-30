@@ -27,7 +27,7 @@ type Project struct {
 	Slug           string `gorm:"size:120;not null;uniqueIndex:uidx_org_project_slug,priority:2"`
 	// HeadRevisionID is the project's current revision. It is a plain uint FK
 	// with no database constraint yet; like the org models, the FK decision is
-	// deferred to #38's initial migration (ON DELETE for organization_id is
+	// deferred to #101's initial migration (ON DELETE for organization_id is
 	// CASCADE; head_revision_id references project_revisions and must be
 	// nullable + ON DELETE SET NULL so a rollback that prunes revisions cannot
 	// orphan the project).
@@ -42,7 +42,7 @@ type Project struct {
 // enforces that against GORM's model API — the Updates/Save paths a human
 // actually takes — rather than leaving it to the service's call sites; a raw
 // Exec or an explicit Session{SkipHooks: true} still bypasses it, and closing
-// those is the job of the database-level rule #38 adds. Every promise this
+// those is the job of the database-level rule #101 adds. Every promise this
 // package makes (deterministic rebuild, rollback, diff, lineage) reduces to
 // "these bytes are the bytes that were accepted", and a silent UPDATE that
 // rewrote spec_json and spec_hash together would break all of them while the
@@ -76,7 +76,7 @@ func (Revision) TableName() string { return "project_revisions" }
 
 // BeforeUpdate makes immutability real: GORM would otherwise happily UPDATE any
 // column on this table. Insert and delete remain allowed (append-only); only
-// in-place mutation is refused. When #38 authors the migration this can be
+// in-place mutation is refused. When #101 authors the migration this can be
 // reinforced with a database-level rule, but the hook is what enforces the AC
 // today.
 func (Revision) BeforeUpdate(*gorm.DB) error {
