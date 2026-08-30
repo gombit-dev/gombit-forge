@@ -35,11 +35,24 @@ type Project struct {
 	// CloudProjectID links this Forge project to its Gombit Cloud counterpart
 	// (ADR-005 D6). Runtime state — builds, deployments, environments, the
 	// database, secrets, domains — lives in Cloud, not the Forge control plane;
-	// this opaque identifier is the whole of Forge's knowledge of it. Nil until
-	// the project is first deployed (a project can be authored and previewed
-	// before it is linked). Stored as a string because it is Cloud's ID space,
-	// not a Forge FK — there is no table here to reference.
-	CloudProjectID *string `gorm:"size:64;index"`
+	// this opaque identifier is the whole of Forge's knowledge of it. Stored as
+	// a string because it is Cloud's ID space, not a Forge FK — there is no
+	// table here to reference.
+	//
+	// Nil until the project is linked to Cloud, which happens at its first
+	// preview: under ADR-005 D5 preview is a Cloud primitive, so Cloud must know
+	// the project before it can provision one. A project can be authored and
+	// revised before it is linked; it cannot be previewed or deployed. Every
+	// Cloud-facing operation must treat nil as "not linked yet" and refuse
+	// rather than dereferencing.
+	//
+	// uniqueIndex, not a plain index: one Forge project per Cloud counterpart. A
+	// nullable unique index permits unlimited unlinked (NULL) rows while
+	// forbidding two projects from claiming the same cloud_project_id, so "nil
+	// until linked" and "at most one project per counterpart" do not conflict.
+	// #101 materializes this from the tag, the way head_revision_id's ON DELETE
+	// SET NULL is recorded above.
+	CloudProjectID *string `gorm:"size:64;uniqueIndex"`
 	CreatedBy      uint    `gorm:"not null"`
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
