@@ -154,7 +154,7 @@ func (h *Handler) acceptInvitation(ctx context.Context, in *acceptInvitationInpu
 	if !ok {
 		return nil, contract.WithContext(ctx, contract.Authentication("authentication required"))
 	}
-	m, err := h.svc.AcceptInvitation(ctx, in.Body.Token, user.ID)
+	m, err := h.svc.AcceptInvitation(ctx, in.Body.Token, user.Email, user.ID)
 	if err != nil {
 		return nil, mapError(ctx, err, "accept invitation")
 	}
@@ -177,7 +177,7 @@ func parseID(s string) (uint, error) {
 // default is a 500 that does not leak the underlying message.
 func mapError(ctx context.Context, err error, action string) error {
 	switch {
-	case errors.Is(err, ErrForbidden), errors.Is(err, ErrNotMember):
+	case errors.Is(err, ErrForbidden), errors.Is(err, ErrNotMember), errors.Is(err, ErrRoleExceedsGranter):
 		return contract.WithContext(ctx, contract.Authorization("not permitted"))
 	case errors.Is(err, ErrAlreadyMember):
 		return contract.WithContext(ctx, contract.Conflict("already a member"))

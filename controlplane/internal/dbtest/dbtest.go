@@ -18,9 +18,9 @@ import (
 	"testing"
 	"time"
 
-	"gorm.io/driver/postgres"
+	"github.com/gombit-dev/gombit/config"
+	"github.com/gombit-dev/gombit/database"
 	"gorm.io/gorm"
-	gormlogger "gorm.io/gorm/logger"
 
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/platform"
 )
@@ -75,22 +75,30 @@ func StartPostgres(t *testing.T) *Container {
 }
 
 // DB starts a throwaway Postgres and returns a GORM handle with the control
-// plane's full schema applied via AutoMigrate. AutoMigrate is a test-only
-// convenience for standing up a scratch schema; deployment uses Atlas
-// migrations (DESIGN.md §14).
+// plane's full schema applied via AutoMigrate.
+//
+// It opens the connection through Gombit's database.Open — the same entry point
+// the deployed control plane uses — so tests see production GORM semantics,
+// notably TranslateError (which turns a unique violation into
+// gorm.ErrDuplicatedKey, the signal the org handlers map to 409). Opening GORM
+// directly here would silently diverge from production in exactly that
+// dimension. AutoMigrate is the one test-only shortcut: it stands up a scratch
+// schema, where deployment uses Atlas migrations (DESIGN.md §14).
 func DB(t *testing.T) *gorm.DB {
 	t.Helper()
 	c := StartPostgres(t)
-	db, err := gorm.Open(postgres.Open(c.DSN), &gorm.Config{
-		Logger: gormlogger.Default.LogMode(gormlogger.Silent),
+	db, err := database.Open(config.DatabaseConfig{
+		Driver: config.DatabaseDriverPostgres,
+		DSN:    c.DSN,
 	})
 	if err != nil {
-		t.Fatalf("open gorm: %v", err)
+		t.Fatalf("open database: %v", err)
 	}
+	t.Cleanup(func() { _ = db.Close() })
 	if err := db.AutoMigrate(platform.Models()...); err != nil {
 		t.Fatalf("automigrate schema: %v", err)
 	}
-	return db
+	return db.DB
 }
 
 // FreePort returns an unused loopback TCP port as a string.

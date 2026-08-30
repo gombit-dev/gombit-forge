@@ -5,7 +5,6 @@ go 1.25.7
 require (
 	github.com/danielgtaylor/huma/v2 v2.39.1
 	github.com/gombit-dev/gombit v0.1.7
-	gorm.io/driver/postgres v1.6.2
 	gorm.io/gorm v1.31.2
 )
 
@@ -59,5 +58,6 @@ require (
 	golang.org/x/text v0.41.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gorm.io/driver/mysql v1.6.0 // indirect
+	gorm.io/driver/postgres v1.6.2 // indirect
 	gorm.io/driver/sqlite v1.6.0 // indirect
 )

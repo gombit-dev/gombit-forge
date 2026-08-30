@@ -88,7 +88,7 @@ func TestInviteEmitsAuditEventAndAcceptCreatesMember(t *testing.T) {
 	// Accepting the invitation creates the invitee's membership with the
 	// invited role.
 	invitee := seedUser(t, db, "invitee@example.test")
-	m, err := svc.AcceptInvitation(ctx, token, invitee)
+	m, err := svc.AcceptInvitation(ctx, token, "invitee@example.test", invitee)
 	if err != nil {
 		t.Fatalf("accept: %v", err)
 	}
@@ -97,8 +97,73 @@ func TestInviteEmitsAuditEventAndAcceptCreatesMember(t *testing.T) {
 	}
 
 	// The token is single-use: a second accept fails closed.
-	if _, err := svc.AcceptInvitation(ctx, token, invitee); err != org.ErrInvitationInvalid {
+	if _, err := svc.AcceptInvitation(ctx, token, "invitee@example.test", invitee); err != org.ErrInvitationInvalid {
 		t.Errorf("second accept err = %v, want ErrInvitationInvalid", err)
+	}
+}
+
+// TestAcceptRequiresMatchingEmail proves acceptance is bound to the invited
+// identity, not merely to possession of the token: a different logged-in user
+// holding the token cannot redeem it, and gets the same opaque error as a bad
+// token (no "valid, but not for you" oracle).
+func TestAcceptRequiresMatchingEmail(t *testing.T) {
+	db := dbtest.DB(t)
+	svc := org.NewService(db)
+	ctx := context.Background()
+
+	owner := seedUser(t, db, "owner@example.test")
+	o, err := svc.CreateOrganization(ctx, "Acme", "acme", owner)
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	_, token, err := svc.InviteMember(ctx, o.ID, owner, "invitee@example.test", org.RoleMember)
+	if err != nil {
+		t.Fatalf("invite: %v", err)
+	}
+
+	// A different user (with the token but the wrong email) is rejected.
+	interloper := seedUser(t, db, "someone-else@example.test")
+	if _, err := svc.AcceptInvitation(ctx, token, "someone-else@example.test", interloper); err != org.ErrInvitationInvalid {
+		t.Errorf("wrong-email accept err = %v, want ErrInvitationInvalid", err)
+	}
+
+	// The intended recipient still can (and email match is case-insensitive).
+	invitee := seedUser(t, db, "invitee@example.test")
+	if _, err := svc.AcceptInvitation(ctx, token, "Invitee@Example.Test", invitee); err != nil {
+		t.Fatalf("intended recipient accept: %v", err)
+	}
+}
+
+// TestInviteCannotGrantAboveOwnRole proves the second authorization gate: an
+// admin may invite (CapMembersInvite) but may not mint a role above its own.
+func TestInviteCannotGrantAboveOwnRole(t *testing.T) {
+	db := dbtest.DB(t)
+	svc := org.NewService(db)
+	ctx := context.Background()
+
+	owner := seedUser(t, db, "owner@example.test")
+	o, err := svc.CreateOrganization(ctx, "Acme", "acme", owner)
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+
+	// Owner promotes someone to admin.
+	_, adminTok, err := svc.InviteMember(ctx, o.ID, owner, "admin@example.test", org.RoleAdmin)
+	if err != nil {
+		t.Fatalf("owner invites admin: %v", err)
+	}
+	adminUser := seedUser(t, db, "admin@example.test")
+	if _, err := svc.AcceptInvitation(ctx, adminTok, "admin@example.test", adminUser); err != nil {
+		t.Fatalf("admin accepts: %v", err)
+	}
+
+	// The admin cannot invite an owner — that would escalate past its own ceiling.
+	if _, _, err := svc.InviteMember(ctx, o.ID, adminUser, "puppet@example.test", org.RoleOwner); err != org.ErrRoleExceedsGranter {
+		t.Errorf("admin inviting owner err = %v, want ErrRoleExceedsGranter", err)
+	}
+	// But the admin can invite at or below its own role.
+	if _, _, err := svc.InviteMember(ctx, o.ID, adminUser, "peer@example.test", org.RoleAdmin); err != nil {
+		t.Errorf("admin inviting admin err = %v, want nil", err)
 	}
 }
 
@@ -119,7 +184,7 @@ func TestInviteRequiresPermission(t *testing.T) {
 	if err != nil {
 		t.Fatalf("owner invite: %v", err)
 	}
-	if _, err := svc.AcceptInvitation(ctx, token, memberUser); err != nil {
+	if _, err := svc.AcceptInvitation(ctx, token, "member@example.test", memberUser); err != nil {
 		t.Fatalf("accept: %v", err)
 	}
 	_ = inv

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -30,6 +31,9 @@ var (
 	ErrAlreadyMember = errors.New("org: already a member")
 	// ErrInvalidRole means a caller-supplied role is not a known Role.
 	ErrInvalidRole = errors.New("org: invalid role")
+	// ErrRoleExceedsGranter means the inviter tried to grant a role above its
+	// own standing (e.g. an admin inviting an owner).
+	ErrRoleExceedsGranter = errors.New("org: cannot grant a role above your own")
 )
 
 // DefaultInvitationTTL is how long an invitation stays acceptable.
@@ -116,8 +120,21 @@ func (s *Service) InviteMember(ctx context.Context, orgID, inviterUserID uint, e
 	if !role.Valid() {
 		return Invitation{}, "", ErrInvalidRole
 	}
-	if err := s.Authorize(ctx, orgID, inviterUserID, CapMembersInvite); err != nil {
+	// Resolve the inviter's own role: they must both be permitted to invite and
+	// not be granting above their own standing. Checking CapMembersInvite alone
+	// would let an admin mint an owner.
+	inviterRole, ok, err := s.MemberRole(ctx, orgID, inviterUserID)
+	if err != nil {
 		return Invitation{}, "", err
+	}
+	if !ok {
+		return Invitation{}, "", ErrNotMember
+	}
+	if !Can(inviterRole, CapMembersInvite) {
+		return Invitation{}, "", ErrForbidden
+	}
+	if !CanGrant(inviterRole, role) {
+		return Invitation{}, "", ErrRoleExceedsGranter
 	}
 
 	// A person who is already a member cannot be invited again.
@@ -161,10 +178,17 @@ func (s *Service) InviteMember(ctx context.Context, orgID, inviterUserID uint, e
 	return inv, raw, nil
 }
 
-// AcceptInvitation redeems a raw invitation token for the given user, creating
-// their membership and marking the invitation accepted, atomically. It fails
-// closed: an unknown, expired, or already-accepted token is ErrInvitationInvalid.
-func (s *Service) AcceptInvitation(ctx context.Context, rawToken string, userID uint) (Member, error) {
+// AcceptInvitation redeems a raw invitation token for the accepting user,
+// creating their membership and marking the invitation accepted, atomically.
+//
+// Invitations are addressed to a specific email (§22): the accepting user's
+// email must match the invitation's, so possessing a leaked token is not enough
+// to join as someone else. It fails closed — an unknown, expired,
+// already-accepted, or wrong-recipient token is all ErrInvitationInvalid, so a
+// caller cannot even distinguish "valid token, not for you" from "no such
+// token". userEmail is the authenticated caller's email (from the session), not
+// caller-supplied.
+func (s *Service) AcceptInvitation(ctx context.Context, rawToken, userEmail string, userID uint) (Member, error) {
 	var member Member
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var inv Invitation
@@ -175,6 +199,10 @@ func (s *Service) AcceptInvitation(ctx context.Context, rawToken string, userID 
 		}
 		if lookup.Error != nil {
 			return lookup.Error
+		}
+		// Bind acceptance to the invited identity. Email is case-insensitive.
+		if !strings.EqualFold(userEmail, inv.Email) {
+			return ErrInvitationInvalid
 		}
 
 		member = Member{OrganizationID: inv.OrganizationID, UserID: userID, Role: inv.Role}

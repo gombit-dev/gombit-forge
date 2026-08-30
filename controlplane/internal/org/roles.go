@@ -74,3 +74,31 @@ var capabilities = map[Role]map[Capability]bool{
 func Can(role Role, capability Capability) bool {
 	return capabilities[role][capability]
 }
+
+// rank orders roles by privilege so grants can be bounded by the granter's own
+// standing. An unknown role ranks 0, below every real role, so it can grant
+// nothing (fail closed).
+func (r Role) rank() int {
+	switch r {
+	case RoleOwner:
+		return 3
+	case RoleAdmin:
+		return 2
+	case RoleMember:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// CanGrant reports whether a member holding granter may hand out target. A
+// member may only grant a role it outranks or equals — otherwise an admin,
+// which cannot manage the org, could mint an owner, which can, and escalate
+// past its own ceiling through a sock puppet. Holding CapMembersInvite is
+// necessary but not sufficient; this is the second gate.
+func CanGrant(granter, target Role) bool {
+	if !granter.Valid() || !target.Valid() {
+		return false
+	}
+	return target.rank() <= granter.rank()
+}

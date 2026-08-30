@@ -67,3 +67,29 @@ func TestCanFailsClosed(t *testing.T) {
 		}
 	}
 }
+
+// TestCanGrant pins the grant hierarchy: a role may only grant roles at or
+// below its own standing, and unknown roles neither grant nor are grantable.
+func TestCanGrant(t *testing.T) {
+	cases := []struct {
+		granter, target Role
+		want            bool
+	}{
+		{RoleOwner, RoleOwner, true},
+		{RoleOwner, RoleAdmin, true},
+		{RoleOwner, RoleMember, true},
+		{RoleAdmin, RoleOwner, false}, // the escalation this gate exists to stop
+		{RoleAdmin, RoleAdmin, true},
+		{RoleAdmin, RoleMember, true},
+		{RoleMember, RoleOwner, false},
+		{RoleMember, RoleAdmin, false},
+		{RoleMember, RoleMember, true},
+		{"bogus", RoleMember, false},
+		{RoleOwner, "bogus", false},
+	}
+	for _, c := range cases {
+		if got := CanGrant(c.granter, c.target); got != c.want {
+			t.Errorf("CanGrant(%q, %q) = %v, want %v", c.granter, c.target, got, c.want)
+		}
+	}
+}
