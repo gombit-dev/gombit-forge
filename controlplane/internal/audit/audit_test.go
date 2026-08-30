@@ -129,12 +129,18 @@ func TestListPagesAndCaps(t *testing.T) {
 	if err != nil || len(first) != 2 {
 		t.Fatalf("first page = %d (err %v), want 2", len(first), err)
 	}
-	next, err := audit.List(ctx, db, audit.Filter{OrganizationID: o, Limit: 2, Offset: 2})
+	// Keyset paging: the next page is everything strictly older than the last
+	// row of this one, and must not overlap it.
+	last := first[len(first)-1]
+	next, err := audit.List(ctx, db, audit.Filter{OrganizationID: o, Limit: 2, Before: &audit.Cursor{CreatedAt: last.CreatedAt, ID: last.ID}})
 	if err != nil || len(next) != 2 {
 		t.Fatalf("second page = %d (err %v), want 2", len(next), err)
 	}
-	if first[0].ID == next[0].ID {
-		t.Error("offset paging returned an overlapping row")
+	seen := map[uint]bool{first[0].ID: true, first[1].ID: true}
+	for _, e := range next {
+		if seen[e.ID] {
+			t.Errorf("keyset page overlapped row id %d", e.ID)
+		}
 	}
 
 	all, err := audit.List(ctx, db, audit.Filter{OrganizationID: o, Limit: 10_000})
@@ -143,5 +149,43 @@ func TestListPagesAndCaps(t *testing.T) {
 	}
 	if len(all) != 5 {
 		t.Fatalf("capped list = %d, want all 5 (cap does not drop rows below the cap)", len(all))
+	}
+}
+
+// TestRecordRejectsUnknownAction probes the boundary from outside the
+// vocabulary, which is where the risk lives: Action is a defined string type,
+// so a Cloud runtime key is one conversion away. Record must refuse it (and an
+// empty action) and persist nothing. This fails against a Record that does not
+// validate.
+func TestRecordRejectsUnknownAction(t *testing.T) {
+	db := dbtest.DB(t)
+	ctx := context.Background()
+	o, actor := uint(1), uint(7)
+
+	if err := audit.Record(ctx, db, audit.Event{
+		OrganizationID: &o, ActorUserID: &actor,
+		Action: audit.Action("deployment.succeeded"), TargetType: "deployment", TargetID: "1",
+	}); err == nil {
+		t.Error("Forge must refuse to record a Cloud runtime action (ADR-005)")
+	}
+	if err := audit.Record(ctx, db, audit.Event{OrganizationID: &o}); err == nil {
+		t.Error("Record must refuse an empty action (a zero-valued Event)")
+	}
+
+	got, err := audit.List(ctx, db, audit.Filter{OrganizationID: o})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("rejected records must not persist; found %d", len(got))
+	}
+}
+
+// TestListRequiresOrganization: a missing scope is refused, not answered with an
+// empty page — an empty audit view is a specific, false claim.
+func TestListRequiresOrganization(t *testing.T) {
+	db := dbtest.DB(t)
+	if _, err := audit.List(context.Background(), db, audit.Filter{}); err == nil {
+		t.Error("List with no OrganizationID must error, not return an empty page")
 	}
 }

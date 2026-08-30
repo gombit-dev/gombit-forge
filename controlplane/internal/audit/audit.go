@@ -23,6 +23,9 @@ package audit
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"slices"
 	"time"
 
 	"gorm.io/gorm"
@@ -45,10 +48,10 @@ const (
 	ActionDeployTriggered  Action = "deploy.triggered"
 )
 
-// Actions is the closed set of Forge audit actions, in vocabulary order. It
-// exists so a test can assert the set does not drift into Cloud's runtime
-// events (deployment.*, secret.changed), which ADR-005 forbids Forge from
-// fabricating.
+// Actions is the closed set of Forge audit actions, in vocabulary order. It is
+// the single definition of the vocabulary: Record rejects any action not in it,
+// so an action constant that is added but left out of this slice is unusable
+// rather than a silent addition to the recordable set.
 var Actions = []Action{
 	ActionProjectCreated,
 	ActionSpecRevised,
@@ -56,6 +59,14 @@ var Actions = []Action{
 	ActionMemberInvited,
 	ActionPreviewTriggered,
 	ActionDeployTriggered,
+}
+
+// Valid reports whether a is in the closed vocabulary (Actions). It is what
+// makes the "closed set" real: the boundary ADR-005 draws — Forge records its
+// own actions, Cloud records the runtime lifecycle — is enforced here, not left
+// to a comment asking callers to behave.
+func (a Action) Valid() bool {
+	return slices.Contains(Actions, a)
 }
 
 // Event is one recorded control-plane action. It carries who did what to which
@@ -85,7 +96,16 @@ func (Event) TableName() string { return "audit_events" }
 // It takes the db explicitly rather than holding one, so a caller can record
 // inside an existing transaction (pass tx) and have the event commit or roll
 // back atomically with the action it describes.
+//
+// It fails closed on an action outside the closed vocabulary (including the
+// empty action of a zero-valued Event): a free string is how the ADR-005
+// boundary — Forge records its own actions, not Cloud's runtime lifecycle —
+// would erode, since Action is a defined string type one conversion from any
+// value. This is the one place the vocabulary can actually be closed.
 func Record(ctx context.Context, db *gorm.DB, event Event) error {
+	if !event.Action.Valid() {
+		return fmt.Errorf("audit: unknown action %q", event.Action)
+	}
 	return db.WithContext(ctx).Create(&event).Error
 }
 
@@ -95,25 +115,50 @@ const (
 	maxListLimit     = 200
 )
 
+// Cursor is a position in the newest-first ordering: the (CreatedAt, ID) of the
+// last event a caller has already seen. Pass it as Filter.Before to fetch the
+// next, older page.
+type Cursor struct {
+	CreatedAt time.Time
+	ID        uint
+}
+
 // Filter selects and pages audit events for reading. OrganizationID scopes the
 // query to one tenant's events; it is required, because the audit log is viewed
 // per organization and an unscoped read would let one tenant see another's
 // trail. Action and ActorUserID are optional narrowing filters (their zero
-// values match anything).
+// values match anything). Before is the keyset paging cursor.
 type Filter struct {
 	OrganizationID uint
 	Action         Action
 	ActorUserID    *uint
-	Limit          int // <= 0 uses defaultListLimit; larger than maxListLimit is capped
-	Offset         int
+	Limit          int     // <= 0 uses defaultListLimit; larger than maxListLimit is capped
+	Before         *Cursor // nil = newest page; else only events strictly older than the cursor
 }
 
 // List returns one organization's audit events, newest first — ordered by time
 // and then id so events sharing a timestamp keep a stable, deterministic order.
-// It applies the optional Action and ActorUserID filters and limit/offset
-// paging. Platform-level events (no organization) are intentionally not part of
-// a tenant's audit view and are not returned.
+// It applies the optional Action and ActorUserID filters.
+//
+// Paging is by keyset (Filter.Before), not offset, for two reasons that matter
+// on the one table in the schema designed to grow without bound. It is stable
+// under concurrent writes: an offset re-shows or skips rows as new events land
+// between page fetches, which for a log people read to reconstruct events is a
+// correctness bug, not just a cost. And the (created_at, id) < cursor predicate
+// is servable from an index on (organization_id, created_at, id) — a composite
+// index is a worthwhile follow-up migration; today the ordering is what makes
+// keyset possible at all.
+//
+// OrganizationID is required. Platform-level events (no organization) are
+// intentionally not part of a tenant's audit view and are never returned.
 func List(ctx context.Context, db *gorm.DB, f Filter) ([]Event, error) {
+	if f.OrganizationID == 0 {
+		// Refuse rather than return an empty page: a missing scope is a caller
+		// bug, and "this organization has no audit events" is a specific, false
+		// answer for an audit view (cf. project.Head's ErrCorruptLineage).
+		return nil, errors.New("audit: List requires an OrganizationID")
+	}
+
 	limit := f.Limit
 	if limit <= 0 {
 		limit = defaultListLimit
@@ -126,8 +171,8 @@ func List(ctx context.Context, db *gorm.DB, f Filter) ([]Event, error) {
 		Where("organization_id = ?", f.OrganizationID).
 		Order("created_at DESC, id DESC").
 		Limit(limit)
-	if f.Offset > 0 {
-		q = q.Offset(f.Offset)
+	if f.Before != nil {
+		q = q.Where("(created_at, id) < (?, ?)", f.Before.CreatedAt, f.Before.ID)
 	}
 	if f.Action != "" {
 		q = q.Where("action = ?", f.Action)
