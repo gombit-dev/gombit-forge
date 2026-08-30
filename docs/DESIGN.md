@@ -1337,9 +1337,16 @@ Generated applications are normal Gombit applications.
 
 No shared generated-app runtime.
 
+> **Realized in Gombit Cloud (ADR-005).** Unchanged as a decision — the isolation
+> still holds — but it is Cloud's runtime that enforces it (gombit-cloud RFC §56,
+> Invariant F), not the Forge control plane.
+
 ### D4 — Managed hosting supports PostgreSQL only in MVP
 
 Other Gombit databases remain export options.
+
+> **Realized in Gombit Cloud (ADR-005).** Managed-hosting scope is Cloud's
+> (gombit-cloud RFC L7, §25). Export still targets any driver Gombit supports.
 
 ### D5 — Managed applications default to cookie/session auth
 
@@ -1357,9 +1364,16 @@ Dogfood the framework.
 
 No HTTP request directly builds an application.
 
+> **Realized in Gombit Cloud (ADR-005).** Unchanged as a decision — the build is
+> Cloud's (gombit-cloud RFC §14, C1/§89). Forge submits source and observes; it
+> does not run the queue.
+
 ### D9 — Build execution is isolated
 
 Generated code is treated as untrusted.
+
+> **Realized in Gombit Cloud (ADR-005).** Build isolation is enforced by Cloud's
+> disposable workers (gombit-cloud RFC §15, §76, L13), not Forge.
 
 ### D10 — Export is mandatory MVP functionality
 
