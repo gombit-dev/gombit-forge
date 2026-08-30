@@ -982,18 +982,30 @@ A generated application's business-level multi-tenancy is explicitly deferred.
 
 # 23. Audit log
 
+> **Reframed by ADR-005.** §23 is retained, but its action list is reduced: the
+> runtime lifecycle events (deployment started / succeeded / failed) and secret
+> changes are Gombit Cloud's audit trail (gombit-cloud RFC §62), not Forge's —
+> the secrets store itself moved to Cloud (#41). Forge records its own actions,
+> including the *trigger* of a preview or deploy, never their runtime lifecycle.
+> See docs/ADR-005.md §4.3.
+
 Forge records important control-plane actions:
 
 ```text
 project created
 spec revision created
-preview started
-deployment started
-deployment succeeded
-deployment failed
 source exported
-secret changed
 member invited
+preview triggered
+deploy triggered
+```
+
+The runtime lifecycle and secret events §23 originally listed belong to Gombit
+Cloud (gombit-cloud RFC §62), not Forge:
+
+```text
+deployment started / succeeded / failed
+secret changed
 ```
 
 Secret values must never appear in audit data.
