@@ -88,6 +88,12 @@ list` and `git log` before claiming how anything works.
   document.
 - `docs/ADR-004.md` is authoritative for generation ownership and amends
   DESIGN.md P4. Read it before writing any generator.
+- `docs/ADR-005.md` is authoritative for the Forge/Cloud boundary: Forge owns
+  the authoring loop, Gombit Cloud owns the runtime primitives (build, deploy,
+  environments, managed DB, secrets, domains, logs, health, rollback). It
+  supersedes the runtime-platform parts of DESIGN.md (§5, §11–13, §15, §21,
+  §24–27) and re-scopes M4–M6 to "integrate Cloud," not "build a PaaS." Read it
+  before touching the control-plane model set, the build pipeline, or deploy.
 - GitHub issues are the unit of work. Epics are labelled `epic`; don't start a
   task whose epic describes an unmet prerequisite.
 
@@ -99,15 +105,20 @@ From DESIGN.md §33:
   not an editable round-trip representation.
 - **D2 compiler, not runtime.** Generated apps are normal Gombit apps with no
   Forge runtime dependency. A deployed app must keep working if Forge vanishes.
-- **D3 isolated per project.** No shared generated-app runtime.
+- **D3 isolated per project.** No shared generated-app runtime. *(Realized in
+  Gombit Cloud, ADR-005 — Cloud's runtime enforces the isolation, not Forge.)*
 - **D4 PostgreSQL only** for managed hosting. Export may target any driver.
+  *(Managed hosting is Cloud's scope, ADR-005.)*
 - **D5 cookie/session auth** for managed apps.
 - **D6 structured pages, not a freeform canvas.** Tables, forms, details,
   dashboard. No absolute positioning.
 - **D7 Forge itself uses Gombit.** The control plane is a Gombit application;
   dogfooding is locked, not a preference.
-- **D8 builds are asynchronous.** No HTTP request performs a build.
-- **D9 build execution is isolated.** Generated source is untrusted.
+- **D8 builds are asynchronous.** No HTTP request performs a build. *(Cloud's
+  build queue, ADR-005 D2 — Forge submits source and observes; it does not
+  build.)*
+- **D9 build execution is isolated.** Generated source is untrusted. *(Enforced
+  by Cloud's disposable workers, ADR-005.)*
 - **D10 export is mandatory MVP functionality**, not a later feature.
 - **D11 no round-trip after eject.**
 - **D12 use Gombit's contracts.** Never build a Forge-specific auth,
