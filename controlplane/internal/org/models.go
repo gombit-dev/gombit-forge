@@ -29,7 +29,7 @@ type Organization struct {
 // constraint yet, and the same is true of Invitation.OrganizationID. That is a
 // deliberate, recorded decision, not an oversight: the control plane has no
 // committed migration (see platform.Models), so a constraint added here would
-// exist only in test AutoMigrate, protecting nothing in deployment. When #38
+// exist only in test AutoMigrate, protecting nothing in deployment. When #101
 // authors the initial Atlas migration from platform.Models(), it MUST add the
 // references then — ON DELETE CASCADE on the organization side (dropping an org
 // removes its members and invitations) and ON DELETE RESTRICT on the user side

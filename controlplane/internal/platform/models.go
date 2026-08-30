@@ -22,9 +22,14 @@ import (
 // Deployment applies this schema through Atlas migrations, never AutoMigrate
 // (DESIGN.md §14). Tests may AutoMigrate this set to stand up a scratch schema.
 //
-// The set grows as M1 lands its models: Environment/Build/Deployment/Domain
-// (#38). audit.Event is here because the invitation flow (#36) records to it;
-// #38 folds it into the same set and #40 builds the audit service over it.
+// The set is deliberately the authoring loop only — Organization/Member/
+// Invitation (#36), Project/Revision (#37) and audit.Event (#36, service #40).
+// The runtime models (Environment, Build, Deployment, Domain) are owned by
+// Gombit Cloud, not the Forge control plane (ADR-005 D2/D6): Forge compiles a
+// revision to an ordinary Gombit application and hands it to Cloud, which owns
+// build, deployment, environments, databases, secrets and domains. The link to
+// the Cloud side is Project.CloudProjectID, not a table here. #101 authors this
+// (reduced) schema's initial Atlas migration.
 func Models() []any {
 	return append(auth.Models(),
 		&org.Organization{},

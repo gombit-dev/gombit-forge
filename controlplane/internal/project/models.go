@@ -27,12 +27,33 @@ type Project struct {
 	Slug           string `gorm:"size:120;not null;uniqueIndex:uidx_org_project_slug,priority:2"`
 	// HeadRevisionID is the project's current revision. It is a plain uint FK
 	// with no database constraint yet; like the org models, the FK decision is
-	// deferred to #38's initial migration (ON DELETE for organization_id is
+	// deferred to #101's initial migration (ON DELETE for organization_id is
 	// CASCADE; head_revision_id references project_revisions and must be
 	// nullable + ON DELETE SET NULL so a rollback that prunes revisions cannot
 	// orphan the project).
 	HeadRevisionID *uint `gorm:"index"`
-	CreatedBy      uint  `gorm:"not null"`
+	// CloudProjectID links this Forge project to its Gombit Cloud counterpart
+	// (ADR-005 D6). Runtime state — builds, deployments, environments, the
+	// database, secrets, domains — lives in Cloud, not the Forge control plane;
+	// this opaque identifier is the whole of Forge's knowledge of it. Stored as
+	// a string because it is Cloud's ID space, not a Forge FK — there is no
+	// table here to reference.
+	//
+	// Nil until the project is linked to Cloud, which happens at its first
+	// preview: under ADR-005 D5 preview is a Cloud primitive, so Cloud must know
+	// the project before it can provision one. A project can be authored and
+	// revised before it is linked; it cannot be previewed or deployed. Every
+	// Cloud-facing operation must treat nil as "not linked yet" and refuse
+	// rather than dereferencing.
+	//
+	// uniqueIndex, not a plain index: one Forge project per Cloud counterpart. A
+	// nullable unique index permits unlimited unlinked (NULL) rows while
+	// forbidding two projects from claiming the same cloud_project_id, so "nil
+	// until linked" and "at most one project per counterpart" do not conflict.
+	// #101 materializes this from the tag, the way head_revision_id's ON DELETE
+	// SET NULL is recorded above.
+	CloudProjectID *string `gorm:"size:64;uniqueIndex"`
+	CreatedBy      uint    `gorm:"not null"`
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }
@@ -42,7 +63,7 @@ type Project struct {
 // enforces that against GORM's model API — the Updates/Save paths a human
 // actually takes — rather than leaving it to the service's call sites; a raw
 // Exec or an explicit Session{SkipHooks: true} still bypasses it, and closing
-// those is the job of the database-level rule #38 adds. Every promise this
+// those is the job of the database-level rule #101 adds. Every promise this
 // package makes (deterministic rebuild, rollback, diff, lineage) reduces to
 // "these bytes are the bytes that were accepted", and a silent UPDATE that
 // rewrote spec_json and spec_hash together would break all of them while the
@@ -76,7 +97,7 @@ func (Revision) TableName() string { return "project_revisions" }
 
 // BeforeUpdate makes immutability real: GORM would otherwise happily UPDATE any
 // column on this table. Insert and delete remain allowed (append-only); only
-// in-place mutation is refused. When #38 authors the migration this can be
+// in-place mutation is refused. When #101 authors the migration this can be
 // reinforced with a database-level rule, but the hook is what enforces the AC
 // today.
 func (Revision) BeforeUpdate(*gorm.DB) error {
