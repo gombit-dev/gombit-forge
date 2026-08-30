@@ -33,6 +33,11 @@ var (
 	// ErrRoleExceedsGranter means the inviter tried to grant a role above its
 	// own standing (e.g. an admin inviting an owner).
 	ErrRoleExceedsGranter = errors.New("org: cannot grant a role above your own")
+	// ErrInvitationPending means a non-accepted invitation already exists for
+	// this address in this organization. Re-inviting supersedes it in the normal
+	// path, so this only surfaces on a concurrent race between two invites to
+	// the same address.
+	ErrInvitationPending = errors.New("org: invitation already pending")
 )
 
 // DefaultInvitationTTL is how long an invitation stays acceptable.
@@ -181,7 +186,23 @@ func (s *Service) InviteMember(ctx context.Context, orgID, inviterUserID uint, e
 		ExpiresAt:       s.now().Add(s.invitationTTL),
 	}
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Re-inviting an address supersedes any non-accepted invitation for it:
+		// the old token dies, the new one carries the new role and expiry. This
+		// is the only transition out of "expired", and without it the partial
+		// unique index on (organization_id, email) would lock the address
+		// permanently the moment an invitation went unaccepted for its TTL.
+		if err := tx.Where("organization_id = ? AND email = ? AND accepted_at IS NULL",
+			orgID, email).Delete(&Invitation{}).Error; err != nil {
+			return err
+		}
 		if err := tx.Create(&inv).Error; err != nil {
+			// After the supersede delete, the only way to collide on the index
+			// is a concurrent invite to the same address. Surface it as a typed
+			// sentinel rather than leaking gorm.ErrDuplicatedKey (which mapError
+			// cannot tell apart from a slug collision).
+			if errors.Is(err, gorm.ErrDuplicatedKey) {
+				return ErrInvitationPending
+			}
 			return err
 		}
 		org := orgID
@@ -291,8 +312,11 @@ func (s *Service) userByEmailIsMember(ctx context.Context, orgID uint, email str
 
 // normalizeEmail matches Gombit's auth.createUser (lowercase + trim), so an
 // invitation address and a users.email row are the same string or neither. It
-// is applied once at the InviteMember boundary; every other comparison in this
-// package assumes its inputs already passed through here.
+// is applied at every boundary where an address enters the package — the
+// InviteMember argument, the AcceptInvitation caller email, the
+// userByEmailIsMember lookup. It is idempotent, so normalizing twice is
+// harmless and no call site has to reason about whether an earlier one already
+// did it.
 func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }

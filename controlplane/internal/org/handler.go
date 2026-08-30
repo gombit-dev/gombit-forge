@@ -181,6 +181,8 @@ func mapError(ctx context.Context, err error, action string) error {
 		return contract.WithContext(ctx, contract.Authorization("not permitted"))
 	case errors.Is(err, ErrAlreadyMember):
 		return contract.WithContext(ctx, contract.Conflict("already a member"))
+	case errors.Is(err, ErrInvitationPending):
+		return contract.WithContext(ctx, contract.Conflict("an invitation is already pending for this address"))
 	case errors.Is(err, ErrInvitationInvalid):
 		return contract.WithContext(ctx, contract.NotFound("invitation invalid or expired"))
 	case errors.Is(err, ErrInvalidRole):

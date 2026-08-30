@@ -55,9 +55,12 @@ func (Member) TableName() string { return "organization_members" }
 //
 // Email is stored already normalized (see org.normalizeEmail), so it is the
 // same relation as users.email. The partial unique index makes at most one
-// pending (unaccepted) invitation exist per (organization, email): re-inviting
-// the same address does not pile up redundant live tokens, while historical
-// accepted rows are exempt so the audit/history is preserved.
+// non-accepted invitation exist per (organization, email); accepted rows are
+// exempt, so history is preserved. Re-inviting an address is a reissue:
+// InviteMember supersedes the existing non-accepted row inside the same
+// transaction, so this index never blocks a legitimate re-invite (an expired
+// invitation does not lock the address) — it only stops two live tokens for
+// one address from a concurrent race.
 type Invitation struct {
 	ID              uint       `gorm:"primaryKey"`
 	OrganizationID  uint       `gorm:"not null;uniqueIndex:uidx_pending_invite,priority:1,where:accepted_at IS NULL"`

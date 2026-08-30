@@ -70,24 +70,38 @@ func (f *httpFixture) sessionCookie(t *testing.T, userID uint) string {
 	return "Cookie: " + auth.AccessCookieName + "=" + pair.AccessToken
 }
 
-// TestRoutesEnforceGate: every operation rejects an unauthenticated request
-// with 401 — this pins "the gate is attached". It fails if Middlewares is
-// dropped from any route. orgID 1 need not exist: the gate runs before the
-// handler, so an unauthenticated call never reaches it.
+// TestRoutesEnforceGate pins "every operation is behind a gate" and — crucially
+// — runs in CI. It uses a sentinel gate that rejects before any handler, so it
+// needs no database and is not skipped under -short (unlike the Docker-gated
+// tests below). Delete Middlewares from any route in RegisterRoutes and one of
+// these operations reaches the (nil) handler instead of the gate, failing here.
+// Which gate the production wiring chooses — the real cookie session — is the
+// four eyeball-verifiable lines in Register, exercised by TestInviteRouteAuthorizes.
 func TestRoutesEnforceGate(t *testing.T) {
-	f := newHTTPFixture(t)
-
 	ops := []struct{ method, path string }{
 		{http.MethodPost, "/api/v1/organizations"},
 		{http.MethodGet, "/api/v1/organizations/1/members"},
 		{http.MethodPost, "/api/v1/organizations/1/invitations"},
 		{http.MethodPost, "/api/v1/invitations/accept"},
 	}
+
+	var gated int
+	sentinel := func(ctx huma.Context, next func(huma.Context)) {
+		gated++
+		ctx.SetStatus(http.StatusUnauthorized) // reject; never call next
+	}
+	_, api := humatest.New(t)
+	// svc is nil deliberately: the gate rejects before any handler runs, which
+	// is exactly the invariant under test.
+	org.RegisterRoutes(api, "/api/v1", huma.Middlewares{sentinel}, nil)
+
 	for _, op := range ops {
-		resp := f.api.Do(op.method, op.path)
-		if resp.Code != http.StatusUnauthorized {
-			t.Errorf("%s %s unauthenticated = %d, want 401 (gate not attached?)", op.method, op.path, resp.Code)
+		if resp := api.Do(op.method, op.path); resp.Code != http.StatusUnauthorized {
+			t.Errorf("%s %s reached the handler; gate not attached (got %d)", op.method, op.path, resp.Code)
 		}
+	}
+	if gated != len(ops) {
+		t.Errorf("gate ran %d times, want %d (some operation is ungated)", gated, len(ops))
 	}
 }
 

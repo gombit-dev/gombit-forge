@@ -3,6 +3,7 @@ package org_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/gombit-dev/gombit/auth"
 	"gorm.io/gorm"
@@ -257,10 +258,23 @@ func TestInviteNormalizesAddressForRedemption(t *testing.T) {
 	}
 }
 
-// TestInviteRejectsDuplicatePending pins the partial unique index: a second
-// pending invitation for the same (org, email) is refused rather than piling up
-// redundant live tokens.
-func TestInviteRejectsDuplicatePending(t *testing.T) {
+// countPendingInvites returns how many non-accepted invitations exist for an
+// address in an org — the slot the partial unique index guards.
+func countPendingInvites(t *testing.T, db *gorm.DB, orgID uint, email string) int64 {
+	t.Helper()
+	var n int64
+	if err := db.Model(&org.Invitation{}).
+		Where("organization_id = ? AND email = ? AND accepted_at IS NULL", orgID, email).
+		Count(&n).Error; err != nil {
+		t.Fatalf("count pending: %v", err)
+	}
+	return n
+}
+
+// TestReinviteSupersedes: re-inviting a still-pending address reissues rather
+// than failing — the old token dies, the new one lives, and exactly one pending
+// row remains (the partial unique index holds).
+func TestReinviteSupersedes(t *testing.T) {
 	db := dbtest.DB(t)
 	svc := org.NewService(db)
 	ctx := context.Background()
@@ -270,12 +284,91 @@ func TestInviteRejectsDuplicatePending(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create org: %v", err)
 	}
-	if _, _, err := svc.InviteMember(ctx, o.ID, owner, "invitee@example.test", org.RoleMember); err != nil {
+
+	_, oldTok, err := svc.InviteMember(ctx, o.ID, owner, "invitee@example.test", org.RoleMember)
+	if err != nil {
 		t.Fatalf("first invite: %v", err)
 	}
-	// Second pending invite for the same address is a conflict (unique index).
-	_, _, err = svc.InviteMember(ctx, o.ID, owner, "Invitee@example.test", org.RoleMember)
-	if err == nil {
-		t.Fatal("second pending invite for same address must be refused")
+	_, newTok, err := svc.InviteMember(ctx, o.ID, owner, "invitee@example.test", org.RoleAdmin)
+	if err != nil {
+		t.Fatalf("re-invite must supersede, not fail: %v", err)
+	}
+	if n := countPendingInvites(t, db, o.ID, "invitee@example.test"); n != 1 {
+		t.Errorf("pending invitations = %d, want 1 (old superseded)", n)
+	}
+
+	invitee := seedUser(t, db, "invitee@example.test")
+	// The old token is dead.
+	if _, err := svc.AcceptInvitation(ctx, oldTok, "invitee@example.test", invitee); err != org.ErrInvitationInvalid {
+		t.Errorf("superseded token accept = %v, want ErrInvitationInvalid", err)
+	}
+	// The new token works and carries the reissued role (admin).
+	m, err := svc.AcceptInvitation(ctx, newTok, "invitee@example.test", invitee)
+	if err != nil {
+		t.Fatalf("new token accept: %v", err)
+	}
+	if m.Role != org.RoleAdmin {
+		t.Errorf("reissued role = %q, want admin", m.Role)
+	}
+}
+
+// TestReinviteAfterExpiry is the reviewer's PROBE D: an invitation left to
+// expire must not permanently blacklist the address. Re-inviting succeeds.
+func TestReinviteAfterExpiry(t *testing.T) {
+	db := dbtest.DB(t)
+	svc := org.NewService(db)
+	ctx := context.Background()
+
+	owner := seedUser(t, db, "owner@example.test")
+	o, err := svc.CreateOrganization(ctx, "Acme", "acme", owner)
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	inv, _, err := svc.InviteMember(ctx, o.ID, owner, "invitee@example.test", org.RoleMember)
+	if err != nil {
+		t.Fatalf("first invite: %v", err)
+	}
+	// Force the invitation past its TTL, as seven days of inaction would.
+	if err := db.Model(&org.Invitation{}).Where("id = ?", inv.ID).
+		Update("expires_at", time.Now().Add(-time.Hour)).Error; err != nil {
+		t.Fatalf("expire invitation: %v", err)
+	}
+
+	if _, _, err := svc.InviteMember(ctx, o.ID, owner, "invitee@example.test", org.RoleMember); err != nil {
+		t.Fatalf("re-invite after expiry must succeed, got: %v", err)
+	}
+}
+
+// TestReinviteExemptsAcceptedRows pins the exempt half of the partial index: an
+// accepted invitation does not occupy the slot, so once a member leaves they can
+// be invited again. (Membership removal has no API yet, so the row is deleted
+// directly to model the leave.)
+func TestReinviteExemptsAcceptedRows(t *testing.T) {
+	db := dbtest.DB(t)
+	svc := org.NewService(db)
+	ctx := context.Background()
+
+	owner := seedUser(t, db, "owner@example.test")
+	o, err := svc.CreateOrganization(ctx, "Acme", "acme", owner)
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	_, tok, err := svc.InviteMember(ctx, o.ID, owner, "invitee@example.test", org.RoleMember)
+	if err != nil {
+		t.Fatalf("invite: %v", err)
+	}
+	invitee := seedUser(t, db, "invitee@example.test")
+	if _, err := svc.AcceptInvitation(ctx, tok, "invitee@example.test", invitee); err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	// Model the member leaving.
+	if err := db.Where("organization_id = ? AND user_id = ?", o.ID, invitee).
+		Delete(&org.Member{}).Error; err != nil {
+		t.Fatalf("remove membership: %v", err)
+	}
+	// The accepted invitation row is exempt from the index, so re-inviting is
+	// not blocked by it.
+	if _, _, err := svc.InviteMember(ctx, o.ID, owner, "invitee@example.test", org.RoleMember); err != nil {
+		t.Fatalf("re-invite after leave must succeed, got: %v", err)
 	}
 }
