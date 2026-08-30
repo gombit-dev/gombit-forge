@@ -340,7 +340,8 @@ Forge must not create a second authorization system.
 
 ## 4.7 Preview
 
-Clicking **Preview** creates or updates a temporary Forge environment.
+Clicking **Preview** creates or updates a temporary environment. Forge triggers
+it; Gombit Cloud provisions and runs it (ADR-005 D5).
 
 The preview runs the actual generated application.
 
@@ -362,9 +363,14 @@ User clicks:
 
 **Deploy**
 
-Forge:
+> **Reframed by ADR-005.** Forge owns the first stage — validate and compile the
+> spec to an ordinary Gombit application (including migration generation). From
+> the source archive on, the pipeline is Gombit Cloud's: build, produce the
+> immutable artifact, apply migrations under safety gating, deploy, health-check
+> and route (gombit-cloud RFC §11–23, C1–C4). The boundary is marked below.
 
 ```text
+── Forge ──────────────────────
 validate ProjectSpec
         ↓
 generate application
@@ -375,18 +381,17 @@ generate OpenAPI
         ↓
 generate TS client
         ↓
-build frontend
+build frontend            (local validation only)
         ↓
-gombit build --embed
+── hand source to Gombit Cloud ─
+build immutable artifact
         ↓
-produce container image
+run migrations (safety-gated)
         ↓
-run migrations
-        ↓
-deploy
+deploy + health check + route
 ```
 
-The application receives a stable environment URL.
+The application receives a stable environment URL from Cloud.
 
 ---
 
@@ -408,6 +413,15 @@ Exported projects contain no requirement to call Forge.
 ---
 
 # 5. High-level architecture
+
+> **Reframed by ADR-005.** The **Forge Control Plane** below keeps Projects,
+> Specs, Users, Organizations and Revisions plus a `cloud_project_id` linkage;
+> Builds, Deployments and Environments are owned by **Gombit Cloud**. The
+> **Build Worker** and **Runtime Platform** tiers are Gombit Cloud, not Forge,
+> and are shown only for end-to-end context — see gombit-cloud RFC §11–16
+> (build), §18–23 (deploy), §56 (runtime). Forge is a client of that platform
+> (ADR-005 D1–D3): it compiles `ProjectSpec` to an ordinary Gombit application
+> and submits it; Cloud builds, runs and operates it.
 
 ```text
 ┌───────────────────────────────┐
@@ -465,7 +479,12 @@ Forge should dogfood Gombit.
 
 The Forge control plane should itself be implemented as a Gombit application.
 
-Core models:
+> **Amended by ADR-005.** The runtime models below — `Environment`, `Build`,
+> `Deployment`, `Domain` — belong to Gombit Cloud, not the Forge control plane.
+> Forge's control plane keeps only the authoring-loop models plus a linkage to
+> its Cloud counterpart. `Secret` likewise moves to Cloud (ADR-005 D6).
+
+Core models (Forge-owned):
 
 ```text
 User
@@ -473,19 +492,26 @@ Organization
 OrganizationMember
 Project
 ProjectRevision
+AuditEvent
+cloud_project_id   (linkage to the Cloud counterpart, ADR-005 D6)
+```
+
+Runtime models — **owned by Gombit Cloud**, see gombit-cloud RFC §19:
+
+```text
 Environment
 Build
 Deployment
 Domain
-AuditEvent
+Database
+Secret
 ```
 
-Possible later models:
+Possible later Forge models:
 
 ```text
 Subscription
 Invoice
-Secret
 Plugin
 Integration
 ```
@@ -682,103 +708,54 @@ This avoids complex bidirectional reconciliation.
 
 # 11. Build system
 
-Each build executes in an isolated worker.
+> **Superseded by ADR-005.** Build execution is a Gombit Cloud responsibility
+> (gombit-cloud RFC §11–16, C1/§89), including the build queue, isolated
+> disposable workers, the build state machine, container images, artifact
+> storage and immutability. Forge does not build the deployed artifact.
 
-Input:
-
-```text
-ProjectRevision
-Forge compiler version
-Gombit version
-```
-
-Output:
-
-```text
-generated source archive
-build logs
-container image
-migration set
-application binary
-build metadata
-```
-
-Build states:
-
-```text
-queued
-generating
-testing
-building
-publishing
-succeeded
-failed
-cancelled
-```
-
-Builds must be immutable.
+Forge's only role here: it compiles a `ProjectRevision` into an ordinary Gombit
+application (a source archive satisfying the Gombit application contract,
+gombit-cloud RFC §9) and submits it to Cloud, which produces the immutable build
+of record. Forge's local `gombit build` (ADR-002 toolchain) is for generation
+and validation only, never the deployed artifact (ADR-005 D3).
 
 ---
 
 # 12. Deployment model
 
-## MVP decision
+> **Superseded by ADR-005.** The deployment model — isolated container per
+> project, environments, runtime configuration, HTTPS — is owned by Gombit Cloud
+> (gombit-cloud RFC §18–23, §56, C4/§92). D3 (isolated per project) is unchanged
+> as a locked decision but is now *realized in Cloud's runtime isolation*
+> (gombit-cloud RFC §56, Invariant F), not in Forge.
 
-Each deployed Forge project runs as an isolated application container.
-
-Do not implement a shared multi-tenant application runtime.
-
-This provides:
-
-* strong isolation
-* ordinary Gombit semantics
-* independent scaling
-* straightforward export parity
-* simpler debugging
-
----
-
-## Runtime
-
-Each environment consists of:
-
-```text
-Application container
-PostgreSQL database/schema
-Environment variables
-HTTPS endpoint
-```
-
-MVP environments:
-
-```text
-preview
-production
-```
-
-Staging is deferred.
+Forge invokes Cloud to deploy a build to an environment (`preview`,
+`production`) and surfaces the resulting status and URL in its Deploy tab. It
+does not provision or operate the runtime.
 
 ---
 
 # 13. Database model
 
-MVP managed applications use PostgreSQL.
+> **Superseded by ADR-005.** Managed PostgreSQL — provisioning, credentials,
+> backups, restore — is owned by Gombit Cloud (gombit-cloud RFC §25–28, C2/§90).
+> D4 (managed hosting is PostgreSQL-only) is unchanged as a locked decision but
+> is now Cloud's scope (gombit-cloud RFC L7).
 
-Although Gombit supports SQLite, PostgreSQL, and MySQL, Forge managed hosting should initially support **PostgreSQL only**.
-
-Reasons:
-
-* simpler operational surface
-* reliable concurrency
-* consistent production behavior
-* fewer migration/deployment branches
-* easier backup implementation
-
-Exported applications may use any database Gombit supports.
+Exported applications may still use any database Gombit supports. The
+managed-hosting restriction is Cloud's, not the compiler's.
 
 ---
 
 # 14. Migration policy
+
+> **Clarified by ADR-005.** The split: Forge *generates* the migration set as
+> part of compiling a revision (driving Gombit's Atlas-backed generator, never
+> diffing schemas itself); Gombit Cloud *verifies* it against the migration
+> safety manifest (ADR-003) and *applies* it, and owns the "fail rather than
+> apply an invalid or unapproved migration" gate (gombit-cloud RFC §29–33,
+> C3/§91). The manifest format is a Gombit-upstream contract (ADR-003), not a
+> Forge or Cloud private format.
 
 Schema changes must use Gombit's Atlas-backed migration system.
 
@@ -810,31 +787,25 @@ A deployment must fail rather than silently apply an invalid migration.
 
 # 15. Deployment safety
 
-MVP publishing flow:
+> **Superseded by ADR-005.** The publishing flow — preflight, migration apply,
+> start, health check, traffic promotion, rollback — is owned by Gombit Cloud
+> (gombit-cloud RFC §22–23, §29–35, C3/C4). Traffic-before-health and
+> destructive-migration gating are Cloud invariants (RFC Invariant D/E, L9/L12).
+> Forge surfaces this flow's status — including the destructive-migration
+> approval prompt — in its Deploy tab, but does not execute it.
 
-```text
-build new artifact
-       ↓
-migration preflight
-       ↓
-apply migration
-       ↓
-start new application
-       ↓
-health check
-       ↓
-route traffic
-```
-
-If the application fails health checks, deployment is marked failed.
-
-Automatic destructive schema rollback is not guaranteed.
-
-Application rollback and database rollback are separate operations.
+Application rollback and database rollback remain separate operations
+(gombit-cloud RFC L11).
 
 ---
 
 # 16. Preview behavior
+
+> **Reframed by ADR-005.** The **preview environment** is a Gombit Cloud
+> primitive (an isolated runtime + ephemeral data), pulled forward to Cloud
+> C0/C1 (ADR-005 D5; gombit-cloud RFC §46, §85). What stays in Forge is the
+> preview **UX** below — when to trigger a rebuild, debouncing, and replacing
+> the environment. Forge triggers; Cloud provisions and runs.
 
 Preview prioritizes speed over persistence guarantees.
 
@@ -965,11 +936,15 @@ JWT remains available for exported/API-oriented applications later.
 
 # 21. Secrets
 
-Secrets never live in `ProjectSpec`.
+> **Amended by ADR-005.** The *rule* below — secrets never live in `ProjectSpec`
+> — stays a Forge/spec invariant. The encrypted **secrets store** (write-only
+> values, per-environment scope, runtime injection) is a Gombit Cloud
+> responsibility (gombit-cloud RFC §38–39, C5/§93), not a Forge control-plane
+> model. Forge renders a secret-management view onto Cloud's store; it does not
+> hold secret values.
 
-Use separate encrypted environment configuration.
-
-Example:
+Secrets never live in `ProjectSpec`. They are supplied as separate encrypted
+environment configuration held by Cloud:
 
 ```text
 DATABASE_URL
@@ -978,15 +953,7 @@ SMTP_PASSWORD
 EXTERNAL_API_KEY
 ```
 
-MVP secret UI supports:
-
-```text
-name
-value
-environment
-```
-
-Values are write-only after creation.
+Cloud stores values write-only after creation, scoped per environment.
 
 ---
 
@@ -1035,18 +1002,12 @@ Secret values must never appear in audit data.
 
 # 24. Observability
 
-Every application environment must provide:
+> **Superseded by ADR-005.** Runtime logs, health state, and build/deployment
+> history are produced and owned by Gombit Cloud (gombit-cloud RFC §40–42,
+> C6/§94). Forge's Deploy tab *reads and displays* them through Cloud's API; it
+> does not collect or store them.
 
-```text
-logs
-health state
-deployment history
-build history
-```
-
-MVP does not provide a full Datadog-style observability UI.
-
-Log viewing should support:
+The log fields Forge surfaces from Cloud should include:
 
 ```text
 timestamp
@@ -1055,76 +1016,48 @@ message
 request_id
 ```
 
+Preserving Gombit request IDs through the runtime is a Cloud concern
+(gombit-cloud RFC §41).
+
 ---
 
 # 25. Infrastructure
 
-## MVP preferred deployment stack
+> **Superseded by ADR-005.** Provider infrastructure — the AWS stack (ECS/
+> Fargate, ECR, RDS, S3, Route 53, ACM, ALB, Secrets Manager, SQS) — belongs to
+> Gombit Cloud (gombit-cloud RFC §58, PROVISIONAL). No provider names belong in
+> Forge's design. Provider details sit below Cloud's platform abstraction and
+> are not part of any Forge- or customer-visible contract (gombit-cloud RFC §57,
+> L15). Kubernetes is not required for v0.1 (gombit-cloud RFC §59, L16).
 
-Initial cloud implementation:
-
-```text
-AWS
-```
-
-Suggested services:
-
-```text
-Control plane       ECS/Fargate
-Generated apps      ECS/Fargate
-Container registry  ECR
-PostgreSQL          RDS
-Artifacts           S3
-Build workers        ECS tasks
-DNS                  Route 53
-TLS                  ACM
-Ingress              ALB
-Secrets              Secrets Manager
-Queue                 SQS
-```
-
-The deployment interface should still live behind internal abstractions so another runtime may be added later.
-
-Do not build Kubernetes infrastructure for the MVP unless operational requirements make ECS insufficient.
+Forge holds no infrastructure. It is a client of Cloud's platform API.
 
 ---
 
 # 26. Build execution
 
-Build workers consume jobs from a queue.
-
-```text
-Forge API
-   ↓
-SQS
-   ↓
-Build Worker
-   ↓
-Compiler
-   ↓
-Gombit
-   ↓
-ECR/S3
-```
-
-Control-plane HTTP requests must never synchronously perform builds.
+> **Superseded by ADR-005.** The build queue and workers are Gombit Cloud
+> (gombit-cloud RFC §14, C1/§89). D8 (builds are asynchronous) is unchanged as a
+> locked decision but is realized by Cloud's workers (gombit-cloud RFC L13),
+> because Forge no longer builds. Control-plane HTTP requests never synchronously
+> perform builds — that invariant now lives on the Cloud API.
 
 ---
 
 # 27. Security boundaries
 
-Each build runs in an isolated disposable environment.
+> **Superseded by ADR-005.** Build isolation is a Gombit Cloud concern
+> (gombit-cloud RFC §15, §76, L13). D9 (build execution is isolated; generated
+> source is untrusted) is unchanged as a locked decision but is enforced by
+> Cloud's disposable workers, not by Forge. The restrictions below are Cloud's
+> to implement:
 
-Build workers must assume generated source is untrusted.
-
-Restrictions:
-
-* no access to Forge production credentials
+* no access to Cloud production credentials
 * scoped artifact credentials
 * network access restricted where practical
 * CPU/memory/time limits
 * ephemeral filesystem
-* container destroyed after build
+* worker destroyed after build
 
 ---
 
@@ -1333,45 +1266,45 @@ Implement:
 
 ---
 
-## M4 — Build pipeline
+## M4 — Build integration
 
-Implement:
+> **Re-scoped by ADR-005 §4.4.** Not "Forge builds a PaaS" — "Forge integrates
+> Gombit Cloud." The build queue, isolated workers, container build, registry
+> and artifact storage are Cloud C1 (gombit-cloud RFC §89).
 
-* build queue
-* isolated worker
-* compiler invocation
-* migration generation
-* tests
-* embedded binary
-* container build
-* artifact storage
-* logs
+Implement (Forge side):
+
+* compile a revision to an ordinary Gombit application (source archive)
+* submit it to Cloud's build API via the `cloud_project_id` linkage
+* track build state and stream build logs into the Deploy tab
 
 ---
 
-## M5 — Preview
+## M5 — Preview integration
 
-Implement:
+> **Re-scoped by ADR-005 §4.4/D5.** Preview environment provisioning and URL
+> routing are Cloud primitives, pulled forward to Cloud C0/C1 (gombit-cloud RFC
+> §46). Forge triggers and surfaces them.
 
-* preview environment provisioning
-* preview URL
-* rebuild
-* build state
-* application logs
+Implement (Forge side):
+
+* trigger a Cloud preview environment for the current revision
+* the debounce / explicit-rebuild / environment-replacement UX (§16)
+* surface preview URL, build state and application logs in the Deploy tab
 
 ---
 
-## M6 — Production deploy
+## M6 — Deploy integration
 
-Implement:
+> **Re-scoped by ADR-005 §4.4.** Production database, secrets injection,
+> migration apply, container rollout, health checks and rollback are Cloud C4
+> (gombit-cloud RFC §92). Forge invokes them and renders the result.
 
-* production database
-* secrets
-* migration apply
-* container rollout
-* health checks
-* stable URL
-* rollback to previous application image
+Implement (Forge side):
+
+* invoke Cloud production deploy for a selected build
+* render the destructive-migration approval gate (gombit-cloud RFC §32) in the UI
+* surface deploy status, stable URL, health and rollback controls in the Deploy tab
 
 ---
 

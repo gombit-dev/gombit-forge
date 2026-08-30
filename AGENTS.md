@@ -88,6 +88,12 @@ list` and `git log` before claiming how anything works.
   document.
 - `docs/ADR-004.md` is authoritative for generation ownership and amends
   DESIGN.md P4. Read it before writing any generator.
+- `docs/ADR-005.md` is authoritative for the Forge/Cloud boundary: Forge owns
+  the authoring loop, Gombit Cloud owns the runtime primitives (build, deploy,
+  environments, managed DB, secrets, domains, logs, health, rollback). It
+  supersedes the runtime-platform parts of DESIGN.md (§5, §11–13, §15, §21,
+  §24–27) and re-scopes M4–M6 to "integrate Cloud," not "build a PaaS." Read it
+  before touching the control-plane model set, the build pipeline, or deploy.
 - GitHub issues are the unit of work. Epics are labelled `epic`; don't start a
   task whose epic describes an unmet prerequisite.
 
