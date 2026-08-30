@@ -2,6 +2,7 @@ package org_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -165,6 +166,55 @@ func TestInviteCannotGrantAboveOwnRole(t *testing.T) {
 	// But the admin can invite at or below its own role.
 	if _, _, err := svc.InviteMember(ctx, o.ID, adminUser, "peer@example.test", org.RoleAdmin); err != nil {
 		t.Errorf("admin inviting admin err = %v, want nil", err)
+	}
+}
+
+// TestAdminCannotSupersedeOwnerInvitation is the mirror of the create-side
+// guard: superseding destroys a grant, so it is bounded by the same hierarchy.
+// An admin must not be able to erase an owner's pending owner-level invitation
+// by re-inviting the address at a lower role — and, crucially, the owner's
+// invitation must remain redeemable afterward (an implementation that refuses
+// but still deletes would pass an error-only assertion).
+func TestAdminCannotSupersedeOwnerInvitation(t *testing.T) {
+	db := dbtest.DB(t)
+	svc := org.NewService(db)
+	ctx := context.Background()
+
+	owner := seedUser(t, db, "owner@example.test")
+	o, err := svc.CreateOrganization(ctx, "Acme", "acme", owner)
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+
+	// Owner promotes an admin.
+	_, adminTok, err := svc.InviteMember(ctx, o.ID, owner, "admin@example.test", org.RoleAdmin)
+	if err != nil {
+		t.Fatalf("owner invites admin: %v", err)
+	}
+	adminUser := seedUser(t, db, "admin@example.test")
+	if _, err := svc.AcceptInvitation(ctx, adminTok, "admin@example.test", adminUser); err != nil {
+		t.Fatalf("admin accepts: %v", err)
+	}
+
+	// Owner invites carol as a co-owner.
+	_, carolTok, err := svc.InviteMember(ctx, o.ID, owner, "carol@example.test", org.RoleOwner)
+	if err != nil {
+		t.Fatalf("owner invites carol as owner: %v", err)
+	}
+
+	// The admin cannot supersede that owner-level invitation with a lower grant.
+	if _, _, err := svc.InviteMember(ctx, o.ID, adminUser, "carol@example.test", org.RoleMember); !errors.Is(err, org.ErrRoleExceedsGranter) {
+		t.Errorf("admin superseding owner invite err = %v, want ErrRoleExceedsGranter", err)
+	}
+
+	// The owner's invitation must survive: carol can still redeem it, as owner.
+	carol := seedUser(t, db, "carol@example.test")
+	m, err := svc.AcceptInvitation(ctx, carolTok, "carol@example.test", carol)
+	if err != nil {
+		t.Fatalf("carol redeems owner invite: %v (was it wrongly deleted?)", err)
+	}
+	if m.Role != org.RoleOwner {
+		t.Errorf("carol joined as %q, want owner", m.Role)
 	}
 }
 

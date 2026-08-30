@@ -114,15 +114,21 @@ func (s *Service) Authorize(ctx context.Context, orgID, userID uint, capability 
 // mint an owner and escalate past its own ceiling). Inviting goes through here
 // rather than composing Can + CanGrant at the call site, so the two gates
 // cannot drift apart or be forgotten by the next grant-shaped operation.
-func (s *Service) AuthorizeGrant(ctx context.Context, orgID, userID uint, capability Capability, targetRole Role) error {
+//
+// It returns the caller's resolved role so a grant-shaped operation can apply
+// the same CanGrant bound to an *existing* row it is about to disturb — e.g.
+// InviteMember must not supersede a pending invitation whose role it could not
+// have issued. Without the role in hand, that second check needs a second
+// lookup, which is the duplication authorize was extracted to avoid.
+func (s *Service) AuthorizeGrant(ctx context.Context, orgID, userID uint, capability Capability, targetRole Role) (Role, error) {
 	role, err := s.authorize(ctx, orgID, userID, capability)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if !CanGrant(role, targetRole) {
-		return ErrRoleExceedsGranter
+		return "", ErrRoleExceedsGranter
 	}
-	return nil
+	return role, nil
 }
 
 // authorize is the shared resolution both public gates build on: it returns the
@@ -159,8 +165,10 @@ func (s *Service) InviteMember(ctx context.Context, orgID, inviterUserID uint, e
 	// invitation no user can ever match.
 	email = normalizeEmail(email)
 	// The inviter must be permitted to invite and not be granting above their
-	// own standing; AuthorizeGrant enforces both in one place.
-	if err := s.AuthorizeGrant(ctx, orgID, inviterUserID, CapMembersInvite, role); err != nil {
+	// own standing; AuthorizeGrant enforces both in one place and hands back the
+	// inviter's role for the supersede bound below.
+	inviterRole, err := s.AuthorizeGrant(ctx, orgID, inviterUserID, CapMembersInvite, role)
+	if err != nil {
 		return Invitation{}, "", err
 	}
 
@@ -191,9 +199,25 @@ func (s *Service) InviteMember(ctx context.Context, orgID, inviterUserID uint, e
 		// is the only transition out of "expired", and without it the partial
 		// unique index on (organization_id, email) would lock the address
 		// permanently the moment an invitation went unaccepted for its TTL.
-		if err := tx.Where("organization_id = ? AND email = ? AND accepted_at IS NULL",
-			orgID, email).Delete(&Invitation{}).Error; err != nil {
+		//
+		// Superseding destroys someone else's grant, so it is bounded by the same
+		// hierarchy that bounds making one: an admin may not erase (and rewrite)
+		// an owner-level invitation any more than it may issue one. Look before
+		// deleting.
+		var existing Invitation
+		switch err := tx.Where("organization_id = ? AND email = ? AND accepted_at IS NULL",
+			orgID, email).First(&existing).Error; {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			// nothing to supersede
+		case err != nil:
 			return err
+		default:
+			if !CanGrant(inviterRole, existing.Role) {
+				return ErrRoleExceedsGranter
+			}
+			if err := tx.Delete(&existing).Error; err != nil {
+				return err
+			}
 		}
 		if err := tx.Create(&inv).Error; err != nil {
 			// After the supersede delete, the only way to collide on the index
@@ -222,6 +246,11 @@ func (s *Service) InviteMember(ctx context.Context, orgID, inviterUserID uint, e
 		})
 	})
 	if err != nil {
+		// Preserve the typed sentinels the transaction may surface so callers
+		// (and mapError) classify them; wrap only genuinely unexpected errors.
+		if errors.Is(err, ErrRoleExceedsGranter) || errors.Is(err, ErrInvitationPending) {
+			return Invitation{}, "", err
+		}
 		return Invitation{}, "", fmt.Errorf("invite member: %w", err)
 	}
 	return inv, raw, nil
