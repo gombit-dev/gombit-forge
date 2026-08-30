@@ -5,6 +5,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/gombit-dev/gombit-forge/internal/compiler/gen"
@@ -15,27 +16,46 @@ import (
 // but it never rewrites the implementation. Nothing in this package writes here.
 const ExtensionsRoot = "internal/extensions"
 
-// GeneratedRoots are the directories Forge wholly owns (ADR-001 §16): it wipes
+// generatedRoots are the directories Forge wholly owns (ADR-001 §16): it wipes
 // and recreates them on every materialization and writes nothing outside them.
-// Everything Compile emits must live under one of these.
-var GeneratedRoots = []string{gen.GeneratedRoot, gen.FrontendRoot}
+// Everything Compile emits must live under one of these. It is unexported —
+// exported it would be a package-level slice governing recursive deletion in a
+// user's project that any importer could repoint. Read it through GeneratedRoots.
+var generatedRoots = []string{gen.GeneratedRoot, gen.FrontendRoot}
+
+// GeneratedRoots returns the directories Forge wholly owns and recreates on
+// every materialization. It returns a copy so a caller cannot widen the set that
+// Materialize wipes.
+func GeneratedRoots() []string { return slices.Clone(generatedRoots) }
 
 // Materialize writes the compiled files into the project rooted at dir.
 //
-// It first removes the generated roots entirely, then writes the files, so a
-// resource the spec deleted, renamed or split leaves no stale generated file
-// behind — the generated tree is recreated, never merged (ADR-001 §16).
-// Ownership is at the directory level (§18): Materialize touches only the
-// generated roots, never internal/extensions/** (§17) or anything else in the
-// project.
+// It recreates the generated roots rather than merging into them, so a resource
+// the spec deleted, renamed or split leaves no stale generated file behind
+// (ADR-001 §16). Ownership is at the directory level (§18): Materialize touches
+// only the generated roots, never internal/extensions/** (§17) or anything else.
 //
-// Every path is validated to be a clean relative path under a generated root
-// before anything is removed or written, so a generator bug cannot write into
-// user territory and a bad path fails before the destructive wipe rather than
-// after it.
+// It is careful about the destructive half, not just the writes:
+//
+//   - It refuses an empty file set. A compile that produced no files is a caller
+//     error (a mishandled Compile error hands over a nil slice), never a reason
+//     to delete a project's generated code — so it fails closed (D14) rather
+//     than wiping and reporting success.
+//   - It validates every path is a clean relative path under a generated root
+//     before touching disk, so a generator bug or crafted path cannot write into
+//     user territory (§18).
+//   - It stages then swaps. Each root's new contents are written into a sibling
+//     staging directory; only once a root's files are all on disk is the live
+//     root removed and the staging directory renamed into its place. A rename is
+//     atomic within a filesystem, so an interrupted materialization — disk full,
+//     a killed process — leaves the previous tree intact, or at worst a visible
+//     *.forge-staging directory, rather than a half-written tree that is neither.
 func Materialize(dir string, files []gen.File) error {
 	if dir == "" {
 		return fmt.Errorf("compiler: Materialize needs a project directory")
+	}
+	if len(files) == 0 {
+		return fmt.Errorf("compiler: refusing to materialize an empty file set (a compile that produced no files is not a reason to delete %v)", generatedRoots)
 	}
 	for _, f := range files {
 		if err := checkGeneratedPath(f.Path); err != nil {
@@ -43,43 +63,103 @@ func Materialize(dir string, files []gen.File) error {
 		}
 	}
 
-	// Recreate, not merge: wipe each generated root so deletions and renames in
-	// the spec are reflected exactly. internal/extensions is never in this list.
-	for _, root := range GeneratedRoots {
-		if err := os.RemoveAll(filepath.Join(dir, filepath.FromSlash(root))); err != nil {
-			return fmt.Errorf("compiler: wiping %s: %w", root, err)
+	type rootStage struct {
+		live     string // the live generated root, under dir
+		staging  string // its sibling staging directory
+		hasFiles bool
+	}
+	stages := make([]rootStage, 0, len(generatedRoots))
+	// cleanup removes every root's staging directory, whether or not it has been
+	// reached yet, so a failure partway through pass 1 leaves nothing behind.
+	cleanup := func() {
+		for _, root := range generatedRoots {
+			_ = os.RemoveAll(filepath.Join(dir, filepath.FromSlash(root)) + ".forge-staging")
 		}
 	}
 
-	for _, f := range files {
-		full := filepath.Join(dir, filepath.FromSlash(f.Path))
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-			return fmt.Errorf("compiler: %s: %w", f.Path, err)
+	// Pass 1: write every root's new contents into a staging directory. Nothing
+	// in the live tree is touched, so a failure here leaves the project untouched.
+	for _, root := range generatedRoots {
+		live := filepath.Join(dir, filepath.FromSlash(root))
+		staging := live + ".forge-staging"
+		if err := os.RemoveAll(staging); err != nil { // leftovers from an earlier crash
+			cleanup()
+			return fmt.Errorf("compiler: clearing staging for %s: %w", root, err)
 		}
-		if err := os.WriteFile(full, f.Content, 0o644); err != nil {
-			return fmt.Errorf("compiler: %s: %w", f.Path, err)
+		s := rootStage{live: live, staging: staging}
+		for _, f := range files {
+			rel, ok := underRoot(f.Path, root)
+			if !ok {
+				continue
+			}
+			target := filepath.Join(staging, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				cleanup()
+				return fmt.Errorf("compiler: %s: %w", f.Path, err)
+			}
+			if err := os.WriteFile(target, f.Content, 0o644); err != nil {
+				cleanup()
+				return fmt.Errorf("compiler: %s: %w", f.Path, err)
+			}
+			s.hasFiles = true
+		}
+		stages = append(stages, s)
+	}
+
+	// Pass 2: swap each root. The window where a crash matters is now one rename
+	// per root rather than every write.
+	for _, s := range stages {
+		if err := os.RemoveAll(s.live); err != nil {
+			cleanup()
+			return fmt.Errorf("compiler: removing %s: %w", s.live, err)
+		}
+		if s.hasFiles {
+			if err := os.Rename(s.staging, s.live); err != nil {
+				cleanup()
+				return fmt.Errorf("compiler: installing %s: %w", s.live, err)
+			}
+		} else {
+			// No files for this root: it is wiped, not recreated (§16).
+			_ = os.RemoveAll(s.staging)
 		}
 	}
 	return nil
 }
 
+// underRoot reports whether the slash path p lies within root, and if so its
+// path relative to root.
+func underRoot(p, root string) (rel string, ok bool) {
+	if p == root {
+		return "", true
+	}
+	if strings.HasPrefix(p, root+"/") {
+		return p[len(root)+1:], true
+	}
+	return "", false
+}
+
 // checkGeneratedPath rejects a path that is not a clean, relative, slash path
 // under one of the generated roots. This is the guard that keeps generated
 // output from landing in user-owned (internal/extensions) or out-of-tree
-// locations, whether by a generator bug or a crafted path (§18): a "..",
-// an absolute path, or a non-canonical path that cleans to somewhere else are
-// all refused.
+// locations, whether by a generator bug or a crafted path (§18): a "..", an
+// absolute path, a backslash (which the slash-only path package treats as an
+// ordinary rune but filepath.Join on Windows would resolve as a separator into
+// user territory), or a non-canonical path that cleans to somewhere else are all
+// refused.
 func checkGeneratedPath(p string) error {
 	if p == "" {
 		return fmt.Errorf("compiler: empty generated file path")
 	}
+	if strings.ContainsRune(p, '\\') {
+		return fmt.Errorf("compiler: generated file path %q contains a backslash; paths are slash-separated", p)
+	}
 	if path.IsAbs(p) || path.Clean(p) != p {
 		return fmt.Errorf("compiler: generated file path %q is not a clean relative path", p)
 	}
-	for _, root := range GeneratedRoots {
+	for _, root := range generatedRoots {
 		if p == root || strings.HasPrefix(p, root+"/") {
 			return nil
 		}
 	}
-	return fmt.Errorf("compiler: generated file path %q is outside the generated roots %v (Forge never writes user-owned or out-of-tree files)", p, GeneratedRoots)
+	return fmt.Errorf("compiler: generated file path %q is outside the generated roots %v (Forge never writes user-owned or out-of-tree files)", p, generatedRoots)
 }

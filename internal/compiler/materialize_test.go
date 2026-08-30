@@ -115,7 +115,8 @@ func TestMaterializeRejectsPathsOutsideGeneratedRoots(t *testing.T) {
 		"../escape.go",                                // traversal out of tree
 		"/etc/passwd",                                 // absolute
 		"internal/forge_generated/../extensions/x.go", // cleans out of the root
-		"go.mod", // a stable-shell file Forge does not own
+		"go.mod",                              // a stable-shell file Forge does not own
+		`internal/forge_generated/..\..\x.go`, // backslash traversal (a Windows separator)
 	}
 	for _, p := range bad {
 		t.Run(p, func(t *testing.T) {
@@ -131,6 +132,53 @@ func TestMaterializeRejectsPathsOutsideGeneratedRoots(t *testing.T) {
 				t.Error("a rejected materialize must not have wiped the generated tree (validate before destroy)")
 			}
 		})
+	}
+}
+
+// TestMaterializeRefusesEmptyFileSet is fail-closed on the destructive side
+// (D14): a compile that produced no files is never a reason to delete a
+// project's generated code, so Materialize errors and leaves the tree standing.
+func TestMaterializeRefusesEmptyFileSet(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "internal/forge_generated/keep/model.go", "package keep\n")
+
+	if err := Materialize(dir, nil); err == nil {
+		t.Fatal("Materialize(dir, nil) must error, not wipe the tree and report success")
+	}
+	if _, ok := readFile(t, dir, "internal/forge_generated/keep/model.go"); !ok {
+		t.Error("an empty file set must not have wiped the generated tree")
+	}
+}
+
+// TestMaterializeIsAtomicOnWriteFailure: a failure mid-write must leave the
+// previous tree intact, not a half-written one. Stage-and-swap gives that — the
+// writes go to a staging directory, so a failure never touches the live tree.
+// The failure is forced by writing "a" as a file and then a file under "a/",
+// so the second MkdirAll fails.
+func TestMaterializeIsAtomicOnWriteFailure(t *testing.T) {
+	dir := t.TempDir()
+	const keep = "internal/forge_generated/keep/model.go"
+	const old = "package keep // ORIGINAL\n"
+	writeFile(t, dir, keep, old)
+
+	files := []gen.File{
+		{Path: "internal/forge_generated/a", Content: []byte("x")},
+		{Path: "internal/forge_generated/a/b.go", Content: []byte("y")},
+	}
+	if err := Materialize(dir, files); err == nil {
+		t.Fatal("expected the mid-write failure to surface")
+	}
+
+	// The previous tree is untouched, byte for byte.
+	if got, ok := readFile(t, dir, keep); !ok || got != old {
+		t.Errorf("previous tree not preserved on failure: ok=%v content=%q", ok, got)
+	}
+	// No partial new tree in the live root, and no staging directory left behind.
+	if _, ok := readFile(t, dir, "internal/forge_generated/a"); ok {
+		t.Error("a partial write leaked into the live tree")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "internal", "forge_generated.forge-staging")); !os.IsNotExist(err) {
+		t.Error("staging directory was not cleaned up after failure")
 	}
 }
 
