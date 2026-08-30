@@ -46,10 +46,18 @@ var reservedModelSymbols = map[string]string{
 	"TableName": "the generated model defines a TableName method, and Go forbids a field and method of the same name",
 }
 
-// reservedStorageNames mirrors reservedCodeNames on the database side; it
-// matches the set Gombit's own resourcegen refuses.
-var reservedStorageNames = map[string]struct{}{
-	"id": {}, "created_at": {}, "updated_at": {}, "deleted_at": {},
+// reservedStorageNames is the column-name reservation for the same fields on
+// the database side: gorm.Model's four columns, which a field's storage_name
+// therefore may not mint. It is deliberately not a mirror of
+// reservedModelSymbols — Model and TableName are Go symbol collisions (an
+// embedded struct and a method) with no column equivalent, so the two tables
+// differ in both shape and content on purpose. It matches the set Gombit's own
+// resourcegen refuses.
+var reservedStorageNames = map[string]string{
+	"id":         "gorm.Model provides the primary key column id",
+	"created_at": "gorm.Model provides created_at",
+	"updated_at": "gorm.Model provides updated_at",
+	"deleted_at": "gorm.Model provides deleted_at (soft delete)",
 }
 
 // ReservedModelSymbol reports whether name is reserved in the model's field/
@@ -68,11 +76,19 @@ func IsReservedCodeName(name string) bool {
 	return reserved
 }
 
+// ReservedStorageName reports whether a column name collides with a gorm.Model
+// column, and if so why — the storage-side counterpart to ReservedModelSymbol,
+// so both reserved paths surface an actionable reason rather than a generic one.
+func ReservedStorageName(name string) (reason string, reserved bool) {
+	reason, reserved = reservedStorageNames[name]
+	return reason, reserved
+}
+
 // IsReservedStorageName reports whether a column name collides with the
 // embedded gorm.Model.
 func IsReservedStorageName(name string) bool {
-	_, found := reservedStorageNames[name]
-	return found
+	_, reserved := reservedStorageNames[name]
+	return reserved
 }
 
 // IsExportedGoIdent reports whether name is a legal exported Go identifier,

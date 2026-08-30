@@ -282,8 +282,9 @@ func (v *validator) validateFields(resource *Resource, resourcePath string) {
 			v.report(CodeInvalidStorage, path+".storage_name", field.ID,
 				"storage_name %q must be lower_snake_case", field.StorageName)
 		case IsReservedStorageName(field.StorageName):
+			reason, _ := ReservedStorageName(field.StorageName)
 			v.report(CodeReservedName, path+".storage_name", field.ID,
-				"storage_name %q is reserved by the embedded gorm.Model", field.StorageName)
+				"storage_name %q is reserved: %s", field.StorageName, reason)
 		default:
 			if owner, taken := fieldStorage[field.StorageName]; taken {
 				v.report(CodeDuplicateStore, path+".storage_name", field.ID,
