@@ -180,14 +180,13 @@ func TestInviteRequiresPermission(t *testing.T) {
 
 	// A plain member cannot invite (CapMembersInvite is owner/admin only).
 	memberUser := seedUser(t, db, "member@example.test")
-	inv, token, err := svc.InviteMember(ctx, o.ID, owner, "member@example.test", org.RoleMember)
+	_, token, err := svc.InviteMember(ctx, o.ID, owner, "member@example.test", org.RoleMember)
 	if err != nil {
 		t.Fatalf("owner invite: %v", err)
 	}
 	if _, err := svc.AcceptInvitation(ctx, token, "member@example.test", memberUser); err != nil {
 		t.Fatalf("accept: %v", err)
 	}
-	_ = inv
 
 	if _, _, err := svc.InviteMember(ctx, o.ID, memberUser, "someone@example.test", org.RoleMember); err != org.ErrForbidden {
 		t.Errorf("member invite err = %v, want ErrForbidden", err)
@@ -211,13 +210,72 @@ func TestInviteRejectsExistingMemberAndBadRole(t *testing.T) {
 		t.Fatalf("create org: %v", err)
 	}
 
-	// Owner is already a member, so inviting the owner's email is a conflict.
-	if _, _, err := svc.InviteMember(ctx, o.ID, owner, "owner@example.test", org.RoleMember); err != org.ErrAlreadyMember {
-		t.Errorf("invite existing member err = %v, want ErrAlreadyMember", err)
+	// Owner is already a member, so inviting the owner's email is a conflict —
+	// and the guard must hold under a different case and surrounding whitespace,
+	// because addresses are normalized to Gombit's relation on the way in. (A
+	// raw-string comparison would let "Owner@Example.test" slip past.)
+	for _, variant := range []string{"owner@example.test", "Owner@Example.test", "  owner@example.test  "} {
+		if _, _, err := svc.InviteMember(ctx, o.ID, owner, variant, org.RoleMember); err != org.ErrAlreadyMember {
+			t.Errorf("invite existing member as %q err = %v, want ErrAlreadyMember", variant, err)
+		}
 	}
 
 	// An unknown role is rejected before any write.
 	if _, _, err := svc.InviteMember(ctx, o.ID, owner, "new@example.test", org.Role("superuser")); err != org.ErrInvalidRole {
 		t.Errorf("invite bad role err = %v, want ErrInvalidRole", err)
+	}
+}
+
+// TestInviteNormalizesAddressForRedemption is the reviewer's PROBE B: an
+// invitation created with surrounding whitespace/casing must still be redeemable
+// by the user who owns that (normalized) address — a raw-string store would mint
+// an invitation no user row could ever match.
+func TestInviteNormalizesAddressForRedemption(t *testing.T) {
+	db := dbtest.DB(t)
+	svc := org.NewService(db)
+	ctx := context.Background()
+
+	owner := seedUser(t, db, "owner@example.test")
+	o, err := svc.CreateOrganization(ctx, "Acme", "acme", owner)
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+
+	inv, token, err := svc.InviteMember(ctx, o.ID, owner, "  Invitee@Example.test  ", org.RoleMember)
+	if err != nil {
+		t.Fatalf("invite: %v", err)
+	}
+	if inv.Email != "invitee@example.test" {
+		t.Errorf("stored invitation email = %q, want normalized invitee@example.test", inv.Email)
+	}
+
+	// The user registered under the plain address (as Gombit would store it) can
+	// redeem it.
+	invitee := seedUser(t, db, "invitee@example.test")
+	if _, err := svc.AcceptInvitation(ctx, token, "invitee@example.test", invitee); err != nil {
+		t.Fatalf("normalized recipient accept: %v", err)
+	}
+}
+
+// TestInviteRejectsDuplicatePending pins the partial unique index: a second
+// pending invitation for the same (org, email) is refused rather than piling up
+// redundant live tokens.
+func TestInviteRejectsDuplicatePending(t *testing.T) {
+	db := dbtest.DB(t)
+	svc := org.NewService(db)
+	ctx := context.Background()
+
+	owner := seedUser(t, db, "owner@example.test")
+	o, err := svc.CreateOrganization(ctx, "Acme", "acme", owner)
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	if _, _, err := svc.InviteMember(ctx, o.ID, owner, "invitee@example.test", org.RoleMember); err != nil {
+		t.Fatalf("first invite: %v", err)
+	}
+	// Second pending invite for the same address is a conflict (unique index).
+	_, _, err = svc.InviteMember(ctx, o.ID, owner, "Invitee@example.test", org.RoleMember)
+	if err == nil {
+		t.Fatal("second pending invite for same address must be refused")
 	}
 }

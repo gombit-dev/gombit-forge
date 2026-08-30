@@ -35,37 +35,35 @@ func (r Role) Valid() bool {
 // follow Gombit's dotted permission-key convention (§4.6) so the vocabulary is
 // consistent with the permissions the generated apps use, even though these are
 // control-plane capabilities checked against the caller's org role.
+//
+// This set is intentionally only what the code enforces today, not an
+// aspirational catalogue. A capability listed here has a reader; when a new
+// operation lands (member removal, project create/delete in #37+), its
+// capability is added alongside the operation and the gate that checks it — so
+// the matrix never asserts a policy no code reads.
 type Capability string
 
 const (
-	CapOrgView       Capability = "org.view"
-	CapOrgManage     Capability = "org.manage" // rename/delete the org
-	CapMembersView   Capability = "org.members.view"
-	CapMembersInvite Capability = "org.members.invite"
-	CapMembersRemove Capability = "org.members.remove"
-	CapProjectCreate Capability = "project.create"
-	CapProjectDelete Capability = "project.delete"
+	CapMembersView   Capability = "org.members.view"   // read: listMembers
+	CapMembersInvite Capability = "org.members.invite" // write: InviteMember
 )
 
 // capabilities is the role → allowed-capability matrix. It is the single source
-// of truth for org-scoped authorization; Can is the only reader. Owner is
-// intentionally not expressed as "all" so that adding a capability is a
-// deliberate per-role decision rather than something owner silently absorbs.
+// of truth for org-scoped capability checks; Can is the only reader. The role
+// *hierarchy* (owner > admin > member) is expressed separately, by rank, and is
+// what bounds role grants (see CanGrant) — capabilities alone do not distinguish
+// owner from admin here, rank does.
 var capabilities = map[Role]map[Capability]bool{
 	RoleOwner: {
-		CapOrgView: true, CapOrgManage: true,
-		CapMembersView: true, CapMembersInvite: true, CapMembersRemove: true,
-		CapProjectCreate: true, CapProjectDelete: true,
+		CapMembersView:   true,
+		CapMembersInvite: true,
 	},
 	RoleAdmin: {
-		CapOrgView:     true,
-		CapMembersView: true, CapMembersInvite: true, CapMembersRemove: true,
-		CapProjectCreate: true, CapProjectDelete: true,
+		CapMembersView:   true,
+		CapMembersInvite: true,
 	},
 	RoleMember: {
-		CapOrgView:       true,
-		CapMembersView:   true,
-		CapProjectCreate: true,
+		CapMembersView: true,
 	},
 }
 

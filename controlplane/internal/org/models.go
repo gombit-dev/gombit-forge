@@ -24,6 +24,17 @@ type Organization struct {
 
 // Member links a Gombit user to an organization with a Forge-level role. The
 // (organization, user) pair is unique: a user holds exactly one role per org.
+//
+// OrganizationID and UserID are bare foreign keys with no database-level
+// constraint yet, and the same is true of Invitation.OrganizationID. That is a
+// deliberate, recorded decision, not an oversight: the control plane has no
+// committed migration (see platform.Models), so a constraint added here would
+// exist only in test AutoMigrate, protecting nothing in deployment. When #38
+// authors the initial Atlas migration from platform.Models(), it MUST add the
+// references then — ON DELETE CASCADE on the organization side (dropping an org
+// removes its members and invitations) and ON DELETE RESTRICT on the user side
+// (a Gombit user cannot be deleted out from under a live membership). Freezing
+// the DDL without them is the bug to avoid.
 type Member struct {
 	ID             uint `gorm:"primaryKey"`
 	OrganizationID uint `gorm:"not null;uniqueIndex:uidx_org_member,priority:1"`
@@ -41,10 +52,16 @@ func (Member) TableName() string { return "organization_members" }
 // stored; only its hash is persisted, the same discipline Gombit uses for
 // refresh tokens. Accepting a still-valid, unaccepted, unexpired invitation
 // creates the Member.
+//
+// Email is stored already normalized (see org.normalizeEmail), so it is the
+// same relation as users.email. The partial unique index makes at most one
+// pending (unaccepted) invitation exist per (organization, email): re-inviting
+// the same address does not pile up redundant live tokens, while historical
+// accepted rows are exempt so the audit/history is preserved.
 type Invitation struct {
 	ID              uint       `gorm:"primaryKey"`
-	OrganizationID  uint       `gorm:"not null;index"`
-	Email           string     `gorm:"size:255;not null;index"`
+	OrganizationID  uint       `gorm:"not null;uniqueIndex:uidx_pending_invite,priority:1,where:accepted_at IS NULL"`
+	Email           string     `gorm:"size:255;not null;index;uniqueIndex:uidx_pending_invite,priority:2,where:accepted_at IS NULL"`
 	Role            Role       `gorm:"size:20;not null"`
 	TokenHash       string     `gorm:"size:64;not null;uniqueIndex"`
 	InvitedByUserID uint       `gorm:"not null"`

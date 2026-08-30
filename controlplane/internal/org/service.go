@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -96,19 +95,46 @@ func (s *Service) MemberRole(ctx context.Context, orgID, userID uint) (Role, boo
 // Authorize resolves the user's role in the org and checks it against the
 // capability. It returns ErrNotMember when there is no membership and
 // ErrForbidden when the role lacks the capability, so callers can fail closed
-// without duplicating the lookup.
+// without duplicating the lookup. Every org-scoped decision goes through this
+// or its grant-aware sibling AuthorizeGrant — a handler never re-derives the
+// role itself.
 func (s *Service) Authorize(ctx context.Context, orgID, userID uint, capability Capability) error {
-	role, ok, err := s.MemberRole(ctx, orgID, userID)
+	_, err := s.authorize(ctx, orgID, userID, capability)
+	return err
+}
+
+// AuthorizeGrant is Authorize for an operation that hands out a role: it checks
+// the capability and, additionally, that the caller may grant targetRole (a
+// member may only grant a role at or below its own — otherwise an admin could
+// mint an owner and escalate past its own ceiling). Inviting goes through here
+// rather than composing Can + CanGrant at the call site, so the two gates
+// cannot drift apart or be forgotten by the next grant-shaped operation.
+func (s *Service) AuthorizeGrant(ctx context.Context, orgID, userID uint, capability Capability, targetRole Role) error {
+	role, err := s.authorize(ctx, orgID, userID, capability)
 	if err != nil {
 		return err
 	}
-	if !ok {
-		return ErrNotMember
-	}
-	if !Can(role, capability) {
-		return ErrForbidden
+	if !CanGrant(role, targetRole) {
+		return ErrRoleExceedsGranter
 	}
 	return nil
+}
+
+// authorize is the shared resolution both public gates build on: it returns the
+// caller's role alongside the capability decision so AuthorizeGrant can apply a
+// second, role-aware check without a second lookup.
+func (s *Service) authorize(ctx context.Context, orgID, userID uint, capability Capability) (Role, error) {
+	role, ok, err := s.MemberRole(ctx, orgID, userID)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", ErrNotMember
+	}
+	if !Can(role, capability) {
+		return "", ErrForbidden
+	}
+	return role, nil
 }
 
 // InviteMember creates a pending invitation for email to join the org with the
@@ -120,21 +146,17 @@ func (s *Service) InviteMember(ctx context.Context, orgID, inviterUserID uint, e
 	if !role.Valid() {
 		return Invitation{}, "", ErrInvalidRole
 	}
-	// Resolve the inviter's own role: they must both be permitted to invite and
-	// not be granting above their own standing. Checking CapMembersInvite alone
-	// would let an admin mint an owner.
-	inviterRole, ok, err := s.MemberRole(ctx, orgID, inviterUserID)
-	if err != nil {
+	// Normalize the address once, here at the boundary, exactly as Gombit's
+	// auth.createUser does — so an invitation's Email and a users.email row are
+	// the same string or neither, and every downstream comparison can be plain
+	// equality. Without this, "Owner@x" slips past the already-a-member guard
+	// (which compares to the lowercased users row) and a trailing space mints an
+	// invitation no user can ever match.
+	email = normalizeEmail(email)
+	// The inviter must be permitted to invite and not be granting above their
+	// own standing; AuthorizeGrant enforces both in one place.
+	if err := s.AuthorizeGrant(ctx, orgID, inviterUserID, CapMembersInvite, role); err != nil {
 		return Invitation{}, "", err
-	}
-	if !ok {
-		return Invitation{}, "", ErrNotMember
-	}
-	if !Can(inviterRole, CapMembersInvite) {
-		return Invitation{}, "", ErrForbidden
-	}
-	if !CanGrant(inviterRole, role) {
-		return Invitation{}, "", ErrRoleExceedsGranter
 	}
 
 	// A person who is already a member cannot be invited again.
@@ -164,12 +186,18 @@ func (s *Service) InviteMember(ctx context.Context, orgID, inviterUserID uint, e
 		}
 		org := orgID
 		actor := inviterUserID
+		// Record who was invited (the normalized address), not the invitation
+		// row id: §23's question is "who was invited to org X, by whom", and the
+		// answer must survive deletion of the mutable invitations row. The email
+		// is not a secret value, so §23's constraint permits it. (The granted
+		// role is the other security-relevant fact; carrying per-action detail
+		// like that is the audit schema #40 owns, not this minimal seam.)
 		return audit.Record(ctx, tx, audit.Event{
 			OrganizationID: &org,
 			ActorUserID:    &actor,
 			Action:         audit.ActionMemberInvited,
-			TargetType:     "invitation",
-			TargetID:       strconv.FormatUint(uint64(inv.ID), 10),
+			TargetType:     "member",
+			TargetID:       email,
 		})
 	})
 	if err != nil {
@@ -181,12 +209,21 @@ func (s *Service) InviteMember(ctx context.Context, orgID, inviterUserID uint, e
 // AcceptInvitation redeems a raw invitation token for the accepting user,
 // creating their membership and marking the invitation accepted, atomically.
 //
-// Invitations are addressed to a specific email (§22): the accepting user's
-// email must match the invitation's, so possessing a leaked token is not enough
-// to join as someone else. It fails closed — an unknown, expired,
-// already-accepted, or wrong-recipient token is all ErrInvitationInvalid, so a
-// caller cannot even distinguish "valid token, not for you" from "no such
-// token". userEmail is the authenticated caller's email (from the session), not
+// The invitation is addressed to a specific email (§22), and redemption is
+// bound to it: the accepting user's email must equal the invitation's. This is
+// a misdelivery/typo guard that ties a redemption to the address the invite
+// names — it is NOT a defense against a leaked token. Gombit exposes ungated
+// self-registration and does not verify email ownership, and there is no
+// mailer (InviteMember hands the raw token back to the inviter), so anyone who
+// holds the token can register under the invited address and pass this check.
+// Treat the token as the credential; this binding is the second factor only in
+// the narrow case where the invitee already has an account.
+//
+// Both strings are normalized (InviteMember stored a normalized address; here
+// we normalize the caller's), so the comparison is plain equality. It fails
+// closed: unknown, expired, already-accepted, or wrong-recipient are all
+// ErrInvitationInvalid, so there is no "valid token, not for you" oracle.
+// userEmail is the authenticated caller's email (from the session), not
 // caller-supplied.
 func (s *Service) AcceptInvitation(ctx context.Context, rawToken, userEmail string, userID uint) (Member, error) {
 	var member Member
@@ -200,8 +237,8 @@ func (s *Service) AcceptInvitation(ctx context.Context, rawToken, userEmail stri
 		if lookup.Error != nil {
 			return lookup.Error
 		}
-		// Bind acceptance to the invited identity. Email is case-insensitive.
-		if !strings.EqualFold(userEmail, inv.Email) {
+		// Both sides are normalized, so this is Gombit's own email relation.
+		if normalizeEmail(userEmail) != inv.Email {
 			return ErrInvitationInvalid
 		}
 
@@ -237,18 +274,27 @@ func (s *Service) Members(ctx context.Context, orgID uint) ([]Member, error) {
 // userByEmailIsMember reports whether the email belongs to a Gombit user who is
 // already a member of the org. It joins on the auth users table by email rather
 // than importing the auth model, so org has no compile coupling to auth's
-// schema beyond the well-known table and columns.
+// schema beyond the well-known table and columns. The email is normalized so
+// the SQL "=" is Gombit's own email relation (users.email is stored normalized).
 func (s *Service) userByEmailIsMember(ctx context.Context, orgID uint, email string) (bool, error) {
 	var count int64
 	err := s.db.WithContext(ctx).
 		Table("organization_members AS m").
 		Joins("JOIN users AS u ON u.id = m.user_id").
-		Where("m.organization_id = ? AND u.email = ?", orgID, email).
+		Where("m.organization_id = ? AND u.email = ?", orgID, normalizeEmail(email)).
 		Count(&count).Error
 	if err != nil {
 		return false, fmt.Errorf("check existing membership: %w", err)
 	}
 	return count > 0, nil
+}
+
+// normalizeEmail matches Gombit's auth.createUser (lowercase + trim), so an
+// invitation address and a users.email row are the same string or neither. It
+// is applied once at the InviteMember boundary; every other comparison in this
+// package assumes its inputs already passed through here.
+func normalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
 }
 
 // randomToken returns a 256-bit URL-safe random token.

@@ -16,28 +16,18 @@ func TestRoleValid(t *testing.T) {
 }
 
 // TestCanMatrix pins the role → capability matrix so a change to it is a
-// deliberate, reviewed edit rather than an accident.
+// deliberate, reviewed edit rather than an accident. It covers exactly the
+// capabilities the code enforces today; new capabilities are added here when
+// the operation that reads them lands.
 func TestCanMatrix(t *testing.T) {
-	all := []Capability{
-		CapOrgView, CapOrgManage, CapMembersView, CapMembersInvite,
-		CapMembersRemove, CapProjectCreate, CapProjectDelete,
-	}
+	all := []Capability{CapMembersView, CapMembersInvite}
 
 	// want[role] is the exact set of capabilities that role must have; every
 	// other capability must be denied.
 	want := map[Role]map[Capability]bool{
-		RoleOwner: {
-			CapOrgView: true, CapOrgManage: true, CapMembersView: true,
-			CapMembersInvite: true, CapMembersRemove: true,
-			CapProjectCreate: true, CapProjectDelete: true,
-		},
-		RoleAdmin: {
-			CapOrgView: true, CapMembersView: true, CapMembersInvite: true,
-			CapMembersRemove: true, CapProjectCreate: true, CapProjectDelete: true,
-		},
-		RoleMember: {
-			CapOrgView: true, CapMembersView: true, CapProjectCreate: true,
-		},
+		RoleOwner:  {CapMembersView: true, CapMembersInvite: true},
+		RoleAdmin:  {CapMembersView: true, CapMembersInvite: true},
+		RoleMember: {CapMembersView: true},
 	}
 
 	for role, allowed := range want {
@@ -49,11 +39,8 @@ func TestCanMatrix(t *testing.T) {
 		}
 	}
 
-	// Owner must not be able to escape the org-manage line held from admin:
-	// admin explicitly cannot manage/delete the org.
-	if Can(RoleAdmin, CapOrgManage) {
-		t.Error("admin must not have org.manage")
-	}
+	// A plain member cannot invite; the owner/admin distinction that matters is
+	// the grant hierarchy, pinned by TestCanGrant.
 	if Can(RoleMember, CapMembersInvite) {
 		t.Error("member must not be able to invite")
 	}
@@ -61,7 +48,7 @@ func TestCanMatrix(t *testing.T) {
 
 // TestCanFailsClosed confirms an unknown role permits nothing.
 func TestCanFailsClosed(t *testing.T) {
-	for _, c := range []Capability{CapOrgView, CapProjectCreate, CapMembersInvite} {
+	for _, c := range []Capability{CapMembersView, CapMembersInvite} {
 		if Can("bogus", c) {
 			t.Errorf("unknown role must not permit %q", c)
 		}
