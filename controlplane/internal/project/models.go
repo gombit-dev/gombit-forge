@@ -32,7 +32,15 @@ type Project struct {
 	// nullable + ON DELETE SET NULL so a rollback that prunes revisions cannot
 	// orphan the project).
 	HeadRevisionID *uint `gorm:"index"`
-	CreatedBy      uint  `gorm:"not null"`
+	// CloudProjectID links this Forge project to its Gombit Cloud counterpart
+	// (ADR-005 D6). Runtime state — builds, deployments, environments, the
+	// database, secrets, domains — lives in Cloud, not the Forge control plane;
+	// this opaque identifier is the whole of Forge's knowledge of it. Nil until
+	// the project is first deployed (a project can be authored and previewed
+	// before it is linked). Stored as a string because it is Cloud's ID space,
+	// not a Forge FK — there is no table here to reference.
+	CloudProjectID *string `gorm:"size:64;index"`
+	CreatedBy      uint    `gorm:"not null"`
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }

@@ -45,24 +45,26 @@ Revision chain — each revision pins the exact canonical `spec.Marshal` bytes a
 is the first place the control plane imports the compiler: `internal/project`
 uses the root module's `internal/spec` for canonicalization and hashing (the
 single source of truth for spec bytes), so `controlplane/go.mod` now requires
-the root module with a `replace … => ../`. `internal/deploy` completes the core
-model set (#38): Environment (preview/production), Build with the §11 state
-machine (queued→…→succeeded, plus failed/cancelled; terminal states are dead
-ends), Deployment (referencing an exact revision + build), and Domain. These are
-schema and state vocabulary only — the build pipeline (M4) and deploy path (M6)
-that drive them are not built.
+the root module with a `replace … => ../`. Project also carries a
+`CloudProjectID` linkage (ADR-005 D6) — the whole of Forge's knowledge of its
+Gombit Cloud counterpart. The runtime models (Environment, Build, Deployment,
+Domain) are **not** in the Forge control plane: they are owned by Gombit Cloud
+(ADR-005 D2). Forge compiles a revision to an ordinary Gombit application and
+hands it to Cloud, which owns build, deployment, environments, databases,
+secrets and domains. #38 was originally a set of `internal/deploy` models here;
+ADR-005 reduced PR #100 to the `CloudProjectID` linkage instead.
 
 `internal/platform.Models()` is the control plane's schema of record; tests
 AutoMigrate it, but **no Atlas migration is committed yet** — deployment can't
 create these tables until one is (§14 forbids AutoMigrate in the deployed app).
-With #38 the *model set* is complete, but the *schema* is not: the foreign keys,
-ON DELETE rules and integrity constraints the model comments defer (org/project
-FKs, the Deployment↔Build composite key, the Build state CHECK, durable
-immutability) live in **#101**, the initial-migration issue, and exist nowhere
-yet. Still open for M1: that migration (#101), the project/revision API (#39,
-which also adds the authorized project-create path), the audit service (#40),
-secrets (#41), and any editor, build pipeline or deploy path. Don't describe
-those as existing.
+The model set is the authoring loop only — org tenancy, Project/Revision, audit,
+plus the `CloudProjectID` linkage — and #101 authors its initial migration
+(org/project FKs, `head_revision_id` ON DELETE SET NULL, revision immutability).
+Still open for M1: that migration (#101, now scoped to the reduced set), the
+project/revision API (#39, which also adds the authorized project-create path),
+the audit service (#40), and — as Cloud-integration client work, not a Forge
+PaaS — the build/preview/deploy paths (M4–M6, re-scoped by ADR-005). Secrets
+(#41) moved to Gombit Cloud. Don't describe any of those as existing.
 
 The repo is **two Go modules**. The root module
 (`github.com/gombit-dev/gombit-forge`) is the compiler and stays gombit-free —

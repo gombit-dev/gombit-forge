@@ -4,7 +4,6 @@ import (
 	"github.com/gombit-dev/gombit/auth"
 
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/audit"
-	"github.com/gombit-dev/gombit-forge/controlplane/internal/deploy"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/org"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/project"
 )
@@ -23,12 +22,14 @@ import (
 // Deployment applies this schema through Atlas migrations, never AutoMigrate
 // (DESIGN.md §14). Tests may AutoMigrate this set to stand up a scratch schema.
 //
-// audit.Event is here because the invitation flow (#36) records to it; #40
-// builds the audit service over it. With #38 the *model set* is complete — but
-// the *schema* is not: no Atlas migration has been authored, so the foreign
-// keys and ON DELETE rules recorded on org.Member, project.Project and
-// deploy.Deployment exist nowhere yet, and the deployed control plane cannot
-// create these tables. That migration is #101.
+// The set is deliberately the authoring loop only — Organization/Member/
+// Invitation (#36), Project/Revision (#37) and audit.Event (#36, service #40).
+// The runtime models (Environment, Build, Deployment, Domain) are owned by
+// Gombit Cloud, not the Forge control plane (ADR-005 D2/D6): Forge compiles a
+// revision to an ordinary Gombit application and hands it to Cloud, which owns
+// build, deployment, environments, databases, secrets and domains. The link to
+// the Cloud side is Project.CloudProjectID, not a table here. #101 authors this
+// (reduced) schema's initial Atlas migration.
 func Models() []any {
 	return append(auth.Models(),
 		&org.Organization{},
@@ -36,10 +37,6 @@ func Models() []any {
 		&org.Invitation{},
 		&project.Project{},
 		&project.Revision{},
-		&deploy.Environment{},
-		&deploy.Build{},
-		&deploy.Deployment{},
-		&deploy.Domain{},
 		&audit.Event{},
 	)
 }
