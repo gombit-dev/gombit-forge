@@ -38,21 +38,33 @@ member) and a capability matrix, plus the invitation flow (invite → hashed
 token → accept) over cookie-gated Huma routes; `internal/audit` is the minimal
 audit seam (§23) the invitation flow records to (the audit *service* is #40).
 Identity and RBAC are Gombit's (`auth.User`, cookie session) — the org role is
-tenancy Gombit can't express, not a second identity store (D12).
+tenancy Gombit can't express, not a second identity store (D12). Projects exist
+too (#37): `internal/project` holds Project and the immutable, append-only
+Revision chain — each revision pins the exact canonical `spec.Marshal` bytes and
+`spec.Hash`, with `parent_revision_id` lineage (DESIGN.md §8, ADR-001 §60). This
+is the first place the control plane imports the compiler: `internal/project`
+uses the root module's `internal/spec` for canonicalization and hashing (the
+single source of truth for spec bytes), so `controlplane/go.mod` now requires
+the root module with a `replace … => ../`.
 
 `internal/platform.Models()` is the control plane's schema of record; tests
 AutoMigrate it, but **no Atlas migration is committed yet** — deployment can't
 create these tables until one is (§14 forbids AutoMigrate in the deployed app).
-Still missing: Project/ProjectRevision (#37), the rest of the core models (#38),
-the project/revision API (#39), the audit service (#40), secrets (#41), and any
-editor, build pipeline or deploy path. Don't describe those as existing.
+Still missing: the rest of the core models (#38), the project/revision API (#39,
+which also adds the authorized project-create path), the audit service (#40),
+secrets (#41), and any editor, build pipeline or deploy path. Don't describe
+those as existing.
 
 The repo is **two Go modules**. The root module
 (`github.com/gombit-dev/gombit-forge`) is the compiler and stays gombit-free —
 it drives Gombit only through the CLI. The `controlplane/` module
 (`…/controlplane`) is the Gombit app and *does* import Gombit; it is where the
-runtime dependency on Gombit is allowed to live. Root `./...` never reaches into
-the nested module, so `make test`/`make vet` stay gombit-free; the control plane
+runtime dependency on Gombit is allowed to live. It also imports the root
+module's `internal/spec` (via `replace … => ../`) — allowed because the two
+modules share the `gombit-forge/` path prefix, and `internal/spec` is itself
+gombit-free, so this does not drag Gombit into the compiler. Root `./...` never
+reaches into the nested module, so `make test`/`make vet` stay gombit-free; the
+control plane
 has its own `cp-build`/`cp-vet`/`cp-test` targets that `cd controlplane` first,
 folded into `make all` and mirrored in CI. A `go.work` at the repo root is a
 local-dev convenience for editing both modules at once — create it with `go work
