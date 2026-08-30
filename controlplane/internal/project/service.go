@@ -116,8 +116,9 @@ func (s *Service) CreateRevision(ctx context.Context, projectID uint, sp *spec.P
 }
 
 // Head returns a project's current revision. It returns ErrProjectNotFound if
-// the project does not exist, and (Revision{}, false, nil) if the project exists
-// but has no revisions yet.
+// the project does not exist, (Revision{}, false, nil) if the project exists but
+// has no revisions yet, and ErrCorruptLineage if the project's head points at a
+// revision that is gone.
 func (s *Service) Head(ctx context.Context, projectID uint) (Revision, bool, error) {
 	var p Project
 	err := s.db.WithContext(ctx).First(&p, projectID).Error

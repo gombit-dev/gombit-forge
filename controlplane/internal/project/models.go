@@ -38,9 +38,12 @@ type Project struct {
 }
 
 // Revision is one immutable snapshot of a project's spec (DESIGN.md §8). It is
-// append-only: once written it is never updated. That is enforced by the
-// BeforeUpdate hook below, not left to the service's call sites — every promise
-// this package makes (deterministic rebuild, rollback, diff, lineage) reduces to
+// append-only: once written it is never updated. The BeforeUpdate hook below
+// enforces that against GORM's model API — the Updates/Save paths a human
+// actually takes — rather than leaving it to the service's call sites; a raw
+// Exec or an explicit Session{SkipHooks: true} still bypasses it, and closing
+// those is the job of the database-level rule #38 adds. Every promise this
+// package makes (deterministic rebuild, rollback, diff, lineage) reduces to
 // "these bytes are the bytes that were accepted", and a silent UPDATE that
 // rewrote spec_json and spec_hash together would break all of them while the
 // stored hash still matched. The absence of an UpdatedAt is a signal of this,
