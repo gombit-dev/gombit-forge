@@ -54,25 +54,13 @@ func PackageName(resource *graph.Resource) string {
 	return strings.ToLower(resource.CodeName())
 }
 
-// gormModelFields are the exported fields gorm.Model promotes onto every
-// model. A generated field may not collide with one of them, or the struct
-// would declare a duplicate field (ADR-001 §12: reserved names are checked
-// here, not discovered by go build).
-//
-// This is a focused, M0-scoped reservation. F0 centralizes symbol reservation
-// in the ledger; until then the generator refuses to emit a colliding symbol
-// rather than relying on the Go compiler to catch it.
-var gormModelFields = map[string]struct{}{
-	"Model": {}, "ID": {}, "CreatedAt": {}, "UpdatedAt": {}, "DeletedAt": {},
-}
-
-// generatedMethods are methods this stage emits onto the model type. A field
-// may not share a name with one: Go rejects "field and method with the same
-// name". Currently only TableName (see modelFile). Later stages that add
-// methods to the model must extend this set.
-var generatedMethods = map[string]struct{}{
-	"TableName": {},
-}
+// The field/accessor-namespace reservations — the gorm.Model promoted fields
+// and the generated model methods (TableName) a field code_name may not
+// collide with — live in spec.reservedModelSymbols (F0 #19), which both this
+// generator and the validator consult so the two cannot disagree. A stage that
+// adds a model field or method extends that table, not a copy here. The
+// reservations below are the generation-specific ones this package owns: they
+// depend on how it lays out packages and imports, not on the framework model.
 
 // reservedPackageSymbols are exported package-level identifiers the generated
 // code defines in every resource package besides the model type itself: the

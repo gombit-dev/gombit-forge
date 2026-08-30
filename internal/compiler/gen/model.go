@@ -200,15 +200,10 @@ func validateNames(resource *graph.Resource) error {
 	seen := make(map[string]spec.ID, len(resource.Fields))
 	for _, field := range resource.Fields {
 		name := goFieldName(field)
-		if _, reserved := gormModelFields[name]; reserved {
+		if reason, reserved := spec.ReservedModelSymbol(name); reserved {
 			return fmt.Errorf(
-				"gen: field %s generates Go field %q, which gorm.Model already provides",
-				field.Spec.ID, name)
-		}
-		if _, reserved := generatedMethods[name]; reserved {
-			return fmt.Errorf(
-				"gen: field %s generates Go field %q, which collides with a generated method on the model",
-				field.Spec.ID, name)
+				"gen: field %s generates Go field %q, which is reserved: %s",
+				field.Spec.ID, name, reason)
 		}
 		if owner, dup := seen[name]; dup {
 			return fmt.Errorf(
