@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"github.com/gombit-dev/gombit-forge/controlplane/internal/audit"
 	"github.com/gombit-dev/gombit-forge/internal/spec"
 )
 
@@ -47,7 +49,21 @@ func NewService(db *gorm.DB) *Service {
 // is the data operation.
 func (s *Service) CreateProject(ctx context.Context, orgID uint, name, slug string, createdBy uint) (Project, error) {
 	p := Project{OrganizationID: orgID, Name: name, Slug: slug, CreatedBy: createdBy}
-	if err := s.db.WithContext(ctx).Create(&p).Error; err != nil {
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&p).Error; err != nil {
+			return err
+		}
+		// Record project.created atomically with the row it describes (§23): if
+		// the audit write fails the project does not exist either.
+		return audit.Record(ctx, tx, audit.Event{
+			OrganizationID: &orgID,
+			ActorUserID:    &createdBy,
+			Action:         audit.ActionProjectCreated,
+			TargetType:     "project",
+			TargetID:       strconv.FormatUint(uint64(p.ID), 10),
+		})
+	})
+	if err != nil {
 		return Project{}, fmt.Errorf("create project: %w", err)
 	}
 	return p, nil
@@ -103,8 +119,19 @@ func (s *Service) CreateRevision(ctx context.Context, projectID uint, sp *spec.P
 		}
 		// Advance head. Update the column explicitly rather than saving the
 		// struct so nothing else on the project row is touched.
-		return tx.Model(&Project{}).Where("id = ?", projectID).
-			Update("head_revision_id", rev.ID).Error
+		if err := tx.Model(&Project{}).Where("id = ?", projectID).
+			Update("head_revision_id", rev.ID).Error; err != nil {
+			return err
+		}
+		// spec.revision.created, in the same transaction as the revision and the
+		// head move — the org comes from the locked project row.
+		return audit.Record(ctx, tx, audit.Event{
+			OrganizationID: &p.OrganizationID,
+			ActorUserID:    &createdBy,
+			Action:         audit.ActionSpecRevised,
+			TargetType:     "revision",
+			TargetID:       strconv.FormatUint(uint64(rev.ID), 10),
+		})
 	})
 	if err != nil {
 		if errors.Is(err, ErrProjectNotFound) {
