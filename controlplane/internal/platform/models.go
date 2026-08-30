@@ -4,6 +4,7 @@ import (
 	"github.com/gombit-dev/gombit/auth"
 
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/audit"
+	"github.com/gombit-dev/gombit-forge/controlplane/internal/deploy"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/org"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/project"
 )
@@ -22,9 +23,9 @@ import (
 // Deployment applies this schema through Atlas migrations, never AutoMigrate
 // (DESIGN.md §14). Tests may AutoMigrate this set to stand up a scratch schema.
 //
-// The set grows as M1 lands its models: Environment/Build/Deployment/Domain
-// (#38). audit.Event is here because the invitation flow (#36) records to it;
-// #38 folds it into the same set and #40 builds the audit service over it.
+// audit.Event is here because the invitation flow (#36) records to it; #40
+// builds the audit service over it. With #38 the core model set is complete;
+// what remains for M1 is services and API, not schema.
 func Models() []any {
 	return append(auth.Models(),
 		&org.Organization{},
@@ -32,6 +33,10 @@ func Models() []any {
 		&org.Invitation{},
 		&project.Project{},
 		&project.Revision{},
+		&deploy.Environment{},
+		&deploy.Build{},
+		&deploy.Deployment{},
+		&deploy.Domain{},
 		&audit.Event{},
 	)
 }

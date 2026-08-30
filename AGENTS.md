@@ -45,15 +45,20 @@ Revision chain — each revision pins the exact canonical `spec.Marshal` bytes a
 is the first place the control plane imports the compiler: `internal/project`
 uses the root module's `internal/spec` for canonicalization and hashing (the
 single source of truth for spec bytes), so `controlplane/go.mod` now requires
-the root module with a `replace … => ../`.
+the root module with a `replace … => ../`. `internal/deploy` completes the core
+model set (#38): Environment (preview/production), Build with the §11 state
+machine (queued→…→succeeded, plus failed/cancelled; terminal states are dead
+ends), Deployment (referencing an exact revision + build), and Domain. These are
+schema and state vocabulary only — the build pipeline (M4) and deploy path (M6)
+that drive them are not built.
 
 `internal/platform.Models()` is the control plane's schema of record; tests
 AutoMigrate it, but **no Atlas migration is committed yet** — deployment can't
 create these tables until one is (§14 forbids AutoMigrate in the deployed app).
-Still missing: the rest of the core models (#38), the project/revision API (#39,
-which also adds the authorized project-create path), the audit service (#40),
-secrets (#41), and any editor, build pipeline or deploy path. Don't describe
-those as existing.
+The core model set is now complete; what remains for M1 is services and API, not
+schema: the project/revision API (#39, which also adds the authorized
+project-create path), the audit service (#40), secrets (#41), and any editor,
+build pipeline or deploy path. Don't describe those as existing.
 
 The repo is **two Go modules**. The root module
 (`github.com/gombit-dev/gombit-forge`) is the compiler and stays gombit-free —
