@@ -26,7 +26,9 @@ const (
 // The known namespaces are constructed through the helpers below so their keys
 // have one spelling. The resource-type namespace is a constant; per-resource
 // namespaces are keyed by the owning resource's stable ID (never its name, which
-// can change — ADR-001 §4).
+// can change — ADR-001 §4). §7's lifecycle-hook namespace has no helper yet: it
+// arrives with the extension ABI work (#18+), not by callers hand-spelling a
+// "hooks:"+id key.
 type Namespace string
 
 // NamespaceResource is the namespace of generated resource type names.
@@ -63,14 +65,18 @@ type entry struct {
 // what §70 requires persisted with the project and what makes symbol allocation
 // reconstructible across revisions.
 //
-// The zero Ledger is not usable; construct one with NewLedger. The map is
-// unexported so the no-recycle and no-silent-overwrite invariants hold through
-// the methods rather than being a caller's responsibility.
+// The zero value is usable: the query and marshal paths treat a nil map as
+// empty, and Record lazily initializes it, so a Ledger embedded by value in a
+// larger struct works without a constructor. NewLedger and UnmarshalJSON are
+// conveniences that produce the same thing. The map is unexported so the
+// no-recycle and no-silent-overwrite invariants hold through the methods rather
+// than being a caller's responsibility.
 type Ledger struct {
 	namespaces map[Namespace]map[string]entry
 }
 
-// NewLedger returns an empty ledger.
+// NewLedger returns an empty ledger. The zero Ledger is equally usable; this is
+// a convenience for a caller that prefers an explicit constructor.
 func NewLedger() *Ledger {
 	return &Ledger{namespaces: map[Namespace]map[string]entry{}}
 }
@@ -126,6 +132,9 @@ func (l *Ledger) Record(ns Namespace, symbol string, entity ID) error {
 	if _, taken := l.namespaces[ns][symbol]; taken {
 		return fmt.Errorf("%w: %q in %q", ErrSymbolTaken, symbol, ns)
 	}
+	if l.namespaces == nil {
+		l.namespaces = map[Namespace]map[string]entry{}
+	}
 	table := l.namespaces[ns]
 	if table == nil {
 		table = map[string]entry{}
@@ -153,8 +162,12 @@ func (l *Ledger) Tombstone(ns Namespace, symbol string) error {
 // keys in sorted order, so the output is deterministic and Git-friendly: the
 // same history serializes to the same bytes, and an added symbol changes one
 // line rather than reshuffling the file. Use json.MarshalIndent for the on-disk
-// form.
+// form. A nil map (the zero Ledger) marshals as {}, not null, so a persisted
+// project file never carries a surprising null ledger.
 func (l *Ledger) MarshalJSON() ([]byte, error) {
+	if l.namespaces == nil {
+		return []byte("{}"), nil
+	}
 	return json.Marshal(l.namespaces)
 }
 
@@ -190,6 +203,21 @@ func (l *Ledger) Namespaces() []Namespace {
 	out := make([]Namespace, 0, len(l.namespaces))
 	for ns := range l.namespaces {
 		out = append(out, ns)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
+// Symbols returns the symbols recorded in a namespace, sorted, whatever their
+// status. With Namespaces it completes a deterministic walk of the whole
+// history — Namespaces → Symbols → Status/OwnerOf reconstructs the ledger's full
+// contents (§70) — without exposing the unexported map. An unknown namespace
+// yields an empty slice.
+func (l *Ledger) Symbols(ns Namespace) []string {
+	table := l.namespaces[ns]
+	out := make([]string, 0, len(table))
+	for symbol := range table {
+		out = append(out, symbol)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out

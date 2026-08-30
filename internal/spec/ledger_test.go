@@ -184,6 +184,75 @@ func TestLedgerRejectsCorruptStatus(t *testing.T) {
 	}
 }
 
+// TestLedgerWalkReconstructsContents is the §70 property in one assertion: with
+// only the exported accessors — Namespaces, Symbols, Status, OwnerOf — a caller
+// can reconstruct the ledger's entire contents without touching the map.
+func TestLedgerWalkReconstructsContents(t *testing.T) {
+	l := NewLedger()
+	_ = l.Record(NamespaceResource, "Customer", "res_A")
+	_ = l.Record(FieldNamespace("res_A"), "Email", "fld_A")
+	_ = l.Tombstone(FieldNamespace("res_A"), "Email")
+	_ = l.Record(FieldNamespace("res_A"), "Email2", "fld_B")
+
+	type record struct {
+		status SymbolStatus
+		owner  ID
+	}
+	walked := map[Namespace]map[string]record{}
+	for _, ns := range l.Namespaces() {
+		walked[ns] = map[string]record{}
+		for _, sym := range l.Symbols(ns) {
+			status, recorded := l.Status(ns, sym)
+			owner, _ := l.OwnerOf(ns, sym)
+			if !recorded {
+				t.Fatalf("Symbols listed %q/%q but Status says unrecorded", ns, sym)
+			}
+			walked[ns][sym] = record{status, owner}
+		}
+	}
+
+	want := map[Namespace]map[string]record{
+		NamespaceResource:       {"Customer": {SymbolLive, "res_A"}},
+		FieldNamespace("res_A"): {"Email": {SymbolTombstoned, "fld_A"}, "Email2": {SymbolLive, "fld_B"}},
+	}
+	if len(walked) != len(want) {
+		t.Fatalf("walk found %d namespaces, want %d", len(walked), len(want))
+	}
+	for ns, syms := range want {
+		for sym, rec := range syms {
+			if walked[ns][sym] != rec {
+				t.Errorf("walk[%q][%q] = %+v, want %+v", ns, sym, walked[ns][sym], rec)
+			}
+		}
+	}
+}
+
+// TestLedgerZeroValueIsUsable: a zero Ledger (embedded by value, never
+// constructed) supports the query, write, and marshal paths — reads treat the
+// nil map as empty, Record lazily creates it (rather than panicking), and it
+// marshals as {} not null.
+func TestLedgerZeroValueIsUsable(t *testing.T) {
+	var l Ledger
+
+	if !l.IsFree(NamespaceResource, "Customer") {
+		t.Error("zero ledger: every symbol should read as free")
+	}
+	data, err := json.Marshal(&l)
+	if err != nil {
+		t.Fatalf("zero ledger marshal: %v", err)
+	}
+	if string(data) != "{}" {
+		t.Errorf("zero ledger marshals as %s, want {}", data)
+	}
+
+	if err := l.Record(NamespaceResource, "Customer", "res_A"); err != nil {
+		t.Fatalf("zero ledger Record must not panic or error: %v", err)
+	}
+	if !l.IsLive(NamespaceResource, "Customer") {
+		t.Error("zero ledger: recorded symbol should be live")
+	}
+}
+
 // TestLedgerMarshalShape pins the §11 structure and its sorted, indented,
 // Git-friendly form.
 func TestLedgerMarshalShape(t *testing.T) {
