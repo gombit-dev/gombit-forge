@@ -37,9 +37,13 @@ func TestNormalizeExact(t *testing.T) {
 		// single letters and already-valid identifiers
 		{"a", "A"},
 		{"Customer", "Customer"},
-		// leading digit is spelled so the identifier is legal
+		// leading digits are spelled (whole run) so the identifier is legal and
+		// the number is preserved, not altered
 		{"2", "Two"},
 		{"2 factor", "TwoFactor"},
+		{"42", "FourTwo"},
+		{"42 units", "FourTwoUnits"},
+		{"8ball", "Eightball"},
 		{"version 2", "Version2"}, // trailing digit is fine as-is
 		// Go keywords are only lower-case; PascalCase never collides
 		{"type", "Type"},
@@ -53,6 +57,31 @@ func TestNormalizeExact(t *testing.T) {
 	for _, c := range cases {
 		got, ok := Normalize(c.label)
 		if !ok || got != c.want {
+			t.Errorf("Normalize(%q) = (%q, %v), want (%q, true)", c.label, got, ok, c.want)
+		}
+	}
+}
+
+// TestNormalizeFailsClosedOnUnrepresentableLetters: a label containing a letter
+// the Latin-1 fold table cannot represent must fail closed, not drop the letter
+// and mint a plausible-but-wrong symbol from the survivors (ADR-001 D14). These
+// are the common case — one diacritic in an otherwise-ASCII word — not exotic.
+func TestNormalizeFailsClosedOnUnrepresentableLetters(t *testing.T) {
+	for _, label := range []string{
+		"żółć", "Łódź", "čeština", "Ürün adı", "Đoàn", "π value", "µservice",
+	} {
+		if got, ok := Normalize(label); ok {
+			t.Errorf("Normalize(%q) = (%q, true), want fail-closed (\"\", false)", label, got)
+		}
+	}
+	// Latin-1 diacritics still fold and succeed — the guard fires on dropped
+	// letters, not on letters the table handles.
+	for _, c := range []struct{ label, want string }{
+		{"Kraków", "Krakow"},
+		{"café société", "CafeSociete"},
+		{"Straße", "Strasse"},
+	} {
+		if got, ok := Normalize(c.label); !ok || got != c.want {
 			t.Errorf("Normalize(%q) = (%q, %v), want (%q, true)", c.label, got, ok, c.want)
 		}
 	}

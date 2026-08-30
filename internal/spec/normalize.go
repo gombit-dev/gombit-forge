@@ -1,6 +1,9 @@
 package spec
 
-import "strings"
+import (
+	"strings"
+	"unicode"
+)
 
 // Normalize converts a human label into a candidate exported Go identifier
 // (ADR-001 §6). It is the first step of symbol minting (§5): the candidate it
@@ -24,19 +27,39 @@ import "strings"
 //     lowercase→uppercase boundary, so both "created-at" and "createdAt" yield
 //     ["created","at"];
 //   - upper-case the first letter of each word and concatenate (PascalCase),
-//     preserving the rest of each word so acronyms survive (API → API);
-//   - if the result would start with a digit, replace that leading digit with
-//     its English word so the identifier is legal ("2 factor" → TwoFactor).
+//     preserving the rest of each word so acronyms survive (API → API). The
+//     cost of preserving case is that a shouted label yields a shouted
+//     identifier ("EMAIL ADDRESS" → EMAILADDRESS); distinguishing an acronym
+//     from shouting would need a heuristic, and a heuristic here would move
+//     frozen symbols when it changed, which ADR-001 forbids;
+//   - if the result would start with digits, spell the whole leading digit run
+//     so the identifier is legal and the number is preserved ("2 factor" →
+//     TwoFactor, "42" → FourTwo).
 //
-// ok is false when the label has no usable alphanumeric content and therefore
-// cannot form an identifier (empty, whitespace, all punctuation, or entirely
-// non-foldable symbols). Callers must handle that case rather than assume a
-// name; the minting pipeline falls back to a kind-derived symbol.
+// ok is false when the label cannot form an identifier the author would
+// recognise: it has no usable alphanumeric content (empty, whitespace, all
+// punctuation), or it contains a letter this normalizer cannot fold to ASCII (a
+// Latin Extended-A or non-Latin letter — see foldToASCII). In the latter case
+// Normalize fails closed rather than dropping the letter and minting a
+// plausible-but-wrong symbol; the minting pipeline then supplies a kind-derived
+// fallback. Callers must handle ok=false rather than assume a name.
 func Normalize(label string) (ident string, ok bool) {
 	var folded strings.Builder
 	folded.Grow(len(label))
+	droppedLetter := false
 	for _, r := range label {
-		folded.WriteString(foldToASCII(r))
+		f := foldToASCII(r)
+		if r >= 0x80 && f == " " && unicode.IsLetter(r) {
+			// A letter the fold table cannot represent. Keeping the surviving
+			// letters would mint a name that looks deliberate ("żółć" → "O") and
+			// freeze it forever (ADR-001 D3–D5); fail closed so the kind-derived
+			// fallback runs instead (D14).
+			droppedLetter = true
+		}
+		folded.WriteString(f)
+	}
+	if droppedLetter {
+		return "", false
 	}
 
 	words := splitWords(folded.String())
@@ -50,10 +73,20 @@ func Normalize(label string) (ident string, ok bool) {
 	}
 	out := b.String()
 
-	// A Go identifier may not begin with a digit. Once the leading digit is a
-	// word, any later digits are legal, so only the first rune needs spelling.
-	if d := out[0]; d >= '0' && d <= '9' {
-		out = digitWords[d-'0'] + out[1:]
+	// A Go identifier may not begin with a digit. Spell the entire leading digit
+	// run rather than substituting one digit, so the number is preserved rather
+	// than silently altered ("42" → FourTwo, not Four2).
+	if out[0] >= '0' && out[0] <= '9' {
+		end := 0
+		for end < len(out) && out[end] >= '0' && out[end] <= '9' {
+			end++
+		}
+		var sb strings.Builder
+		for _, d := range []byte(out[:end]) {
+			sb.WriteString(digitWords[d-'0'])
+		}
+		sb.WriteString(out[end:])
+		out = sb.String()
 	}
 
 	// Constructed to be valid; verify rather than trust, so a future rule change
@@ -118,9 +151,15 @@ func upperFirstASCII(w string) string {
 // foldToASCII maps one rune to its ASCII identifier contribution: ASCII runes
 // pass through; Latin-1 accented letters fold to their base letter (some to two
 // letters, e.g. Æ→AE, ß→ss); every other non-ASCII rune becomes a space, which
-// splitWords treats as a separator. This covers the common European labels
-// without a Unicode-normalization dependency; scripts it cannot fold degrade to
-// separators rather than producing an invalid identifier.
+// splitWords treats as a separator.
+//
+// The table is Latin-1 only (much of Western European text) and deliberately
+// dependency-free. Letters outside it — Latin Extended-A (Polish, Czech,
+// Hungarian, Turkish, the Baltics, …) and non-Latin scripts — are not folded;
+// Normalize detects that a *letter* rather than punctuation hit this space and
+// fails closed, so an unrepresentable label yields a kind-derived fallback
+// rather than a mangled fragment. Extending the table is a safe future
+// improvement that turns those fallbacks into names.
 func foldToASCII(r rune) string {
 	if r < 0x80 {
 		return string(r)
