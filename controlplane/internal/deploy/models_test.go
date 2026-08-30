@@ -6,6 +6,7 @@ package deploy_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"gorm.io/gorm"
@@ -119,19 +120,24 @@ func TestBuildInputsAreImmutable(t *testing.T) {
 		t.Fatalf("create build: %v", err)
 	}
 
-	// State and FailureReason may advance.
-	if err := db.Model(&build).Update("state", deploy.BuildGenerating).Error; err != nil {
-		t.Errorf("advancing state must be allowed: %v", err)
+	// A legitimate column-level state advance — the compare-and-swap M4 is told
+	// to use — must succeed. This is the allowed path that proves the guard is
+	// selective, not blanket (it fails if the state check sits on BeforeSave).
+	if err := db.Model(&deploy.Build{}).
+		Where("id = ? AND state = ?", build.ID, string(deploy.BuildQueued)).
+		Update("state", string(deploy.BuildGenerating)).Error; err != nil {
+		t.Errorf("compare-and-swap state advance must be allowed: %v", err)
 	}
 
-	// Inputs are frozen.
-	if err := db.Model(&deploy.Build{}).Where("id = ?", build.ID).
-		Update("revision_id", 999).Error; err == nil {
-		t.Error("repointing a build's revision must be rejected")
+	// Inputs are frozen — and rejected for being immutable specifically, not
+	// merely rejected (which a blanket guard would also do).
+	err := db.Model(&deploy.Build{}).Where("id = ?", build.ID).Update("revision_id", 999).Error
+	if err == nil || !strings.Contains(err.Error(), "revision_id is immutable") {
+		t.Errorf("repointing a build's revision = %v, want the immutability error", err)
 	}
-	if err := db.Model(&deploy.Build{}).Where("id = ?", build.ID).
-		Update("forge_version", "tampered").Error; err == nil {
-		t.Error("rewriting a build's toolchain version must be rejected")
+	err = db.Model(&deploy.Build{}).Where("id = ?", build.ID).Update("forge_version", "tampered").Error
+	if err == nil || !strings.Contains(err.Error(), "forge_version is immutable") {
+		t.Errorf("rewriting a build's toolchain version = %v, want the immutability error", err)
 	}
 
 	// The inputs are unchanged.
