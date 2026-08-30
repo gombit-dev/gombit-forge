@@ -220,20 +220,13 @@ func TestBelongsToFieldCollisionRejected(t *testing.T) {
 	}
 }
 
-// TestFieldCollidingWithGeneratedMethodRejected covers a field whose code
-// symbol matches a method this stage emits onto the model. Go forbids a field
-// and method sharing a name, so this must be rejected before emit rather than
-// surfacing as a go build error.
-func TestFieldCollidingWithGeneratedMethodRejected(t *testing.T) {
-	g := oneResourceGraph(t, "Report", "reports", field("TableName", "table_name", spec.TypeString))
-	_, err := Models(g)
-	if err == nil {
-		t.Fatal("expected a field named TableName to be rejected (collides with the generated method)")
-	}
-	if !strings.Contains(err.Error(), "generated method") {
-		t.Errorf("rejection should name the method collision, got: %v", err)
-	}
-}
+// A field whose code symbol matches a symbol the generated model defines (a
+// gorm.Model field, or the TableName method) is now rejected by the spec
+// validator, not just the generator — F0 #19 centralized the reservation table
+// in spec so the validator and generator share it and cannot disagree. The
+// validator coverage lives in internal/spec (validate_test.go). The generator
+// keeps a defensive check against spec.ReservedModelSymbol for the derived-name
+// path, which a validated spec cannot otherwise reach.
 
 // TestResourceNameCollidingWithPackageSymbolRejected covers a resource whose
 // code symbol is a package-level identifier the generated code defines (the
@@ -275,9 +268,10 @@ func TestGeneratedFieldShadowingGormModelRejected(t *testing.T) {
 	// A resource-reference field named "I" would derive Go field "IID" — no
 	// clash. To hit a gorm.Model field via derivation we would need a belongs_to
 	// deriving e.g. "ID"; that requires code symbol "", which is invalid. So
-	// this guards the scalar path through gormModelFields directly instead.
-	if _, reserved := gormModelFields["CreatedAt"]; !reserved {
-		t.Fatal("gorm.Model field set must include CreatedAt")
+	// this guards the scalar path through the shared reservation table directly
+	// instead (F0 #19: the generator consults spec's table, not a local copy).
+	if _, reserved := spec.ReservedModelSymbol("CreatedAt"); !reserved {
+		t.Fatal("the model reservation table must include CreatedAt")
 	}
 }
 

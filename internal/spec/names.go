@@ -20,35 +20,75 @@ func IsGoKeyword(name string) bool {
 	return found
 }
 
-// reservedCodeNames are symbols the embedded gorm.Model already occupies on
-// every generated model, so a field may not mint them.
+// reservedModelSymbols is the field/accessor-namespace reservation table
+// (ADR-001 §12): exported Go symbols the generated model already defines, which
+// a field's code_name therefore may not mint. It is framework- and
+// language-level, independent of how the generator lays out packages — the
+// generation-specific reservations (the handler type, route entry point and
+// import names) belong to the generator, internal/compiler/gen, which owns that
+// ABI. This table is the single source both the validator here and the
+// generator consult, so a spec can never validate with a code_name the
+// generator would then reject at go build.
 //
-// This is the minimum needed to keep M0 generation from emitting a struct
-// with duplicate fields. The complete reservation table the allocator
-// consults — framework helpers, generated hook names, per-namespace
-// reservations — is F0 work (ADR-001 §12).
-var reservedCodeNames = map[string]struct{}{
-	"ID": {}, "CreatedAt": {}, "UpdatedAt": {}, "DeletedAt": {},
+// It is versioned with the model ABI: the gorm.Model promoted fields plus the
+// methods the generated model type defines (today, TableName). A stage that
+// adds a model field or method — the extension-API accessors (F0 #22), say —
+// extends this table, and both consumers pick the change up. Before this table
+// was complete the validator accepted Model and TableName while the generator
+// rejected them, so a spec could validate yet fail to build; that split is what
+// centralizing here closes.
+var reservedModelSymbols = map[string]string{
+	"Model":     "gorm.Model is embedded on every generated model",
+	"ID":        "gorm.Model provides the primary key ID",
+	"CreatedAt": "gorm.Model provides CreatedAt",
+	"UpdatedAt": "gorm.Model provides UpdatedAt",
+	"DeletedAt": "gorm.Model provides DeletedAt (soft delete)",
+	"TableName": "the generated model defines a TableName method, and Go forbids a field and method of the same name",
 }
 
-// reservedStorageNames mirrors reservedCodeNames on the database side; it
-// matches the set Gombit's own resourcegen refuses.
-var reservedStorageNames = map[string]struct{}{
-	"id": {}, "created_at": {}, "updated_at": {}, "deleted_at": {},
+// reservedStorageNames is the column-name reservation for the same fields on
+// the database side: gorm.Model's four columns, which a field's storage_name
+// therefore may not mint. It is deliberately not a mirror of
+// reservedModelSymbols — Model and TableName are Go symbol collisions (an
+// embedded struct and a method) with no column equivalent, so the two tables
+// differ in both shape and content on purpose. It matches the set Gombit's own
+// resourcegen refuses.
+var reservedStorageNames = map[string]string{
+	"id":         "gorm.Model provides the primary key column id",
+	"created_at": "gorm.Model provides created_at",
+	"updated_at": "gorm.Model provides updated_at",
+	"deleted_at": "gorm.Model provides deleted_at (soft delete)",
 }
 
-// IsReservedCodeName reports whether a generated symbol collides with the
-// embedded gorm.Model.
+// ReservedModelSymbol reports whether name is reserved in the model's field/
+// accessor namespace, and if so why. The reason is actionable feedback the
+// allocator and the validator surface (ADR-001 §12: rejected or disambiguated
+// at mint time, never left for a go build failure).
+func ReservedModelSymbol(name string) (reason string, reserved bool) {
+	reason, reserved = reservedModelSymbols[name]
+	return reason, reserved
+}
+
+// IsReservedCodeName reports whether a field code_name collides with a symbol
+// the generated model already defines.
 func IsReservedCodeName(name string) bool {
-	_, found := reservedCodeNames[name]
-	return found
+	_, reserved := reservedModelSymbols[name]
+	return reserved
+}
+
+// ReservedStorageName reports whether a column name collides with a gorm.Model
+// column, and if so why — the storage-side counterpart to ReservedModelSymbol,
+// so both reserved paths surface an actionable reason rather than a generic one.
+func ReservedStorageName(name string) (reason string, reserved bool) {
+	reason, reserved = reservedStorageNames[name]
+	return reason, reserved
 }
 
 // IsReservedStorageName reports whether a column name collides with the
 // embedded gorm.Model.
 func IsReservedStorageName(name string) bool {
-	_, found := reservedStorageNames[name]
-	return found
+	_, reserved := reservedStorageNames[name]
+	return reserved
 }
 
 // IsExportedGoIdent reports whether name is a legal exported Go identifier,

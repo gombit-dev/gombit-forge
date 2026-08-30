@@ -262,11 +262,12 @@ func (v *validator) validateFields(resource *Resource, resourcePath string) {
 		case !IsExportedGoIdent(field.CodeName):
 			v.report(CodeInvalidCodeName, path+".code_name", field.ID,
 				"code_name %q is not an exported Go identifier", field.CodeName)
-		// gorm.Model already occupies these on the generated struct, so
-		// minting one would emit a duplicate field (ADR-001 §12).
+		// The generated model already defines these, so minting one would emit a
+		// duplicate field or a field/method clash (ADR-001 §12).
 		case IsReservedCodeName(field.CodeName):
+			reason, _ := ReservedModelSymbol(field.CodeName)
 			v.report(CodeReservedName, path+".code_name", field.ID,
-				"code_name %q is reserved by the embedded gorm.Model", field.CodeName)
+				"code_name %q is reserved: %s", field.CodeName, reason)
 		default:
 			if owner, taken := fieldCodeNames[field.CodeName]; taken {
 				v.report(CodeDuplicateCode, path+".code_name", field.ID,
@@ -281,8 +282,9 @@ func (v *validator) validateFields(resource *Resource, resourcePath string) {
 			v.report(CodeInvalidStorage, path+".storage_name", field.ID,
 				"storage_name %q must be lower_snake_case", field.StorageName)
 		case IsReservedStorageName(field.StorageName):
+			reason, _ := ReservedStorageName(field.StorageName)
 			v.report(CodeReservedName, path+".storage_name", field.ID,
-				"storage_name %q is reserved by the embedded gorm.Model", field.StorageName)
+				"storage_name %q is reserved: %s", field.StorageName, reason)
 		default:
 			if owner, taken := fieldStorage[field.StorageName]; taken {
 				v.report(CodeDuplicateStore, path+".storage_name", field.ID,

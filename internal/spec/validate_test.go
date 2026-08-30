@@ -272,6 +272,23 @@ func TestValidateRejects(t *testing.T) {
 			},
 			wantAny: CodeReservedName,
 		},
+		// #19 completed the table: Model (the embedded gorm.Model) and TableName
+		// (the generated method) were accepted by the validator before, then
+		// rejected by the generator — a spec that validated but would not build.
+		{
+			name: "code_name Model reserved by embedded gorm.Model",
+			mutate: func(s *ProjectSpec) {
+				s.Resources[0].Fields[0].CodeName = "Model"
+			},
+			wantAny: CodeReservedName,
+		},
+		{
+			name: "code_name TableName reserved by the generated model method",
+			mutate: func(s *ProjectSpec) {
+				s.Resources[0].Fields[0].CodeName = "TableName"
+			},
+			wantAny: CodeReservedName,
+		},
 		{
 			name: "storage_name reserved by gorm.Model",
 			mutate: func(s *ProjectSpec) {
