@@ -18,6 +18,7 @@ import (
 // to a single Forge project. The nullable unique index is what forbids it.
 func TestCloudProjectIDIsUniquePerCounterpart(t *testing.T) {
 	db := dbtest.DB(t)
+	seedFKDeps(t, db)
 
 	cloudID := "cloud-abc"
 	first := &project.Project{OrganizationID: 1, Name: "A", Slug: "a", CloudProjectID: &cloudID, CreatedBy: 7}
@@ -25,9 +26,9 @@ func TestCloudProjectIDIsUniquePerCounterpart(t *testing.T) {
 		t.Fatalf("first link: %v", err)
 	}
 
-	// A different Forge project (distinct org/slug so the collision is on the
-	// Cloud id, not the org+slug index) must not claim the same counterpart.
-	second := &project.Project{OrganizationID: 2, Name: "B", Slug: "b", CloudProjectID: &cloudID, CreatedBy: 7}
+	// A different Forge project (distinct slug so the collision is on the Cloud
+	// id, not the org+slug index) must not claim the same counterpart.
+	second := &project.Project{OrganizationID: 1, Name: "B", Slug: "b", CloudProjectID: &cloudID, CreatedBy: 7}
 	if err := db.Create(second).Error; !errors.Is(err, gorm.ErrDuplicatedKey) {
 		t.Fatalf("second project claiming the same cloud_project_id: got %v, want gorm.ErrDuplicatedKey", err)
 	}
@@ -39,6 +40,7 @@ func TestCloudProjectIDIsUniquePerCounterpart(t *testing.T) {
 // uniqueness rule would be in tension.
 func TestUnlinkedProjectsAreUnconstrained(t *testing.T) {
 	db := dbtest.DB(t)
+	seedFKDeps(t, db)
 
 	for _, slug := range []string{"x", "y", "z"} {
 		p := &project.Project{OrganizationID: 1, Name: slug, Slug: slug, CreatedBy: 7}

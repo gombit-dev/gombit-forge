@@ -10,7 +10,11 @@
 // capability matrix (see roles.go), not a parallel permission engine (D12).
 package org
 
-import "time"
+import (
+	"time"
+
+	"github.com/gombit-dev/gombit/auth"
+)
 
 // Organization is a Forge tenant. It owns projects (added in #37) and has
 // members with Forge-level roles.
@@ -25,16 +29,13 @@ type Organization struct {
 // Member links a Gombit user to an organization with a Forge-level role. The
 // (organization, user) pair is unique: a user holds exactly one role per org.
 //
-// OrganizationID and UserID are bare foreign keys with no database-level
-// constraint yet, and the same is true of Invitation.OrganizationID. That is a
-// deliberate, recorded decision, not an oversight: the control plane has no
-// committed migration (see platform.Models), so a constraint added here would
-// exist only in test AutoMigrate, protecting nothing in deployment. When #101
-// authors the initial Atlas migration from platform.Models(), it MUST add the
-// references then — ON DELETE CASCADE on the organization side (dropping an org
-// removes its members and invitations) and ON DELETE RESTRICT on the user side
-// (a Gombit user cannot be deleted out from under a live membership). Freezing
-// the DDL without them is the bug to avoid.
+// OrganizationID and UserID are foreign keys. The ON DELETE rules are declared
+// through the Organization and User association fields below (#101): CASCADE on
+// the organization side (dropping an org removes its members and invitations)
+// and RESTRICT on the user side (a Gombit user cannot be deleted out from under
+// a live membership). Declaring them on the model rather than only in the
+// migration keeps `gombit db makemigrations` from drifting — the desired schema
+// it diffs against includes the constraints.
 type Member struct {
 	ID             uint `gorm:"primaryKey"`
 	OrganizationID uint `gorm:"not null;uniqueIndex:uidx_org_member,priority:1"`
@@ -42,6 +43,11 @@ type Member struct {
 	Role           Role `gorm:"size:20;not null"`
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	// Association fields exist only to carry the foreign-key DDL; they are
+	// pointers so a nil (the create paths never set them) is skipped rather
+	// than upserting a zero row. Reads use the *ID columns, not these.
+	Organization *Organization `gorm:"foreignKey:OrganizationID;constraint:OnDelete:CASCADE"`
+	User         *auth.User    `gorm:"foreignKey:UserID;constraint:OnDelete:RESTRICT"`
 }
 
 // TableName pins the table so renaming the Go type never migrates the data.
@@ -72,4 +78,8 @@ type Invitation struct {
 	AcceptedAt      *time.Time `gorm:"index"`
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+	// Foreign keys (see Member): the organization CASCADEs, the inviting user
+	// RESTRICTs. Pointer associations carry only the DDL.
+	Organization *Organization `gorm:"foreignKey:OrganizationID;constraint:OnDelete:CASCADE"`
+	InvitedBy    *auth.User    `gorm:"foreignKey:InvitedByUserID;constraint:OnDelete:RESTRICT"`
 }

@@ -14,7 +14,10 @@ import (
 	"errors"
 	"time"
 
+	"github.com/gombit-dev/gombit/auth"
 	"gorm.io/gorm"
+
+	"github.com/gombit-dev/gombit-forge/controlplane/internal/org"
 )
 
 // Project is a Forge project: a named, org-scoped container for a spec that
@@ -56,6 +59,15 @@ type Project struct {
 	CreatedBy      uint    `gorm:"not null"`
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	// Foreign keys (#101). Pointer associations carry only the DDL; the create
+	// paths set the *ID columns, never these. Organization CASCADEs — dropping
+	// an org removes its projects. Head references project_revisions ON DELETE
+	// SET NULL so pruning a revision cannot orphan the project (it matches
+	// HeadRevisionID's nullability). Creator RESTRICTs — a user who owns
+	// projects cannot be deleted out from under them.
+	Organization *org.Organization `gorm:"foreignKey:OrganizationID;constraint:OnDelete:CASCADE"`
+	Head         *Revision         `gorm:"foreignKey:HeadRevisionID;constraint:OnDelete:SET NULL"`
+	Creator      *auth.User        `gorm:"foreignKey:CreatedBy;constraint:OnDelete:RESTRICT"`
 }
 
 // Revision is one immutable snapshot of a project's spec (DESIGN.md §8). It is
@@ -90,6 +102,13 @@ type Revision struct {
 	ParentRevisionID *uint `gorm:"index"`
 	CreatedBy        uint  `gorm:"not null"`
 	CreatedAt        time.Time
+	// Foreign keys (#101). Project CASCADEs — a project's revisions die with it.
+	// Parent is the self-referential lineage link, ON DELETE SET NULL so pruning
+	// an ancestor cannot orphan a descendant (it matches ParentRevisionID's
+	// nullability). Creator RESTRICTs. Pointer associations carry only the DDL.
+	Project *Project   `gorm:"foreignKey:ProjectID;constraint:OnDelete:CASCADE"`
+	Parent  *Revision  `gorm:"foreignKey:ParentRevisionID;constraint:OnDelete:SET NULL"`
+	Creator *auth.User `gorm:"foreignKey:CreatedBy;constraint:OnDelete:RESTRICT"`
 }
 
 // TableName pins the table so renaming the Go type never migrates the data.
