@@ -52,7 +52,13 @@ func GeneratedRoots() []string { return slices.Clone(generatedRoots) }
 //     updated or untouched — never a half-written tree (unlike a recursive
 //     delete, which can tear a root then fail). The swap is per root: with more
 //     than one root a failure between swaps can leave one root updated and
-//     another not, which re-running materialization converges.
+//     another not, which re-running converges. A process killed in the brief
+//     window between the two renames leaves the root absent, its previous
+//     contents in the retired sibling and the new ones in the staging sibling;
+//     re-running materialization, or renaming the retired sibling back,
+//     recovers it. Both siblings are named with a leading dot so the Go
+//     toolchain ignores them rather than compiling a stray copy of the tree
+//     (see hiddenSibling).
 func Materialize(dir string, files []gen.File) error {
 	if dir == "" {
 		return fmt.Errorf("compiler: Materialize needs a project directory")
@@ -76,7 +82,7 @@ func Materialize(dir string, files []gen.File) error {
 	// reached yet, so a failure partway through pass 1 leaves nothing behind.
 	cleanup := func() {
 		for _, root := range generatedRoots {
-			_ = os.RemoveAll(filepath.Join(dir, filepath.FromSlash(root)) + ".forge-staging")
+			_ = os.RemoveAll(hiddenSibling(filepath.Join(dir, filepath.FromSlash(root)), ".forge-staging"))
 		}
 	}
 
@@ -84,7 +90,7 @@ func Materialize(dir string, files []gen.File) error {
 	// in the live tree is touched, so a failure here leaves the project untouched.
 	for _, root := range generatedRoots {
 		live := filepath.Join(dir, filepath.FromSlash(root))
-		staging := live + ".forge-staging"
+		staging := hiddenSibling(live, ".forge-staging")
 		if err := os.RemoveAll(staging); err != nil { // leftovers from an earlier crash
 			cleanup()
 			return fmt.Errorf("compiler: clearing staging for %s: %w", root, err)
@@ -116,7 +122,7 @@ func Materialize(dir string, files []gen.File) error {
 	// nothing else. On failure here the staging directory is deliberately NOT
 	// cleaned up: it is the recovery artifact.
 	for _, s := range stages {
-		retired := s.live + ".forge-old"
+		retired := hiddenSibling(s.live, ".forge-old")
 		_ = os.RemoveAll(retired) // leftovers from an earlier crash
 
 		if _, err := os.Stat(s.live); err == nil {
@@ -126,7 +132,13 @@ func Materialize(dir string, files []gen.File) error {
 		}
 		if s.hasFiles {
 			if err := os.Rename(s.staging, s.live); err != nil {
-				_ = os.Rename(retired, s.live) // put the old tree back
+				// The install failed; put the old tree back. If even that fails,
+				// the root is missing — name where both halves are so it can be
+				// recovered by hand.
+				if rerr := os.Rename(retired, s.live); rerr != nil {
+					return fmt.Errorf("compiler: installing %s: %w; and restoring the previous tree failed: %v — the previous tree is at %s and the new one at %s",
+						s.live, err, rerr, retired, s.staging)
+				}
 				return fmt.Errorf("compiler: installing %s: %w", s.live, err)
 			}
 		}
@@ -136,6 +148,18 @@ func Materialize(dir string, files []gen.File) error {
 		_ = os.RemoveAll(retired)
 	}
 	return nil
+}
+
+// hiddenSibling returns a sibling of p (same parent) named "."+base+suffix, so
+// the Go toolchain ignores it: cmd/go skips a directory whose name begins with
+// "." or "_". The staging and retired trees are full copies of a generated
+// tree; without the leading dot, `go build ./...`, `go vet ./...` and gopls in
+// the user's exported project (D10) would compile them — most often the previous
+// generation, which is being replaced precisely because it no longer matches the
+// spec. The dot keeps them out of the build while leaving them visible to `ls -a`
+// and to an operator recovering from a failed materialization.
+func hiddenSibling(p, suffix string) string {
+	return filepath.Join(filepath.Dir(p), "."+filepath.Base(p)+suffix)
 }
 
 // underRoot reports whether the slash path p lies within root, and if so its

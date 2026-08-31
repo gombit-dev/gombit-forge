@@ -232,6 +232,20 @@ func TestMaterializeSwapSurvivesUnremovableLiveEntry(t *testing.T) {
 	if !installed {
 		t.Error("the new generated tree was not installed")
 	}
+
+	// This case leaves a retired tree behind (its read-only child blocks the
+	// best-effort delete). Recovery artifacts must not be Go packages, or
+	// `go build ./...` in the user's project would compile a stray copy of the
+	// tree: every leftover under internal/ must be dot-prefixed.
+	entries, err := os.ReadDir(filepath.Join(dir, "internal"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name() != "forge_generated" && !strings.HasPrefix(e.Name(), ".") {
+			t.Errorf("leftover %q under internal/ is visible to the Go toolchain (should be dot-prefixed)", e.Name())
+		}
+	}
 }
 
 // TestGeneratedOutputIsWholeFileOwned covers §16/§18: every generated source
