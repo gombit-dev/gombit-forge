@@ -5,6 +5,13 @@ import (
 	"strconv"
 )
 
+// maxMintAttempts bounds the disambiguation search. A namespace legitimately
+// holding a thousand numbered variants of one base is already pathological; a
+// reserved set or ledger that swallows a whole run of suffixes is a bug in that
+// namespace, not a search to run forever. Mint fails closed at this bound (D14)
+// rather than spin, since it takes no context to cancel.
+const maxMintAttempts = 1000
+
 // kindFallback is the base symbol used when a label has no usable content to
 // normalize (Normalize returns ok=false — an empty, all-punctuation, or
 // unrepresentable label). It is derived from the entity kind so the minted
@@ -34,18 +41,29 @@ var kindFallback = map[Kind]string{
 //
 // The symbol is frozen before Mint returns, so a collision never enters an
 // accepted ProjectSpec and no state is created that would need a breaking
-// refactor merely to compile (§9). Minting happens once, at entity creation; a
-// later relabel does not re-mint, because the code symbol is a frozen ABI.
+// refactor merely to compile (§9). Minting is once per entity: if the entity
+// already owns a live symbol in the namespace, Mint returns it unchanged — so a
+// retry (a double-submit, or a transaction replayed after a later failure)
+// converges rather than allocating a second symbol, and a relabel does not
+// re-mint (the code symbol is a frozen ABI, D1).
 //
 // reserved reports whether a candidate collides with a generated or framework
 // symbol in this namespace (e.g. IsReservedCodeName for a resource's field
-// namespace). It may be nil when the namespace reserves nothing. It must
-// describe a finite set — the disambiguation loop relies on some suffix
-// eventually being free, which a predicate that reserved everything would
-// prevent.
+// namespace). It may be nil when the namespace reserves nothing. Mint bounds its
+// search (maxMintAttempts) and fails closed rather than looping forever if a
+// namespace's reserved set or ledger swallows a whole run of a base's suffixes.
 func Mint(l *Ledger, ns Namespace, label string, entityID ID, reserved func(string) bool) (string, error) {
 	if l == nil {
 		return "", fmt.Errorf("spec: Mint needs a ledger")
+	}
+
+	// Idempotent: an entity that already owns a live symbol here keeps it (§5,
+	// minted once). O(symbols in namespace), which today is one resource's
+	// fields; an owner index can come later if a namespace ever grows large.
+	for _, sym := range l.Symbols(ns) {
+		if owner, ok := l.OwnerOf(ns, sym); ok && owner == entityID && l.IsLive(ns, sym) {
+			return sym, nil
+		}
 	}
 
 	base, ok := Normalize(label)
@@ -57,7 +75,7 @@ func Mint(l *Ledger, ns Namespace, label string, entityID ID, reserved func(stri
 		}
 	}
 
-	for n := 1; ; n++ {
+	for n := 1; n <= maxMintAttempts; n++ {
 		candidate := base
 		if n > 1 {
 			candidate = base + strconv.Itoa(n)
@@ -75,4 +93,6 @@ func Mint(l *Ledger, ns Namespace, label string, entityID ID, reserved func(stri
 		}
 		return candidate, nil
 	}
+	return "", fmt.Errorf("spec: cannot mint in %q: %q and %d numbered variants are all taken or reserved",
+		ns, base, maxMintAttempts)
 }

@@ -1,6 +1,59 @@
 package spec
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+// TestMintIsIdempotent: minting for an entity that already owns a live symbol
+// returns that symbol, so a retry (or a second create reaching the handler)
+// converges instead of allocating a second symbol the entity does not use.
+func TestMintIsIdempotent(t *testing.T) {
+	l := NewLedger()
+	ns := FieldNamespace("res_A")
+
+	first, err := Mint(l, ns, "Email", "fld_A", nil)
+	if err != nil || first != "Email" {
+		t.Fatalf("first mint = (%q,%v), want Email", first, err)
+	}
+	// Same entity, minting again — even with a different label — keeps its
+	// symbol; it is not re-minted and no second symbol is allocated.
+	again, err := Mint(l, ns, "Something Else", "fld_A", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again != "Email" {
+		t.Errorf("re-mint = %q, want Email (idempotent)", again)
+	}
+	if got := l.Symbols(ns); len(got) != 1 {
+		t.Errorf("namespace holds %v, want just [Email] (no second allocation)", got)
+	}
+}
+
+// TestMintBoundedOnUnsatisfiablePredicate: a predicate that reserves a whole
+// prefix makes every candidate reserved. Mint must fail closed, not spin — the
+// run under `go test` would hang without the bound.
+func TestMintBoundedOnUnsatisfiablePredicate(t *testing.T) {
+	l := NewLedger()
+	ns := FieldNamespace("res_A")
+
+	_, err := Mint(l, ns, "Forge Widget", "res_A",
+		func(s string) bool { return strings.HasPrefix(s, "Forge") })
+	if err == nil {
+		t.Error("minting against a prefix-reserving predicate must error, not loop forever")
+	}
+}
+
+// TestMintKindFallbacksAreComplete closes the set: every entity Kind must have a
+// mint fallback, so an unrepresentable label is rescued at the moment the
+// fallback exists to rescue it, not left to fail late.
+func TestMintKindFallbacksAreComplete(t *testing.T) {
+	for _, k := range Kinds() {
+		if kindFallback[k] == "" {
+			t.Errorf("Kind %q has no mint fallback", k)
+		}
+	}
+}
 
 func TestMintFreshSymbol(t *testing.T) {
 	l := NewLedger()
