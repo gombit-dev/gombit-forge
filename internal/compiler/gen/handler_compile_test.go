@@ -52,6 +52,10 @@ func TestGeneratedHandlersCompileInGombitApp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Models: %v", err)
 	}
+	views, err := Views(g)
+	if err != nil {
+		t.Fatalf("Views: %v", err)
+	}
 	handlers, err := Handlers(g)
 	if err != nil {
 		t.Fatalf("Handlers: %v", err)
@@ -71,7 +75,7 @@ func TestGeneratedHandlersCompileInGombitApp(t *testing.T) {
 		t.Fatalf("scaffold: %v", err)
 	}
 
-	generated := append(append(models, handlers...), adminFiles...)
+	generated := append(append(append(models, views...), handlers...), adminFiles...)
 	for _, file := range generated {
 		writeFile(t, filepath.Join(dir, filepath.FromSlash(file.Path)), string(file.Content))
 	}
