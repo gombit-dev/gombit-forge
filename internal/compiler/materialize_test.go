@@ -3,6 +3,7 @@ package compiler
 import (
 	"crypto/sha256"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -177,7 +178,10 @@ func TestMaterializeIsAtomicOnWriteFailure(t *testing.T) {
 	if _, ok := readFile(t, dir, "internal/forge_generated/a"); ok {
 		t.Error("a partial write leaked into the live tree")
 	}
-	if _, err := os.Stat(filepath.Join(dir, "internal", "forge_generated.forge-staging")); !os.IsNotExist(err) {
+	// Call hiddenSibling rather than spelling the name, so a rename of the
+	// scheme cannot silently turn this into a check of a path nothing creates.
+	staging := hiddenSibling(filepath.Join(dir, "internal", "forge_generated"), ".forge-staging")
+	if _, err := os.Stat(staging); !os.IsNotExist(err) {
 		t.Error("staging directory was not cleaned up after failure")
 	}
 }
@@ -234,16 +238,25 @@ func TestMaterializeSwapSurvivesUnremovableLiveEntry(t *testing.T) {
 	}
 
 	// This case leaves a retired tree behind (its read-only child blocks the
-	// best-effort delete). Recovery artifacts must not be Go packages, or
-	// `go build ./...` in the user's project would compile a stray copy of the
-	// tree: every leftover under internal/ must be dot-prefixed.
-	entries, err := os.ReadDir(filepath.Join(dir, "internal"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range entries {
-		if e.Name() != "forge_generated" && !strings.HasPrefix(e.Name(), ".") {
-			t.Errorf("leftover %q under internal/ is visible to the Go toolchain (should be dot-prefixed)", e.Name())
+	// best-effort delete). Recovery artifacts must not be Go or TypeScript
+	// packages, or a build in the user's project would compile a stray copy of a
+	// generated tree: beside every generated root, only that root itself and
+	// dot-prefixed siblings may appear. Derived from GeneratedRoots so a future
+	// root is covered without editing this test.
+	for _, root := range GeneratedRoots() {
+		parent := filepath.Join(dir, filepath.FromSlash(path.Dir(root)))
+		base := path.Base(root)
+		siblings, err := os.ReadDir(parent)
+		if os.IsNotExist(err) {
+			continue // this root's parent was not created in this scenario
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range siblings {
+			if e.Name() != base && !strings.HasPrefix(e.Name(), ".") {
+				t.Errorf("leftover %q beside %s is visible to the toolchain (should be dot-prefixed)", e.Name(), root)
+			}
 		}
 	}
 }
