@@ -93,6 +93,6 @@ func Mint(l *Ledger, ns Namespace, label string, entityID ID, reserved func(stri
 		}
 		return candidate, nil
 	}
-	return "", fmt.Errorf("spec: cannot mint in %q: %q and %d numbered variants are all taken or reserved",
-		ns, base, maxMintAttempts)
+	return "", fmt.Errorf("spec: cannot mint in %q: %q and every numbered variant through %s%d are taken or reserved",
+		ns, base, base, maxMintAttempts)
 }

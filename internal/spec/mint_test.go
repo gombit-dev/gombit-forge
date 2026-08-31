@@ -3,7 +3,27 @@ package spec
 import (
 	"strings"
 	"testing"
+	"time"
 )
+
+// TestMintIsScopedToTheNamespace: idempotency is per namespace. An entity that
+// already owns a symbol in one namespace still mints a fresh one elsewhere —
+// otherwise it would be handed a symbol the target namespace does not record,
+// leaving that name free for a real collision later. This is the "one entity,
+// two namespaces" cell #113's TombstoneEntity assumes is real.
+func TestMintIsScopedToTheNamespace(t *testing.T) {
+	l := NewLedger()
+	if got, err := Mint(l, NamespaceResource, "Widget", "res_A", nil); err != nil || got != "Widget" {
+		t.Fatalf("resource mint = (%q,%v), want Widget", got, err)
+	}
+	got, err := Mint(l, FieldNamespace("res_A"), "Label", "res_A", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "Label" {
+		t.Errorf("mint in the field namespace = %q, want Label — idempotency must be per namespace", got)
+	}
+}
 
 // TestMintIsIdempotent: minting for an entity that already owns a live symbol
 // returns that symbol, so a retry (or a second create reaching the handler)
@@ -31,16 +51,25 @@ func TestMintIsIdempotent(t *testing.T) {
 }
 
 // TestMintBoundedOnUnsatisfiablePredicate: a predicate that reserves a whole
-// prefix makes every candidate reserved. Mint must fail closed, not spin — the
-// run under `go test` would hang without the bound.
+// prefix makes every candidate reserved. Mint must fail closed, not spin. The
+// call runs behind a deadline so that if the bound ever regresses this reports
+// "the search is unbounded" in 2s rather than hanging the package until the test
+// binary's panic timeout (which would silently skip every later test).
 func TestMintBoundedOnUnsatisfiablePredicate(t *testing.T) {
-	l := NewLedger()
-	ns := FieldNamespace("res_A")
-
-	_, err := Mint(l, ns, "Forge Widget", "res_A",
-		func(s string) bool { return strings.HasPrefix(s, "Forge") })
-	if err == nil {
-		t.Error("minting against a prefix-reserving predicate must error, not loop forever")
+	done := make(chan error, 1)
+	go func() {
+		l := NewLedger()
+		_, err := Mint(l, FieldNamespace("res_A"), "Forge Widget", "res_A",
+			func(s string) bool { return strings.HasPrefix(s, "Forge") })
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Error("minting against a prefix-reserving predicate must error, not succeed")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Mint did not return within 2s: the disambiguation search is unbounded")
 	}
 }
 
