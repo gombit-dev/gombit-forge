@@ -110,6 +110,10 @@ func TestCompileTreeShape(t *testing.T) {
 		"internal/forge_generated/customer/model.go",
 		"internal/forge_generated/customer/view.go",
 		"internal/forge_generated/customer/mutation.go",
+		"internal/forge_generated/customer/fields.go",
+		"internal/forge_generated/invoice/fields.go",
+		// Shared extension-ABI rejection package.
+		"internal/forge_generated/extension/extension.go",
 		"internal/forge_generated/customer/handlers.go",
 		"internal/forge_generated/customer/routes.go",
 		"internal/forge_generated/customer/admin.go",
