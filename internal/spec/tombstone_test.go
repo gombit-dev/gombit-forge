@@ -26,6 +26,11 @@ func TestDeletedSymbolCannotBeReused(t *testing.T) {
 	if !l.IsTombstoned(ns, "Email") || l.IsLive(ns, "Email") || l.IsFree(ns, "Email") {
 		t.Error("after deletion Email must be tombstoned, not live, not free")
 	}
+	// Lineage survives deletion: §11 keeps entity_id on a tombstoned entry, so
+	// history stays reconstructible and UnmarshalJSON can load the saved ledger.
+	if owner, ok := l.OwnerOf(ns, "Email"); !ok || owner != "fld_A" {
+		t.Errorf("tombstoned OwnerOf = (%q,%v), want (fld_A,true)", owner, ok)
+	}
 
 	// The reuse path is impossible: a new entity cannot record Email again.
 	if err := l.Record(ns, "Email", "fld_B"); !errors.Is(err, ErrSymbolTaken) {
@@ -70,11 +75,17 @@ func TestTombstoneEntityIsIdempotent(t *testing.T) {
 // one namespace has all of them retired, returned sorted.
 func TestTombstoneEntityAcrossNamespaces(t *testing.T) {
 	l := NewLedger()
+	// Synthetic: today only Resource and Field carry code_names, so a reachable
+	// ledger holds one symbol per entity (a resource in "resource", a field in
+	// its own "fields:<id>"). This records one owner in two namespaces with the
+	// SAME symbol, to exercise the cross-namespace sweep and to pin the namespace
+	// comparator — the symbols tie, so only the namespace decides the order. Real
+	// multi-namespace ownership arrives with the hooks namespace (#18+).
 	nsA := FieldNamespace("res_A")
-	if err := l.Record(NamespaceResource, "Widget", "res_A"); err != nil {
+	if err := l.Record(NamespaceResource, "Sig", "res_A"); err != nil {
 		t.Fatal(err)
 	}
-	if err := l.Record(nsA, "Label", "res_A"); err != nil {
+	if err := l.Record(nsA, "Sig", "res_A"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -82,12 +93,12 @@ func TestTombstoneEntityAcrossNamespaces(t *testing.T) {
 	if len(retired) != 2 {
 		t.Fatalf("retired %d symbols, want 2", len(retired))
 	}
-	// Sorted by namespace then symbol: "fields:res_A" < "resource".
-	if retired[0].Namespace != nsA || retired[0].Symbol != "Label" {
-		t.Errorf("retired[0] = %+v, want {%q Label}", retired[0], nsA)
+	// Symbols tie, so namespace order alone decides: "fields:res_A" < "resource".
+	if retired[0].Namespace != nsA || retired[0].Symbol != "Sig" {
+		t.Errorf("retired[0] = %+v, want {%q Sig}", retired[0], nsA)
 	}
-	if retired[1].Namespace != NamespaceResource || retired[1].Symbol != "Widget" {
-		t.Errorf("retired[1] = %+v, want {resource Widget}", retired[1])
+	if retired[1].Namespace != NamespaceResource || retired[1].Symbol != "Sig" {
+		t.Errorf("retired[1] = %+v, want {resource Sig}", retired[1])
 	}
 }
 

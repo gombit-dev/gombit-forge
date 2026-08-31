@@ -153,9 +153,19 @@ func (l *Ledger) Tombstone(ns Namespace, symbol string) error {
 	if !ok || e.Status != SymbolLive {
 		return fmt.Errorf("%w: %q in %q", ErrSymbolNotLive, symbol, ns)
 	}
+	l.retire(ns, symbol, e)
+	return nil
+}
+
+// retire flips a live entry to tombstoned in place, preserving its owner: §11
+// keeps entity_id on a tombstoned symbol so the allocation history stays
+// reconstructible (§70), and UnmarshalJSON refuses a ledger missing it. Both
+// tombstoning paths (Tombstone and TombstoneEntity) go through here, so the
+// transition has exactly one implementation and cannot drift into dropping the
+// owner. Callers establish liveness first; retire does not re-check.
+func (l *Ledger) retire(ns Namespace, symbol string, e entry) {
 	e.Status = SymbolTombstoned
 	l.namespaces[ns][symbol] = e
-	return nil
 }
 
 // MarshalJSON renders the ledger as the §11 structure. encoding/json emits map
@@ -246,8 +256,7 @@ func (l *Ledger) TombstoneEntity(entityID ID) []TombstonedSymbol {
 	for ns, table := range l.namespaces {
 		for symbol, e := range table {
 			if e.EntityID == entityID && e.Status == SymbolLive {
-				e.Status = SymbolTombstoned
-				table[symbol] = e
+				l.retire(ns, symbol, e)
 				retired = append(retired, TombstonedSymbol{Namespace: ns, Symbol: symbol})
 			}
 		}
