@@ -153,9 +153,19 @@ func (l *Ledger) Tombstone(ns Namespace, symbol string) error {
 	if !ok || e.Status != SymbolLive {
 		return fmt.Errorf("%w: %q in %q", ErrSymbolNotLive, symbol, ns)
 	}
+	l.retire(ns, symbol, e)
+	return nil
+}
+
+// retire flips a live entry to tombstoned in place, preserving its owner: §11
+// keeps entity_id on a tombstoned symbol so the allocation history stays
+// reconstructible (§70), and UnmarshalJSON refuses a ledger missing it. Both
+// tombstoning paths (Tombstone and TombstoneEntity) go through here, so the
+// transition has exactly one implementation and cannot drift into dropping the
+// owner. Callers establish liveness first; retire does not re-check.
+func (l *Ledger) retire(ns Namespace, symbol string, e entry) {
 	e.Status = SymbolTombstoned
 	l.namespaces[ns][symbol] = e
-	return nil
 }
 
 // MarshalJSON renders the ledger as the §11 structure. encoding/json emits map
@@ -221,4 +231,41 @@ func (l *Ledger) Symbols(ns Namespace) []string {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out
+}
+
+// TombstonedSymbol identifies a symbol that was retired, for a caller to report
+// or audit.
+type TombstonedSymbol struct {
+	Namespace Namespace
+	Symbol    string
+}
+
+// TombstoneEntity retires every live symbol the ledger records as owned by
+// entityID, across all namespaces — the operation performed when a semantic
+// entity is deleted (ADR-001 §10). The symbols are retained (tombstoned, not
+// removed), so a later unrelated entity can never reuse them (§75) and Mint
+// skips them.
+//
+// It returns the symbols it retired, sorted, for reporting; the result is empty
+// when the entity owned no live symbol. It is idempotent (a symbol already
+// tombstoned is left as-is and not returned) and never touches a symbol owned by
+// a different entity. Deleting a resource that cascades to its fields is the
+// caller's loop over each deleted entity, one TombstoneEntity per entity.
+func (l *Ledger) TombstoneEntity(entityID ID) []TombstonedSymbol {
+	var retired []TombstonedSymbol
+	for ns, table := range l.namespaces {
+		for symbol, e := range table {
+			if e.EntityID == entityID && e.Status == SymbolLive {
+				l.retire(ns, symbol, e)
+				retired = append(retired, TombstonedSymbol{Namespace: ns, Symbol: symbol})
+			}
+		}
+	}
+	sort.Slice(retired, func(i, j int) bool {
+		if retired[i].Namespace != retired[j].Namespace {
+			return retired[i].Namespace < retired[j].Namespace
+		}
+		return retired[i].Symbol < retired[j].Symbol
+	})
+	return retired
 }
