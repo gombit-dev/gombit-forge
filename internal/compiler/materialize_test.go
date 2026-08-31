@@ -182,6 +182,58 @@ func TestMaterializeIsAtomicOnWriteFailure(t *testing.T) {
 	}
 }
 
+// TestMaterializeSwapSurvivesUnremovableLiveEntry exercises the reason pass 2
+// uses renames rather than a recursive delete: a live root that contains an
+// entry which cannot be unlinked (a read-only subdirectory) is moved aside
+// wholesale and the new tree installed — where RemoveAll-then-rename would tear
+// the old tree and then fail. Skipped as root, where directory permissions do
+// not restrict unlink.
+func TestMaterializeSwapSurvivesUnremovableLiveEntry(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: directory permissions do not restrict unlink")
+	}
+	dir := t.TempDir()
+	// Restore write permission everywhere before t.TempDir's own cleanup runs,
+	// so the read-only directory (wherever the swap moved it) can be removed.
+	t.Cleanup(func() {
+		_ = filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
+			if info != nil && info.IsDir() {
+				_ = os.Chmod(p, 0o755)
+			}
+			return nil
+		})
+	})
+
+	writeFile(t, dir, "internal/forge_generated/keep/old.go", "OLD")
+	locked := filepath.Join(dir, "internal", "forge_generated", "locked")
+	writeFile(t, dir, "internal/forge_generated/locked/f", "x")
+	if err := os.Chmod(locked, 0o555); err != nil { // no write: its child cannot be unlinked
+		t.Fatal(err)
+	}
+
+	files, err := Compile(sampleSpec(t), testModule)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	if err := Materialize(dir, files); err != nil {
+		t.Fatalf("swap must succeed despite an unremovable live entry: %v", err)
+	}
+
+	if _, ok := readFile(t, dir, "internal/forge_generated/keep/old.go"); ok {
+		t.Error("the stale generated file survived the swap")
+	}
+	installed := false
+	for _, f := range files {
+		if _, ok := readFile(t, dir, f.Path); ok {
+			installed = true
+			break
+		}
+	}
+	if !installed {
+		t.Error("the new generated tree was not installed")
+	}
+}
+
 // TestGeneratedOutputIsWholeFileOwned covers §16/§18: every generated source
 // file is a compiler-owned whole file — it carries the DO-NOT-EDIT banner and
 // contains no region markers, because Forge does not use region-based

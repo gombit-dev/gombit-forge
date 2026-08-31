@@ -44,12 +44,15 @@ func GeneratedRoots() []string { return slices.Clone(generatedRoots) }
 //   - It validates every path is a clean relative path under a generated root
 //     before touching disk, so a generator bug or crafted path cannot write into
 //     user territory (§18).
-//   - It stages then swaps. Each root's new contents are written into a sibling
-//     staging directory; only once a root's files are all on disk is the live
-//     root removed and the staging directory renamed into its place. A rename is
-//     atomic within a filesystem, so an interrupted materialization — disk full,
-//     a killed process — leaves the previous tree intact, or at worst a visible
-//     *.forge-staging directory, rather than a half-written tree that is neither.
+//   - It stages then swaps with renames only. Each root's new contents are
+//     written into a sibling staging directory (pass 1); then, per root, the
+//     live tree is moved aside with a rename and the staging directory renamed
+//     into its place (pass 2). Both are renames, which never recurse, so an
+//     interrupted materialization leaves each generated root either fully
+//     updated or untouched — never a half-written tree (unlike a recursive
+//     delete, which can tear a root then fail). The swap is per root: with more
+//     than one root a failure between swaps can leave one root updated and
+//     another not, which re-running materialization converges.
 func Materialize(dir string, files []gen.File) error {
 	if dir == "" {
 		return fmt.Errorf("compiler: Materialize needs a project directory")
@@ -106,22 +109,31 @@ func Materialize(dir string, files []gen.File) error {
 		stages = append(stages, s)
 	}
 
-	// Pass 2: swap each root. The window where a crash matters is now one rename
-	// per root rather than every write.
+	// Pass 2: swap each root with renames only. A rename never recurses, so it
+	// cannot half-succeed the way RemoveAll can — the old tree is moved aside
+	// atomically, the new tree moved in, and only then is the old tree deleted
+	// (best effort), where a failure costs a stale *.forge-old directory and
+	// nothing else. On failure here the staging directory is deliberately NOT
+	// cleaned up: it is the recovery artifact.
 	for _, s := range stages {
-		if err := os.RemoveAll(s.live); err != nil {
-			cleanup()
-			return fmt.Errorf("compiler: removing %s: %w", s.live, err)
+		retired := s.live + ".forge-old"
+		_ = os.RemoveAll(retired) // leftovers from an earlier crash
+
+		if _, err := os.Stat(s.live); err == nil {
+			if err := os.Rename(s.live, retired); err != nil {
+				return fmt.Errorf("compiler: retiring %s: %w", s.live, err)
+			}
 		}
 		if s.hasFiles {
 			if err := os.Rename(s.staging, s.live); err != nil {
-				cleanup()
+				_ = os.Rename(retired, s.live) // put the old tree back
 				return fmt.Errorf("compiler: installing %s: %w", s.live, err)
 			}
-		} else {
-			// No files for this root: it is wiped, not recreated (§16).
-			_ = os.RemoveAll(s.staging)
 		}
+		// No files for this root: it is wiped (§16) — the old tree went to
+		// retired above and is deleted with it now. A leftover retired tree is
+		// cosmetic, so its removal is best effort and off the critical path.
+		_ = os.RemoveAll(retired)
 	}
 	return nil
 }
