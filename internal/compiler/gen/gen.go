@@ -75,6 +75,31 @@ var reservedPackageSymbols = map[string]struct{}{
 	"RegisterAdmin": {},
 }
 
+// packageLevelSymbols returns every exported package-level identifier the
+// generated resource package defines, mapped to a description of what defines
+// it. It is the single reservation set a stage that mints a *derived*
+// package-level identifier (one built from the resource's code symbol, which
+// reservedPackageSymbols' fixed names do not cover) checks its candidates
+// against, so two stages cannot mint colliding symbols and have the clash
+// surface at go build (ADR-001 §12, §36: reserve, don't discover).
+//
+// A stage that adds a package-level symbol to the resource package must extend
+// this set. Today: the model type <Code>, the extension-view interface
+// <Code>View and its constructor New<Code>View, plus the fixed handler and
+// registration funcs.
+func packageLevelSymbols(resource *graph.Resource) map[string]string {
+	code := resource.CodeName()
+	symbols := map[string]string{
+		code:                  "the generated model type",
+		code + "View":         "the generated extension-view interface",
+		"New" + code + "View": "the generated extension-view constructor",
+	}
+	for name := range reservedPackageSymbols {
+		symbols[name] = "a generated handler/registration symbol"
+	}
+	return symbols
+}
+
 // reservedPackageNames are names the go tool treats specially, so a resource
 // may not fold to one. Our fold is both the directory basename and the package
 // clause, so this is the union of both go/build rules — derived from go/build,

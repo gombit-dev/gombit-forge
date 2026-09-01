@@ -149,18 +149,26 @@ func fieldRefsFile(resource *graph.Resource, module string) (File, error) {
 }
 
 // validateFieldRefNames rejects a resource whose generated FieldRef var would
-// collide with the model type it shares a package with, before any source is
-// emitted (ADR-001 §12, §36: reserve, don't discover). The var names are
-// Field+<code symbol>; field code symbols are unique (validateNames), so the
-// only clash possible is a resource whose own code symbol is "Field<field>".
-// The handler/register/admin symbols never begin "Field", so they are safe.
+// collide with any other exported package-level symbol in its package, before
+// any source is emitted (ADR-001 §12, §36: reserve, don't discover).
+//
+// The var names are Field+<code symbol>. Field code symbols are unique
+// (validateNames), so two refs never collide; but the resource package holds
+// symbols from every stage — the model type <Code>, the view interface
+// <Code>View, the view constructor New<Code>View, the handler/registration
+// funcs — and a Field-prefixed var can land on one of them (e.g. resource
+// "Field" + field "View" mints both `type FieldView` and `var FieldView`).
+// packageLevelSymbols is the single reservation set all of those live in, so
+// this guard stays complete as stages are added rather than re-deriving a
+// partial list that the next <Code>Xxx type would silently defeat.
 func validateFieldRefNames(resource *graph.Resource) error {
+	reserved := packageLevelSymbols(resource)
 	for _, field := range resource.Fields {
 		name := "Field" + goFieldName(field)
-		if name == resource.CodeName() {
+		if what, taken := reserved[name]; taken {
 			return fmt.Errorf(
-				"gen: field %s generates the reference %q, which collides with the %s model type; rename a code symbol",
-				field.Spec.ID, name, resource.CodeName())
+				"gen: field %s generates the reference %q, which collides with %s in package %s; rename a code symbol",
+				field.Spec.ID, name, what, PackageName(resource))
 		}
 	}
 	return nil

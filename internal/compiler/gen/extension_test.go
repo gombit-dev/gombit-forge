@@ -177,9 +177,21 @@ func TestFieldRefsSkipsFieldlessResource(t *testing.T) {
 // own code symbol is Field<field> would emit a var colliding with the model
 // type in the same package.
 func TestFieldRefsRejectModelTypeCollision(t *testing.T) {
-	g := collidingRefGraph(t)
+	// resource "FieldName" + field "Name" -> var FieldName == model type FieldName.
+	g := refCollisionGraph(t, "FieldName", "Name")
 	if _, err := FieldRefs(g, refsModule); err == nil {
 		t.Fatal("FieldRefs must reject a reference var colliding with the model type")
+	}
+}
+
+// TestFieldRefsRejectViewInterfaceCollision covers the cross-stage case the
+// model-type-only guard missed: the views stage (F0 #22) emits `type <Code>View`
+// into the same package, and a Field-prefixed ref var can land on it.
+func TestFieldRefsRejectViewInterfaceCollision(t *testing.T) {
+	// resource "Field" + field "View" -> var FieldView == view interface FieldView.
+	g := refCollisionGraph(t, "Field", "View")
+	if _, err := FieldRefs(g, refsModule); err == nil {
+		t.Fatal("FieldRefs must reject a reference var colliding with the <Code>View interface")
 	}
 }
 
@@ -274,10 +286,11 @@ func fieldlessResourceGraph(t *testing.T) *graph.Graph {
 	return g
 }
 
-// collidingRefGraph builds a resource whose code symbol is FieldName and which
-// has a field code symbol Name, so the field ref FieldName collides with the
-// model type.
-func collidingRefGraph(t *testing.T) *graph.Graph {
+// refCollisionGraph builds a one-resource, one-scalar-field graph with the given
+// code symbols, so a test can drive the field ref var Field<fieldCode> onto a
+// chosen package-level symbol (the model type <resourceCode>, the view
+// interface <resourceCode>View, and so on).
+func refCollisionGraph(t *testing.T, resourceCode, fieldCode string) *graph.Graph {
 	t.Helper()
 	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
 	s := &spec.ProjectSpec{
@@ -288,19 +301,19 @@ func collidingRefGraph(t *testing.T) *graph.Graph {
 		Resources: []*spec.Resource{
 			{
 				ID: id(spec.KindResource), Label: "Widget",
-				CodeName: "FieldName", StorageName: "widgets",
+				CodeName: resourceCode, StorageName: "widgets",
 				Fields: []*spec.Field{
-					{ID: id(spec.KindField), Label: "Name", Type: spec.TypeString, CodeName: "Name", StorageName: "name"},
+					{ID: id(spec.KindField), Label: "F", Type: spec.TypeString, CodeName: fieldCode, StorageName: "f"},
 				},
 			},
 		},
 	}
 	if d := spec.Validate(s); d != nil {
-		t.Fatalf("colliding fixture invalid:\n%s", d.Error())
+		t.Fatalf("collision fixture invalid (%s/%s):\n%s", resourceCode, fieldCode, d.Error())
 	}
 	g, err := graph.Build(s)
 	if err != nil {
-		t.Fatalf("build colliding graph: %v", err)
+		t.Fatalf("build collision graph (%s/%s): %v", resourceCode, fieldCode, err)
 	}
 	return g
 }
