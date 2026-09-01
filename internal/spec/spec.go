@@ -95,6 +95,40 @@ const (
 	PageDashboard      PageType = "dashboard"
 )
 
+// HookEvent is a backend lifecycle-extension point (ADR-001 §20). The set is
+// deliberately small and closed; this is not a general plugin system.
+type HookEvent string
+
+const (
+	HookBeforeCreate HookEvent = "before_create"
+	HookAfterCreate  HookEvent = "after_create"
+	HookBeforeUpdate HookEvent = "before_update"
+	HookAfterUpdate  HookEvent = "after_update"
+	HookBeforeDelete HookEvent = "before_delete"
+	HookAfterDelete  HookEvent = "after_delete"
+)
+
+// HookEvents lists every supported lifecycle event in a stable order — the
+// authored order the generated contract and stub follow (create, update,
+// delete; before then after within each).
+func HookEvents() []HookEvent {
+	return []HookEvent{
+		HookBeforeCreate, HookAfterCreate,
+		HookBeforeUpdate, HookAfterUpdate,
+		HookBeforeDelete, HookAfterDelete,
+	}
+}
+
+// Valid reports whether e is a supported lifecycle event.
+func (e HookEvent) Valid() bool {
+	for _, candidate := range HookEvents() {
+		if e == candidate {
+			return true
+		}
+	}
+	return false
+}
+
 // ProjectSpec is the complete declarative description of a Forge application.
 //
 // Field order in this struct defines key order in canonical JSON.
@@ -140,6 +174,23 @@ type Resource struct {
 	Fields []*Field `json:"fields"`
 
 	Behavior ResourceBehavior `json:"behavior"`
+
+	// Hooks are the enabled backend lifecycle extension points for this
+	// resource, in authored order (ADR-001 §20, §34-35). Empty when the
+	// resource has no custom behavior — the common case — so the field is
+	// omitted from canonical JSON and adds nothing to a hook-free spec.
+	Hooks []*Hook `json:"hooks,omitempty"`
+}
+
+// Hook is one enabled lifecycle extension point on a resource.
+//
+// Identity is the stable ID (ADR-001 D1); the Event names which lifecycle
+// point. A hook has no code_name — the generated contract method name derives
+// from the Event (AfterCreate, BeforeUpdate, …), a frozen mapping, so a hook
+// mints no source symbol and never participates in symbol allocation.
+type Hook struct {
+	ID    ID        `json:"id"`
+	Event HookEvent `json:"event"`
 }
 
 // ResourceBehavior captures per-resource CRUD and presentation settings

@@ -35,6 +35,7 @@ const (
 	CodeInvalidDefault  Code = "invalid_default"
 	CodeReservedName    Code = "reserved_name"
 	CodePageMismatch    Code = "page_config_mismatch"
+	CodeInvalidHook     Code = "invalid_hook"
 )
 
 // Diagnostic is one structured, machine-readable validation failure.
@@ -231,6 +232,34 @@ func (v *validator) validateResources() {
 
 		v.validateFields(resource, path)
 		v.validateBehavior(resource, path)
+		v.validateHooks(resource, path)
+	}
+}
+
+// validateHooks checks a resource's enabled lifecycle hooks: each has a valid
+// claimed ID and a known event, and no event is enabled twice (the generated
+// contract has one method per event, so a duplicate event would generate a
+// duplicate method).
+func (v *validator) validateHooks(resource *Resource, resourcePath string) {
+	seenEvents := map[HookEvent]ID{}
+	for hookIndex, hook := range resource.Hooks {
+		path := fmt.Sprintf("%s.hooks[%d]", resourcePath, hookIndex)
+		if hook == nil {
+			v.report(CodeInvalidHook, path, resource.ID, "nil hook entry")
+			continue
+		}
+		v.claimID(hook.ID, KindHook, path+".id")
+		if !hook.Event.Valid() {
+			v.report(CodeInvalidHook, path+".event", hook.ID,
+				"unsupported lifecycle event %q", hook.Event)
+			continue
+		}
+		if owner, dup := seenEvents[hook.Event]; dup {
+			v.report(CodeInvalidHook, path+".event", hook.ID,
+				"lifecycle event %q already enabled by hook %s", hook.Event, owner)
+			continue
+		}
+		seenEvents[hook.Event] = hook.ID
 	}
 }
 

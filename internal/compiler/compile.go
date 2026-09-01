@@ -34,6 +34,7 @@ var fileStages = []stage{
 	{"views", gen.Views},
 	{"mutations", gen.Mutations},
 	{"extension", gen.Extension},
+	{"hooks", gen.Hooks},
 	{"handlers", gen.Handlers},
 	{"admin", gen.Admin},
 	{"frontend", gen.Frontend},

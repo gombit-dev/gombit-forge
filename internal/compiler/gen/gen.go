@@ -24,6 +24,20 @@ import (
 // under (ADR-001 §15).
 const GeneratedRoot = "internal/forge_generated"
 
+// ExtensionsRoot is the user-owned code directory (ADR-001 §17). Forge compiles
+// it and references it from generated wiring, and may create a one-time stub
+// under it, but never rewrites a user implementation. The generated tree
+// (GeneratedRoot) and this tree never share ownership (D7).
+const ExtensionsRoot = "internal/extensions"
+
+// ExtensionPackageDir is the user-owned package directory for one resource's
+// hand-written extension code, e.g. "internal/extensions/customer". Its package
+// name matches the generated package (PackageName), so a stub imports the
+// generated package under an alias.
+func ExtensionPackageDir(resource *graph.Resource) string {
+	return path.Join(ExtensionsRoot, PackageName(resource))
+}
+
 // Banner marks a file as compiler-owned. It is the first line of every
 // generated Go file so a reader and any tooling know edits will be lost
 // (ADR-001 §16).
@@ -96,6 +110,14 @@ func packageLevelSymbols(resource *graph.Resource) map[string]string {
 		"New" + code + "View":  "the generated extension-view constructor",
 		code + "CreateDraft":   "the generated before-create draft type",
 		code + "UpdateChanges": "the generated before-update change-set type",
+	}
+	// The hook contract is emitted only for a resource that declares hooks, so
+	// its symbols are reserved only then — reserving them unconditionally would
+	// reject a field reference against a type that this resource never emits.
+	if len(resource.Spec.Hooks) > 0 {
+		symbols[code+"Hooks"] = "the generated hook contract interface"
+		symbols["Register"+code+"Hooks"] = "the generated hook registration func"
+		symbols[code+"HookImpl"] = "the generated hook accessor"
 	}
 	for name := range reservedPackageSymbols {
 		symbols[name] = "a generated handler/registration symbol"
