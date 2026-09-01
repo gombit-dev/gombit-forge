@@ -13,8 +13,10 @@ import (
 
 // ExtensionsRoot is the user-owned code directory (ADR-001 §17). Forge may
 // compile it, observe whether files exist, and archive it with explicit consent,
-// but it never rewrites the implementation. Nothing in this package writes here.
-const ExtensionsRoot = "internal/extensions"
+// and it may create a one-time stub under it (WriteStubs) — but it never
+// rewrites an existing implementation. Materialize (the generated-tree wipe)
+// writes nothing here. The value is owned by the gen package.
+const ExtensionsRoot = gen.ExtensionsRoot
 
 // generatedRoots are the directories Forge wholly owns (ADR-001 §16): it wipes
 // and recreates them on every materialization and writes nothing outside them.

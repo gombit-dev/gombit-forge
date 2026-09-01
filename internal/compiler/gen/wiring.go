@@ -40,17 +40,36 @@ func Wiring(g *graph.Graph, module string) ([]File, error) {
 	b.WriteString(Banner)
 	b.WriteString("\n\npackage forge_generated\n\n")
 
-	// Imports: framework plus each resource package.
+	// Imports: framework, each resource's generated package, and — for a
+	// resource with lifecycle hooks — its user-owned extension package, aliased
+	// <pkg>ext because it shares the generated package's name. Generated code
+	// referencing user code is intended here (ADR-001 §34): the composition root
+	// is where the two ownership domains meet, by an ordinary import, never a
+	// rewrite of user code.
 	b.WriteString("import (\n")
 	fmt.Fprintf(&b, "\t%q\n\n", "github.com/gombit-dev/gombit/framework")
 	for _, resource := range g.Resources {
 		fmt.Fprintf(&b, "\t%q\n", module+"/"+PackageDir(resource))
 	}
+	for _, resource := range g.Resources {
+		if len(resource.Spec.Hooks) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "\t%sext %q\n", PackageName(resource), module+"/"+ExtensionPackageDir(resource))
+	}
 	b.WriteString(")\n\n")
 
-	b.WriteString("// RegisterAll mounts every generated resource's routes and admin\n")
-	b.WriteString("// registration onto the application. main calls this once.\n")
+	b.WriteString("// RegisterAll registers lifecycle hooks, then mounts every generated\n")
+	b.WriteString("// resource's routes and admin registration onto the application. main calls\n")
+	b.WriteString("// this once. Hook registration is static and reflection-free (ADR-001 §34).\n")
 	b.WriteString("func RegisterAll(app *framework.App) error {\n")
+	for _, resource := range g.Resources {
+		if len(resource.Spec.Hooks) == 0 {
+			continue
+		}
+		pkg := PackageName(resource)
+		fmt.Fprintf(&b, "\t%s.Register%sHooks(%sext.Hooks{})\n", pkg, resource.CodeName(), pkg)
+	}
 	for _, resource := range g.Resources {
 		pkg := PackageName(resource)
 		fmt.Fprintf(&b, "\t%s.Register(app)\n", pkg)
