@@ -109,11 +109,13 @@ func TestCompileTreeShape(t *testing.T) {
 	mustHave := []string{
 		"internal/forge_generated/customer/model.go",
 		"internal/forge_generated/customer/view.go",
+		"internal/forge_generated/customer/mutation.go",
 		"internal/forge_generated/customer/handlers.go",
 		"internal/forge_generated/customer/routes.go",
 		"internal/forge_generated/customer/admin.go",
 		"internal/forge_generated/invoice/model.go",
 		"internal/forge_generated/invoice/view.go",
+		"internal/forge_generated/invoice/mutation.go",
 		"internal/forge_generated/invoice/handlers.go",
 		"internal/forge_generated/invoice/routes.go",
 		// Frontend stage output.

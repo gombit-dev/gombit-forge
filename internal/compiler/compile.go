@@ -32,6 +32,7 @@ type stage struct {
 var fileStages = []stage{
 	{"models", gen.Models},
 	{"views", gen.Views},
+	{"mutations", gen.Mutations},
 	{"handlers", gen.Handlers},
 	{"admin", gen.Admin},
 	{"frontend", gen.Frontend},
