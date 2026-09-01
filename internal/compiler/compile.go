@@ -31,6 +31,7 @@ type stage struct {
 // gombit boundary with the model set from MigrationModels, rather than files.
 var fileStages = []stage{
 	{"models", gen.Models},
+	{"views", gen.Views},
 	{"handlers", gen.Handlers},
 	{"admin", gen.Admin},
 	{"frontend", gen.Frontend},
