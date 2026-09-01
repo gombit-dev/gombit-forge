@@ -85,14 +85,17 @@ var reservedPackageSymbols = map[string]struct{}{
 //
 // A stage that adds a package-level symbol to the resource package must extend
 // this set. Today: the model type <Code>, the extension-view interface
-// <Code>View and its constructor New<Code>View, plus the fixed handler and
+// <Code>View and its constructor New<Code>View, the before-hook mutation types
+// <Code>CreateDraft and <Code>UpdateChanges, plus the fixed handler and
 // registration funcs.
 func packageLevelSymbols(resource *graph.Resource) map[string]string {
 	code := resource.CodeName()
 	symbols := map[string]string{
-		code:                  "the generated model type",
-		code + "View":         "the generated extension-view interface",
-		"New" + code + "View": "the generated extension-view constructor",
+		code:                   "the generated model type",
+		code + "View":          "the generated extension-view interface",
+		"New" + code + "View":  "the generated extension-view constructor",
+		code + "CreateDraft":   "the generated before-create draft type",
+		code + "UpdateChanges": "the generated before-update change-set type",
 	}
 	for name := range reservedPackageSymbols {
 		symbols[name] = "a generated handler/registration symbol"

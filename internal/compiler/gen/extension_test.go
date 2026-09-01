@@ -195,6 +195,18 @@ func TestFieldRefsRejectViewInterfaceCollision(t *testing.T) {
 	}
 }
 
+// TestFieldRefsRejectMutationTypeCollision covers the mutation stage's types
+// (F0 #23): a resource "Field" with a field "CreateDraft" mints both
+// `type FieldCreateDraft` (the before-create draft) and `var FieldCreateDraft`.
+func TestFieldRefsRejectMutationTypeCollision(t *testing.T) {
+	for _, fieldCode := range []string{"CreateDraft", "UpdateChanges"} {
+		g := refCollisionGraph(t, "Field", fieldCode)
+		if _, err := FieldRefs(g, refsModule); err == nil {
+			t.Errorf("FieldRefs must reject a reference var colliding with the Field%s mutation type", fieldCode)
+		}
+	}
+}
+
 func TestExtensionNilGraph(t *testing.T) {
 	if _, err := Extension(nil); err == nil {
 		t.Error("Extension(nil) must error")
