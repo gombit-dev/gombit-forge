@@ -48,6 +48,8 @@ func TestGeneratedHandlersCompileInGombitApp(t *testing.T) {
 		resource.Spec.Behavior.AdminVisible = true
 	}
 
+	const sampleModule = "example.com/sample"
+
 	models, err := Models(g)
 	if err != nil {
 		t.Fatalf("Models: %v", err)
@@ -60,6 +62,14 @@ func TestGeneratedHandlersCompileInGombitApp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Mutations: %v", err)
 	}
+	extension, err := Extension(g)
+	if err != nil {
+		t.Fatalf("Extension: %v", err)
+	}
+	fieldRefs, err := FieldRefs(g, sampleModule)
+	if err != nil {
+		t.Fatalf("FieldRefs: %v", err)
+	}
 	handlers, err := Handlers(g)
 	if err != nil {
 		t.Fatalf("Handlers: %v", err)
@@ -70,7 +80,7 @@ func TestGeneratedHandlersCompileInGombitApp(t *testing.T) {
 	}
 
 	dir := filepath.Join(t.TempDir(), "sample")
-	req, err := gombit.ScaffoldRequestFor(specFromGraph(t, g), dir, "example.com/sample")
+	req, err := gombit.ScaffoldRequestFor(specFromGraph(t, g), dir, sampleModule)
 	if err != nil {
 		t.Fatalf("scaffold request: %v", err)
 	}
@@ -79,7 +89,7 @@ func TestGeneratedHandlersCompileInGombitApp(t *testing.T) {
 		t.Fatalf("scaffold: %v", err)
 	}
 
-	generated := append(append(append(append(models, views...), mutations...), handlers...), adminFiles...)
+	generated := append(append(append(append(append(append(models, views...), mutations...), extension...), fieldRefs...), handlers...), adminFiles...)
 	for _, file := range generated {
 		writeFile(t, filepath.Join(dir, filepath.FromSlash(file.Path)), string(file.Content))
 	}

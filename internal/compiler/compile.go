@@ -33,6 +33,7 @@ var fileStages = []stage{
 	{"models", gen.Models},
 	{"views", gen.Views},
 	{"mutations", gen.Mutations},
+	{"extension", gen.Extension},
 	{"handlers", gen.Handlers},
 	{"admin", gen.Admin},
 	{"frontend", gen.Frontend},
@@ -69,6 +70,10 @@ func Generate(g *graph.Graph, module string) ([]gen.File, error) {
 	}
 
 	stages := append([]stage(nil), fileStages...)
+	stages = append(stages, stage{
+		name: "fieldrefs",
+		run:  func(g *graph.Graph) ([]gen.File, error) { return gen.FieldRefs(g, module) },
+	})
 	stages = append(stages, stage{
 		name: "wiring",
 		run:  func(g *graph.Graph) ([]gen.File, error) { return gen.Wiring(g, module) },
