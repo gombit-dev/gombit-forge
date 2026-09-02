@@ -38,6 +38,16 @@ func ExtensionPackageDir(resource *graph.Resource) string {
 	return path.Join(ExtensionsRoot, PackageName(resource))
 }
 
+// ExtensionPackageDirForCodeName is ExtensionPackageDir keyed by a resource's
+// frozen code name rather than a graph node, for callers that no longer hold the
+// resource in a built graph — extension archival (ADR-001 §46) runs after a
+// resource has been deleted from the spec, so it has only the code name recorded
+// before deletion. It folds the name through the same rule as PackageName, so
+// the archived directory matches the one the stub generator wrote.
+func ExtensionPackageDirForCodeName(codeName string) string {
+	return path.Join(ExtensionsRoot, packageNameForCodeName(codeName))
+}
+
 // Banner marks a file as compiler-owned. It is the first line of every
 // generated Go file so a reader and any tooling know edits will be lost
 // (ADR-001 §16).
@@ -65,7 +75,15 @@ func PackageDir(resource *graph.Resource) string {
 // collide with another resource's fold; validatePackages rejects all of those
 // before any source is emitted.
 func PackageName(resource *graph.Resource) string {
-	return strings.ToLower(resource.CodeName())
+	return packageNameForCodeName(resource.CodeName())
+}
+
+// packageNameForCodeName is the fold from a frozen code symbol to its Go package
+// name — the single source of truth PackageName and ExtensionPackageDirForCodeName
+// share, so a resource's package name is identical whether derived from a graph
+// node or from a bare code name.
+func packageNameForCodeName(codeName string) string {
+	return strings.ToLower(codeName)
 }
 
 // The field/accessor-namespace reservations — the gorm.Model promoted fields
