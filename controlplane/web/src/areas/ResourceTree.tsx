@@ -179,6 +179,10 @@ function ResourceRow({
             onChanged={onChanged}
           />
           <BehaviorEditor
+            // Re-key on the behavior so a reload that changed it (e.g. a
+            // concurrent edit by another member) remounts the form and re-seeds
+            // its state rather than showing stale initial values.
+            key={JSON.stringify(resource.behavior ?? {})}
             projectID={projectID}
             resourceID={resource.id}
             fields={resource.fields ?? []}
