@@ -93,6 +93,19 @@ function FieldRow({
   const [editing, setEditing] = useState(false);
   const [pending, setPending] = useState(false);
 
+  // A relationship field is the #46 editor's domain — this scalar form can't
+  // express its target and the backend rejects an update that would strip it —
+  // so render it read-only here rather than offer an Edit that cannot succeed.
+  if (field.type === "belongs_to") {
+    return (
+      <li className="field-row">
+        <span className="field-label">{field.label}</span>
+        <span className="field-type muted">belongs_to</span>
+        <span className="muted"> · edit in the relationship editor</span>
+      </li>
+    );
+  }
+
   if (editing) {
     return (
       <li>

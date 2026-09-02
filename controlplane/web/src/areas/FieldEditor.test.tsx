@@ -93,6 +93,15 @@ describe("FieldEditor", () => {
     expect(onChanged).not.toHaveBeenCalled();
   });
 
+  it("renders a belongs_to field read-only (relationship editor's domain)", () => {
+    const rel: SpecField = { id: "fld_r", label: "Customer", type: "belongs_to", code_name: "Customer", storage_name: "customer_id", target: "res_c" };
+    render(<FieldEditor projectID={3} resourceID="res_1" fields={[rel]} onChanged={vi.fn()} />);
+    expect(screen.getByText(/edit in the relationship editor/i)).toBeInTheDocument();
+    // No scalar Edit/Delete that would submit type:"string" and fail.
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
   it("edits a field's label", async () => {
     let patched: unknown;
     mockApi((url, init) => {
