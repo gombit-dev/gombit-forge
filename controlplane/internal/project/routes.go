@@ -158,6 +158,17 @@ func RegisterRoutes(api huma.API, prefix string, gate huma.Middlewares, svc *Ser
 	}, h.deleteField)
 
 	huma.Register(api, huma.Operation{
+		OperationID:   "update-resource-behavior",
+		Method:        http.MethodPatch,
+		Path:          prefix + "/projects/{projectID}/resources/{resourceID}/behavior",
+		Summary:       "Set a resource's CRUD toggles, admin visibility and field selections",
+		Tags:          tags,
+		Security:      security,
+		Middlewares:   gate,
+		DefaultStatus: http.StatusCreated,
+	}, h.updateBehavior)
+
+	huma.Register(api, huma.Operation{
 		OperationID:   "add-relationship",
 		Method:        http.MethodPost,
 		Path:          prefix + "/projects/{projectID}/resources/{resourceID}/relationships",

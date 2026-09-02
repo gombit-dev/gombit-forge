@@ -417,6 +417,56 @@ func (h *Handler) deleteField(ctx context.Context, in *deleteFieldInput) (*submi
 	return candidateResponse(ctx, result)
 }
 
+// --- resource behavior -----------------------------------------------------
+
+type updateBehaviorInput struct {
+	ProjectID  string `path:"projectID" doc:"Project identifier"`
+	ResourceID string `path:"resourceID" doc:"Resource stable ID"`
+	Body       struct {
+		CreateEnabled    bool     `json:"create_enabled,omitempty"`
+		UpdateEnabled    bool     `json:"update_enabled,omitempty"`
+		DeleteEnabled    bool     `json:"delete_enabled,omitempty"`
+		AdminVisible     bool     `json:"admin_visible,omitempty"`
+		ListFields       []string `json:"list_fields,omitempty" doc:"Field IDs shown in the list view, in order"`
+		SearchableFields []string `json:"searchable_fields,omitempty"`
+		SortableFields   []string `json:"sortable_fields,omitempty"`
+		FilterableFields []string `json:"filterable_fields,omitempty"`
+	}
+}
+
+func (h *Handler) updateBehavior(ctx context.Context, in *updateBehaviorInput) (*submitCandidateOutput, error) {
+	p, user, err := h.loadAuthorized(ctx, in.ProjectID, org.CapProjectEdit)
+	if err != nil {
+		return nil, err
+	}
+	behavior := spec.ResourceBehavior{
+		CreateEnabled:    in.Body.CreateEnabled,
+		UpdateEnabled:    in.Body.UpdateEnabled,
+		DeleteEnabled:    in.Body.DeleteEnabled,
+		AdminVisible:     in.Body.AdminVisible,
+		ListFields:       toIDs(in.Body.ListFields),
+		SearchableFields: toIDs(in.Body.SearchableFields),
+		SortableFields:   toIDs(in.Body.SortableFields),
+		FilterableFields: toIDs(in.Body.FilterableFields),
+	}
+	result, err := h.svc.UpdateBehavior(ctx, p.ID, spec.ID(in.ResourceID), behavior, user.ID)
+	if err != nil {
+		return nil, mapError(ctx, err, "update behavior")
+	}
+	return candidateResponse(ctx, result)
+}
+
+func toIDs(ss []string) []spec.ID {
+	if len(ss) == 0 {
+		return nil
+	}
+	ids := make([]spec.ID, 0, len(ss))
+	for _, s := range ss {
+		ids = append(ids, spec.ID(s))
+	}
+	return ids
+}
+
 // --- relationship operation ------------------------------------------------
 
 type addRelationshipInput struct {
