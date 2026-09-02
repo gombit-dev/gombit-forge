@@ -155,6 +155,42 @@ func TestDeleteFieldIsBreaking(t *testing.T) {
 	}
 }
 
+// TestUpdateFieldRejectsBelongsTo: updating an existing relationship field is
+// deferred to the relationship editor (#46) with a clear rejection, not a
+// confusing spec-validation failure.
+func TestUpdateFieldRejectsBelongsTo(t *testing.T) {
+	db := dbtest.DB(t)
+	seedFKDeps(t, db)
+	svc := project.NewService(db)
+	ctx := context.Background()
+
+	// Seed a spec with a belongs_to field via the raw candidate path.
+	customer := spec.MustNewID(spec.KindResource)
+	invoice := spec.MustNewID(spec.KindResource)
+	rel := spec.MustNewID(spec.KindField)
+	base := &spec.ProjectSpec{
+		SpecVersion: spec.SpecVersion,
+		Project:     spec.Project{ID: spec.MustNewID(spec.KindProject), Name: "Acme", Slug: "acme"},
+		Database:    spec.Database{Driver: spec.DriverPostgres},
+		Auth:        spec.Auth{Mode: spec.AuthCookie},
+		Resources: []*spec.Resource{
+			{ID: customer, Label: "Customer", CodeName: "Customer", StorageName: "customers",
+				Fields: []*spec.Field{{ID: spec.MustNewID(spec.KindField), Label: "Email", Type: spec.TypeString, CodeName: "Email", StorageName: "email"}}},
+			{ID: invoice, Label: "Invoice", CodeName: "Invoice", StorageName: "invoices",
+				Fields: []*spec.Field{{ID: rel, Label: "Customer", Type: spec.TypeBelongsTo, CodeName: "Customer", StorageName: "customer_id", Required: true, Target: customer}}},
+		},
+	}
+	p, _ := svc.CreateProject(ctx, 1, "Acme", "acme", 7)
+	if r, err := svc.SubmitCandidate(ctx, p.ID, base, 7); err != nil || r.Outcome != project.OutcomeCommitted {
+		t.Fatalf("seed: outcome=%v err=%v", r.Outcome, err)
+	}
+
+	_, err := svc.UpdateField(ctx, p.ID, invoice, rel, project.FieldInput{Label: "Buyer", Type: spec.TypeString}, 7)
+	if !errors.Is(err, project.ErrInvalidFieldEdit) {
+		t.Errorf("updating a belongs_to field = %v, want ErrInvalidFieldEdit", err)
+	}
+}
+
 func TestFieldEditErrors(t *testing.T) {
 	svc, projectID, resID := projectWithResource(t)
 	ctx := context.Background()

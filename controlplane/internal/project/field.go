@@ -105,6 +105,12 @@ func (s *Service) UpdateField(ctx context.Context, projectID uint, resourceID, f
 		if f == nil {
 			return ErrFieldNotFound
 		}
+		// A relationship field is the #46 editor's job; editing it here (with no
+		// Target in FieldInput) would strip its target and fail validation with a
+		// baffling message, so reject it up front — symmetric with AddField.
+		if f.Type == spec.TypeBelongsTo {
+			return fmt.Errorf("%w: edit belongs_to fields in the relationship editor", ErrInvalidFieldEdit)
+		}
 		f.Label = in.Label
 		f.Type = in.Type
 		f.Required = in.Required
