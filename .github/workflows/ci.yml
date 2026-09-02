@@ -47,3 +47,28 @@ jobs:
       # `make cp-test` (no -short) runs it locally where the image is warm.
       - name: Control plane — test (short)
         run: make cp-test-short
+
+  # The Forge editor SPA (controlplane/web) is a separate npm project the Go
+  # gates never cover, so it gets its own job: typecheck, build and unit-test.
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: controlplane/web/package-lock.json
+
+      - name: Install
+        run: make web-install
+
+      - name: Typecheck
+        run: make web-check
+
+      - name: Build
+        run: make web-build
+
+      - name: Test
+        run: make web-test

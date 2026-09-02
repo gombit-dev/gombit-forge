@@ -6,9 +6,18 @@ SHELL := /bin/bash
 # explicit targets, folded into `all` and mirrored in CI.
 CONTROLPLANE := controlplane
 
-.PHONY: all test lint fmt fmt-check vet tidy clean skills-check \
-	cp-build cp-vet cp-test cp-race
+# The Forge editor is a React/TypeScript SPA under controlplane/web (M2). It is
+# a separate npm project the Go gates never touch; it has its own install /
+# typecheck / build / test targets, mirrored in CI as a distinct job.
+WEB := controlplane/web
 
+.PHONY: all test lint fmt fmt-check vet tidy clean skills-check \
+	cp-build cp-vet cp-test cp-race \
+	web web-install web-check web-build web-test
+
+# `all` is the Go merge gate; it deliberately does not run the web SPA (that
+# would put node on every Go dev's critical path). A frontend dev runs `make web`
+# separately, and CI's dedicated `web` job gates the SPA on every PR.
 all: fmt-check vet cp-vet test cp-test skills-check
 
 test:
@@ -34,6 +43,23 @@ cp-test-short:
 
 cp-race:
 	cd $(CONTROLPLANE) && go test ./... -race -count=1
+
+# Forge editor SPA (controlplane/web). `make web` is the SPA gate a frontend dev
+# runs; web-install uses `npm ci` against the committed lockfile for a
+# reproducible install.
+web: web-check web-build web-test
+
+web-install:
+	cd $(WEB) && npm ci
+
+web-check:
+	cd $(WEB) && npm run typecheck
+
+web-build:
+	cd $(WEB) && npm run build
+
+web-test:
+	cd $(WEB) && npm run test
 
 cover:
 	go test ./... -coverprofile=coverage.out
