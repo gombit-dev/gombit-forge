@@ -26,14 +26,14 @@ func TestFrontendFileLayout(t *testing.T) {
 	files := frontendFiles(t, buildGraph2(t))
 
 	want := []string{
-		// Detail/form are resource-driven; the list is page-driven (named by the
-		// resource_table page's slug), so there is no CustomerListPage.
+		// Detail/form/table/dashboard are all page-driven (named by the page slug).
 		"frontend/src/forge_generated/customer/CustomerDetailPage.tsx",
 		"frontend/src/forge_generated/customer/EditCustomerFormPage.tsx",
 		"frontend/src/forge_generated/customer/CustomersTablePage.tsx",
 		"frontend/src/forge_generated/invoice/InvoiceDetailPage.tsx",
 		"frontend/src/forge_generated/invoice/EditInvoiceFormPage.tsx",
 		"frontend/src/forge_generated/invoice/InvoicesTablePage.tsx",
+		"frontend/src/forge_generated/dashboard/HomeDashboardPage.tsx",
 		"frontend/src/forge_generated/resources.tsx",
 	}
 	for _, path := range want {
@@ -630,6 +630,52 @@ func TestFrontendMultipleTablesPerResource(t *testing.T) {
 		if !strings.Contains(registry, want) {
 			t.Errorf("registry must contain %q", want)
 		}
+	}
+}
+
+// TestFrontendDashboard is the #54 acceptance point: a dashboard page renders
+// count cards with a real total (from the list PageMeta) and recent-list
+// sections with a "View all" link — no fabricated records (those await
+// gombit#260 descending ordering) and no chart designer.
+func TestFrontendDashboard(t *testing.T) {
+	files := frontendFiles(t, buildGraph2(t))
+	dash := files["frontend/src/forge_generated/dashboard/HomeDashboardPage.tsx"]
+	if dash == "" {
+		t.Fatal("a dashboard page must generate a dashboard component")
+	}
+
+	// Count card: reads the total from the customers list via per_page=1.
+	for _, want := range []string{
+		`<h1>{ "Home" }</h1>`,
+		`className="count-cards"`,
+		`{ "Customers" }`,
+		`client.GET("/api/v1/customers", { params: { query: { per_page: 1 } } })`,
+		`listed.meta?.total ?? 0`,
+	} {
+		if !strings.Contains(dash, want) {
+			t.Errorf("dashboard must contain %q", want)
+		}
+	}
+
+	// Recent list: a labeled section linking to the invoices table, with NO
+	// fabricated records (no client-side fetch of invoice rows for the list).
+	if !strings.Contains(dash, `{ "Recent invoices" }`) {
+		t.Error("dashboard must render the recent-list section label")
+	}
+	if !strings.Contains(dash, `<Link to="/invoices">View all</Link>`) {
+		t.Error("recent list must link to the related table page")
+	}
+	if strings.Contains(dash, "/api/v1/invoices") {
+		t.Error("recent list must not fetch records (ascending order isn't 'recent'; awaits gombit#260)")
+	}
+
+	// The dashboard is registered as a route and as nav metadata.
+	registry := files["frontend/src/forge_generated/resources.tsx"]
+	if !strings.Contains(registry, `{ path: "home", element: <HomeDashboardPage /> }`) {
+		t.Error("dashboard must be registered as a route")
+	}
+	if !strings.Contains(registry, `{ slug: "home", title: "Home", listPath: "/home" }`) {
+		t.Error("dashboard must appear in generatedResources (nav)")
 	}
 }
 

@@ -109,6 +109,12 @@ func buildGraph(t *testing.T) (*graph.Graph, map[string]spec.ID) {
 			// singular slug keeps the component name CustomerDetailPage/InvoiceDetailPage.
 			{ID: id(spec.KindPage), Slug: "customer", Label: "Customer", Type: spec.PageResourceDetail, Resource: ids["customer"]},
 			{ID: id(spec.KindPage), Slug: "invoice", Label: "Invoice", Type: spec.PageResourceDetail, Resource: ids["invoice"]},
+			// A dashboard with a count card (customers) and a recent list (invoices) (#54).
+			{ID: id(spec.KindPage), Slug: "home", Label: "Home", Type: spec.PageDashboard,
+				Dashboard: &spec.DashboardConfig{
+					CountCards:  []spec.DashboardCard{{Label: "Customers", Resource: ids["customer"]}},
+					RecentLists: []spec.DashboardCard{{Label: "Recent invoices", Resource: ids["invoice"], Limit: 5}},
+				}},
 		},
 	}
 
