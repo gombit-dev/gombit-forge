@@ -257,7 +257,6 @@ func TestValidateRejectsBadInput(t *testing.T) {
 	}{
 		{"nil current", CandidateRequest{Module: testModule, Candidate: base}},
 		{"nil candidate", CandidateRequest{Module: testModule, Current: base}},
-		{"empty module", CandidateRequest{Current: base, Candidate: base}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -268,16 +267,43 @@ func TestValidateRejectsBadInput(t *testing.T) {
 	}
 }
 
-// TestValidateBreakingNeedsWorkspace: once a breaking transition passes the
-// toolchain-availability gate, a missing workspace is a caller error, not a
-// silent accept.
-func TestValidateBreakingNeedsWorkspace(t *testing.T) {
+// TestValidateNeutralNeedsNoModule: the fast path never compiles, so it must not
+// require a module path — coupling it to Module would gate a §43 presentation
+// edit on a value it never reads.
+func TestValidateNeutralNeedsNoModule(t *testing.T) {
+	base := sampleSpec(t)
+	cand := cloneSpec(t, base)
+	cand.Resources[0].Label = "Clients" // neutral relabel
+	got, err := ValidateCandidate(context.Background(), CandidateRequest{
+		Current: base, Candidate: cand, // no Module, no Workspace
+	}, &fakeToolchain{available: true, t: t})
+	if err != nil {
+		t.Fatalf("neutral edit must not require a module: %v", err)
+	}
+	if got.Outcome != OutcomeAccepted {
+		t.Errorf("neutral edit must be accepted; got %s", got.Outcome)
+	}
+}
+
+// TestValidateBreakingNeedsWorkspaceAndModule: once a breaking transition passes
+// the toolchain-availability gate, a missing workspace or module is a caller
+// error, not a silent accept.
+func TestValidateBreakingNeedsWorkspaceAndModule(t *testing.T) {
 	base, cand := breakingCandidate(t)
 	tc := &fakeToolchain{available: true, t: t}
-	if _, err := ValidateCandidate(context.Background(), CandidateRequest{
-		Module: testModule, Current: base, Candidate: cand,
-	}, tc); err == nil {
-		t.Error("breaking transition without a workspace must error")
+	cases := []struct {
+		name string
+		req  CandidateRequest
+	}{
+		{"no workspace", CandidateRequest{Module: testModule, Current: base, Candidate: cand}},
+		{"no module", CandidateRequest{Workspace: seedWorkspace(t, base), Current: base, Candidate: cand}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, err := ValidateCandidate(context.Background(), c.req, tc); err == nil {
+				t.Error("breaking transition must error, got nil")
+			}
+		})
 	}
 }
 

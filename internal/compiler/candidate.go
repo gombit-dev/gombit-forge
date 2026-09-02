@@ -158,9 +158,6 @@ func ValidateCandidate(ctx context.Context, req CandidateRequest, tc Toolchain) 
 	if req.Current == nil || req.Candidate == nil {
 		return Validation{}, fmt.Errorf("compiler: ValidateCandidate needs both current and candidate specs")
 	}
-	if req.Module == "" {
-		return Validation{}, fmt.Errorf("compiler: ValidateCandidate needs a module path")
-	}
 
 	transition, err := ClassifyEdit(req.Current, req.Candidate)
 	if err != nil {
@@ -185,8 +182,15 @@ func ValidateCandidate(ctx context.Context, req CandidateRequest, tc Toolchain) 
 		}, nil
 	}
 
+	// Module and Workspace are consumed only here, on the typecheck path — the
+	// neutral/additive fast path never compiles, so it must not be coupled to a
+	// value it never reads (that would gate the §43 "commits while user code is
+	// broken" edit on a module path it doesn't need).
 	if req.Workspace == "" {
 		return Validation{}, fmt.Errorf("compiler: ValidateCandidate needs a workspace directory to typecheck a breaking transition")
+	}
+	if req.Module == "" {
+		return Validation{}, fmt.Errorf("compiler: ValidateCandidate needs a module path to compile the candidate workspace")
 	}
 
 	dir, cleanup, err := prepareCandidateWorkspace(req.Workspace, req.Candidate, req.Module)
@@ -322,6 +326,16 @@ func (g GoToolchain) Available(ctx context.Context) bool {
 // without writing binaries, so it is a pure compatibility proof: it fails
 // exactly when the candidate's generated contracts and the user's extensions no
 // longer typecheck together.
+//
+// Any nonzero exit is reported as incompatibility. In principle that conflates a
+// genuine compile error with a broken build environment (a module missing from
+// the cache on a cold worker). That conflation is unreachable for a candidate
+// prepared by prepareCandidateWorkspace: generation emits only stdlib and the
+// fixed set of Gombit imports the seeded workspace's go.mod already resolves, so
+// a candidate never introduces a new module requirement — a download failure can
+// only mean the base workspace was already unbuildable. A future toolchain that
+// resolves new dependencies must separate a setup failure from a compile failure
+// before this drives a user-facing rejection.
 func (g GoToolchain) Typecheck(ctx context.Context, dir string) error {
 	run := g.Run
 	if run == nil {
