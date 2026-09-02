@@ -209,3 +209,76 @@ func TestAnalyzeDeletionsIsDeterministic(t *testing.T) {
 		}
 	}
 }
+
+// TestDeletionBlockerCoverageAndOrder exercises the reference kinds and multi-
+// blocker cases the earlier tests leave implicit: two relationships targeting
+// the same resource, a RecentLists (not CountCards) dashboard card, and a page —
+// all binding one deleted resource — and asserts the blocker list is complete
+// and its order is stable across runs.
+func TestDeletionBlockerCoverageAndOrder(t *testing.T) {
+	targetID := spec.MustNewID(spec.KindResource)
+	refID := spec.MustNewID(spec.KindResource)
+	f1 := spec.MustNewID(spec.KindField)
+	f2 := spec.MustNewID(spec.KindField)
+
+	current := &spec.ProjectSpec{
+		SpecVersion: spec.SpecVersion,
+		Project:     spec.Project{ID: spec.MustNewID(spec.KindProject), Name: "Acme", Slug: "acme"},
+		Database:    spec.Database{Driver: spec.DriverPostgres},
+		Auth:        spec.Auth{Mode: spec.AuthCookie},
+		Resources: []*spec.Resource{
+			{ID: targetID, Label: "Target", CodeName: "Target", StorageName: "targets"},
+			{
+				ID: refID, Label: "Ref", CodeName: "Ref", StorageName: "refs",
+				// Two distinct belongs_to fields both pointing at Target.
+				Fields: []*spec.Field{
+					{ID: f1, Label: "Primary", Type: spec.TypeBelongsTo, CodeName: "Primary", StorageName: "primary_id", Target: targetID},
+					{ID: f2, Label: "Secondary", Type: spec.TypeBelongsTo, CodeName: "Secondary", StorageName: "secondary_id", Target: targetID},
+				},
+			},
+		},
+		Pages: []*spec.Page{
+			{ID: spec.MustNewID(spec.KindPage), Slug: "targets", Label: "Targets", Type: spec.PageResourceTable, Resource: targetID},
+			{ID: spec.MustNewID(spec.KindPage), Slug: "home", Label: "Home", Type: spec.PageDashboard, Dashboard: &spec.DashboardConfig{
+				RecentLists: []spec.DashboardCard{{Label: "Recent Targets", Resource: targetID}},
+			}},
+		},
+	}
+
+	cand := cloneSpec(t, current)
+	cand.Resources = cand.Resources[1:] // delete Target, keep Ref + both pages
+
+	del := findDeletion(t, AnalyzeDeletions(current, cand), targetID)
+	kinds := map[string]int{}
+	for _, b := range del.Blockers {
+		kinds[b.Kind]++
+	}
+	if kinds["relationship"] != 2 {
+		t.Errorf("want 2 relationship blockers, got %d (%+v)", kinds["relationship"], del.Blockers)
+	}
+	if kinds["page"] != 1 {
+		t.Errorf("want 1 page blocker, got %d", kinds["page"])
+	}
+	if kinds["dashboard_card"] != 1 {
+		t.Errorf("want 1 dashboard_card blocker (from RecentLists), got %d", kinds["dashboard_card"])
+	}
+
+	// Blocker order is stable across runs (relationships in candidate field
+	// order, then pages in authored order).
+	first := del.Blockers
+	for i := 0; i < 20; i++ {
+		again := findDeletion(t, AnalyzeDeletions(current, cand), targetID).Blockers
+		if len(again) != len(first) {
+			t.Fatalf("run %d: blocker count changed %d -> %d", i, len(first), len(again))
+		}
+		for j := range first {
+			if again[j].Kind != first[j].Kind || again[j].Entity != first[j].Entity {
+				t.Fatalf("run %d: blocker order changed at %d", i, j)
+			}
+		}
+	}
+	// The two relationship blockers come first and in field order.
+	if first[0].Entity != f1 || first[1].Entity != f2 {
+		t.Errorf("relationship blockers must preserve candidate field order; got %s, %s", first[0].Entity, first[1].Entity)
+	}
+}
