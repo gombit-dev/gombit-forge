@@ -182,6 +182,48 @@ func TestLineageDeltaOrderIsDeterministic(t *testing.T) {
 	}
 }
 
+// TestLineageDiscontinuityIsSpecGlobal pins the intended over-flagging: a
+// removal in one resource and an unrelated addition in another — obviously not a
+// rename of each other — still trips discontinuity. This is deliberate. D14 must
+// fail closed, so the gate over-flags (asks) rather than risk missing a genuine
+// rewrite; it never under-flags. Sharpening it to pair same-kind/same-parent
+// changes would be an optimization, not a correctness fix.
+func TestLineageDiscontinuityIsSpecGlobal(t *testing.T) {
+	resA := fixID(KindResource, "1")
+	resB := fixID(KindResource, "2")
+	fldX := fixID(KindField, "11")
+	fldY := fixID(KindField, "21")
+
+	// twoResources builds A and B; A holds the given fields, B is constant.
+	twoResources := func(aFields ...*Field) *ProjectSpec {
+		return &ProjectSpec{
+			SpecVersion: SpecVersion,
+			Project:     Project{ID: fixID(KindProject, "1"), Name: "Acme", Slug: "acme"},
+			Database:    Database{Driver: DriverPostgres},
+			Auth:        Auth{Mode: AuthCookie},
+			Resources: []*Resource{
+				{ID: resA, Label: "A", CodeName: "A", StorageName: "a_s", Fields: aFields},
+				{ID: resB, Label: "B", CodeName: "B", StorageName: "b_s", Fields: []*Field{
+					{ID: fixID(KindField, "22"), Label: "Keep", Type: TypeString, CodeName: "Keep", StorageName: "keep"},
+				}},
+			},
+		}
+	}
+
+	// Prior: A has X. Current: A dropped X (removal in A), B gained Y (addition in
+	// B) — independent changes in different resources.
+	prior := twoResources(&Field{ID: fldX, Label: "X", Type: TypeString, CodeName: "X", StorageName: "x"})
+	current := twoResources() // A now has no fields
+	current.Resources[1].Fields = append(current.Resources[1].Fields, &Field{
+		ID: fldY, Label: "Y", Type: TypeString, CodeName: "Y", StorageName: "y",
+	})
+
+	l := CheckLineage(prior, current)
+	if !l.Discontinuous() {
+		t.Fatalf("a removal in one resource + an addition in another must over-flag as discontinuous; %+v", l)
+	}
+}
+
 // TestDiscontinuityResolutions pins the §59 choices and their order.
 func TestDiscontinuityResolutions(t *testing.T) {
 	got := DiscontinuityResolutions()

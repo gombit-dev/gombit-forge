@@ -14,6 +14,13 @@ package spec
 // what migration and destructive rename/drop inference depend on (§57, §62).
 // Pages, navigation and hooks carry stable IDs too, but rewriting one has no
 // migration consequence, so they are deliberately out of this check.
+//
+// The check is ID-continuity only. It observes whether a stable ID still exists,
+// not where it lives: a field whose fld_ ID is hand-moved from one resource to
+// another reads as continuous, because Forge-managed mutations preserve lineage
+// by construction (§57) and the ID is intact. Whether such a reparent needs its
+// own migration signal (the column effectively changes tables) is a
+// migration-inference question, not this gate's.
 
 // IdentityRef is one schema entity's stable identity plus enough presentation to
 // describe it in a resolution prompt (§59): the storage_name is what a
