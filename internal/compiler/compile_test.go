@@ -61,6 +61,22 @@ func sampleSpec(t *testing.T) *spec.ProjectSpec {
 	return s
 }
 
+// sampleSpecWithTable is the sample plus a customers resource_table page, for
+// the frontend assertions: table generation is page-driven (#51), so a spec
+// needs a resource_table page to produce a list page. The base sampleSpec stays
+// page-free so the deletion tests exercise relationship blockers in isolation.
+func sampleSpecWithTable(t *testing.T) *spec.ProjectSpec {
+	t.Helper()
+	s := sampleSpec(t)
+	s.Pages = []*spec.Page{
+		{ID: spec.MustNewID(spec.KindPage), Slug: "customers", Label: "Customers", Type: spec.PageResourceTable, Resource: s.Resources[0].ID},
+	}
+	if d := spec.Validate(s); d != nil {
+		t.Fatalf("sample spec with table invalid: %s", d.Error())
+	}
+	return s
+}
+
 // TestCompileIsDeterministic is the issue #10 acceptance criterion: the same
 // spec compiles to a byte-identical tree, every time.
 func TestCompileIsDeterministic(t *testing.T) {
@@ -96,7 +112,7 @@ func TestCompileIsDeterministic(t *testing.T) {
 // TestCompileTreeShape checks the full set of files produced for the sample:
 // model/handlers/routes for every resource, admin only for the visible one.
 func TestCompileTreeShape(t *testing.T) {
-	files, err := Compile(sampleSpec(t), testModule)
+	files, err := Compile(sampleSpecWithTable(t), testModule)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -122,8 +138,10 @@ func TestCompileTreeShape(t *testing.T) {
 		"internal/forge_generated/invoice/mutation.go",
 		"internal/forge_generated/invoice/handlers.go",
 		"internal/forge_generated/invoice/routes.go",
-		// Frontend stage output.
-		"frontend/src/forge_generated/customer/CustomerListPage.tsx",
+		// Frontend stage output. The list is page-driven (named by the customers
+		// table page's slug); detail/form are resource-driven.
+		"frontend/src/forge_generated/customer/CustomersTablePage.tsx",
+		"frontend/src/forge_generated/customer/CustomerDetailPage.tsx",
 		"frontend/src/forge_generated/customer/CustomerFormPage.tsx",
 		"frontend/src/forge_generated/resources.tsx",
 		// Composition root (wiring stage).

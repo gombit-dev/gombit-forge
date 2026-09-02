@@ -86,6 +86,21 @@ func buildGraph(t *testing.T) (*graph.Graph, map[string]spec.ID) {
 				},
 			},
 		},
+		// One resource_table page per resource. The customers table pins explicit
+		// columns; the invoices table omits them so the graph's default (scalar
+		// fields) applies. Table generation is page-driven (#51), so these are what
+		// produce the list pages.
+		Pages: []*spec.Page{
+			{
+				ID: id(spec.KindPage), Slug: "customers", Label: "Customers", Type: spec.PageResourceTable,
+				Resource: ids["customer"],
+				Table:    &spec.TableConfig{Title: "Customers", Columns: []spec.ID{ids["email"], ids["active"]}},
+			},
+			{
+				ID: id(spec.KindPage), Slug: "invoices", Label: "Invoices", Type: spec.PageResourceTable,
+				Resource: ids["invoice"],
+			},
+		},
 	}
 
 	if diagnostics := spec.Validate(s); diagnostics != nil {
