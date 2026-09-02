@@ -586,6 +586,72 @@ button:disabled {
   color: var(--accent-fg);
 }
 
+.nav-editor {
+  margin-top: 1.25rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.nav-editor h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.nav-list {
+  list-style: decimal;
+  margin: 0;
+  padding-left: 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.nav-entry {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.nav-entry input,
+.nav-entry select {
+  font: inherit;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.nav-entry-actions {
+  display: inline-flex;
+  gap: 0.3rem;
+  margin-left: auto;
+}
+
+.nav-entry-actions button {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.82rem;
+  background: transparent;
+  color: var(--fg);
+}
+
+.nav-editor-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.nav-editor-actions button[type="submit"] {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
 .health-panel {
   margin-bottom: 1rem;
   padding: 0.6rem 0.9rem;

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { describeError } from "../api/client";
 import { getProjectSpec, type ProjectSpec } from "../api/projects";
+import { NavigationEditor } from "./NavigationEditor";
 import { PageList } from "./PageList";
 import { ProjectPicker } from "./ProjectPicker";
 
@@ -46,12 +47,23 @@ export function PagesArea() {
       {projectID == null ? (
         <p className="muted">Select a project to build its pages.</p>
       ) : (
-        <PageList
-          projectID={projectID}
-          pages={spec?.pages ?? []}
-          resources={spec?.resources ?? []}
-          onChanged={() => setReloadKey((k) => k + 1)}
-        />
+        <>
+          <PageList
+            projectID={projectID}
+            pages={spec?.pages ?? []}
+            resources={spec?.resources ?? []}
+            onChanged={() => setReloadKey((k) => k + 1)}
+          />
+          {/* Re-key on the persisted navigation so a reload that changed it re-seeds
+              the draft rather than showing stale entries. */}
+          <NavigationEditor
+            key={JSON.stringify(spec?.navigation ?? [])}
+            projectID={projectID}
+            navigation={spec?.navigation ?? []}
+            pages={spec?.pages ?? []}
+            onChanged={() => setReloadKey((k) => k + 1)}
+          />
+        </>
       )}
     </section>
   );
