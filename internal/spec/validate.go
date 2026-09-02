@@ -38,6 +38,7 @@ const (
 	CodeInvalidHook     Code = "invalid_hook"
 	CodeDuplicateForm   Code = "duplicate_form_page"
 	CodeDuplicateDetail Code = "duplicate_detail_page"
+	CodeInvalidBranding Code = "invalid_branding"
 )
 
 // Diagnostic is one structured, machine-readable validation failure.
@@ -157,6 +158,7 @@ func Validate(s *ProjectSpec) Diagnostics {
 	v.validateResources()
 	v.validatePages()
 	v.validateNavigation()
+	v.validateBranding()
 
 	if len(v.out) == 0 {
 		return nil
@@ -720,4 +722,42 @@ func (v *validator) validateNavigation() {
 				"unsupported navigation target %q", item.Target)
 		}
 	}
+}
+
+// validateBranding checks the MVP branding settings (DESIGN.md §19). Every field
+// is optional; only a set-but-malformed value is an error. The accent color must
+// be a hex color and appearance one of the three supported modes.
+func (v *validator) validateBranding() {
+	b := v.spec.Branding
+	if b == nil {
+		return
+	}
+	if b.AccentColor != "" && !isHexColor(b.AccentColor) {
+		v.report(CodeInvalidBranding, "$.branding.accent_color", "",
+			"accent color %q must be a hex color like #2563eb", b.AccentColor)
+	}
+	switch b.Appearance {
+	case "", "light", "dark", "system":
+	default:
+		v.report(CodeInvalidBranding, "$.branding.appearance", "",
+			"appearance %q must be light, dark or system", b.Appearance)
+	}
+}
+
+// isHexColor reports whether s is a #rgb or #rrggbb hex color.
+func isHexColor(s string) bool {
+	if len(s) != 4 && len(s) != 7 {
+		return false
+	}
+	if s[0] != '#' {
+		return false
+	}
+	for _, c := range s[1:] {
+		switch {
+		case c >= '0' && c <= '9', c >= 'a' && c <= 'f', c >= 'A' && c <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
 }

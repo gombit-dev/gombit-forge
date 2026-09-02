@@ -633,6 +633,57 @@ func TestFrontendMultipleTablesPerResource(t *testing.T) {
 	}
 }
 
+// TestFrontendBranding is the #56 acceptance point: the spec's branding is
+// generated as generatedBranding, applying defaults (app name → project name,
+// appearance → system) and honoring a configured appearance/accent.
+func TestFrontendBranding(t *testing.T) {
+	// buildGraph2 sets no branding, so it defaults: app name from the project,
+	// appearance "system".
+	registry := frontendFiles(t, buildGraph2(t))["frontend/src/forge_generated/resources.tsx"]
+	for _, want := range []string{
+		`export const generatedBranding: Branding = {`,
+		`appName: "Acme"`,
+		`appearance: "system"`,
+	} {
+		if !strings.Contains(registry, want) {
+			t.Errorf("default branding must contain %q", want)
+		}
+	}
+
+	// A configured branding is generated verbatim.
+	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
+	res := id(spec.KindResource)
+	s := &spec.ProjectSpec{
+		SpecVersion: spec.SpecVersion,
+		Project:     spec.Project{ID: id(spec.KindProject), Name: "Acme", Slug: "acme"},
+		Database:    spec.Database{Driver: spec.DriverPostgres},
+		Auth:        spec.Auth{Mode: spec.AuthCookie},
+		Branding:    &spec.Branding{AppName: "Shopfront", LogoRef: "/logo.svg", AccentColor: "#ff0000", Appearance: "dark"},
+		Resources: []*spec.Resource{
+			{ID: res, Label: "Customer", CodeName: "Customer", StorageName: "customers",
+				Fields: []*spec.Field{{ID: id(spec.KindField), Label: "Email", Type: spec.TypeString, CodeName: "Email", StorageName: "email"}}},
+		},
+	}
+	if d := spec.Validate(s); d != nil {
+		t.Fatalf("fixture invalid: %s", d.Error())
+	}
+	g, err := graph.Build(s)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	reg := frontendFiles(t, g)["frontend/src/forge_generated/resources.tsx"]
+	for _, want := range []string{
+		`appName: "Shopfront"`,
+		`logoRef: "/logo.svg"`,
+		`accentColor: "#ff0000"`,
+		`appearance: "dark"`,
+	} {
+		if !strings.Contains(reg, want) {
+			t.Errorf("configured branding must contain %q", want)
+		}
+	}
+}
+
 // TestFrontendNavigation is the #55 acceptance point: the spec's ordered
 // navigation is generated as generatedNavigation, in authored order, with each
 // entry pointing at a page route (dashboard / resource list) or an external URL.

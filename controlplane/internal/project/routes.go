@@ -234,4 +234,16 @@ func RegisterRoutes(api huma.API, prefix string, gate huma.Middlewares, svc *Ser
 		Middlewares:   gate,
 		DefaultStatus: http.StatusCreated,
 	}, h.setNavigation)
+
+	huma.Register(api, huma.Operation{
+		OperationID:   "set-branding",
+		Method:        http.MethodPut,
+		Path:          prefix + "/projects/{projectID}/branding",
+		Summary:       "Set the project's branding (name, logo, accent color, appearance)",
+		Description:   "Replaces the whole branding; an all-empty body clears it to the generated defaults. ABI-neutral.",
+		Tags:          tags,
+		Security:      security,
+		Middlewares:   gate,
+		DefaultStatus: http.StatusCreated,
+	}, h.setBranding)
 }

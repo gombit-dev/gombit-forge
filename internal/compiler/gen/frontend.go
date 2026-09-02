@@ -183,6 +183,7 @@ func Frontend(g *graph.Graph) ([]File, error) {
 		Forms:      forms,
 		Dashboards: dashboards,
 		Navigation: nav,
+		Branding:   brandingViewOf(g.Spec),
 	})
 	if err != nil {
 		return nil, err
@@ -600,6 +601,33 @@ type navEntryView struct {
 	External bool
 }
 
+// brandingView is the generated branding (DESIGN.md §19). Empty fields fall back
+// to sensible defaults so the app shell always has a name and an appearance mode.
+type brandingView struct {
+	AppName     string
+	LogoRef     string
+	AccentColor string
+	Appearance  string // light | dark | system
+}
+
+// brandingViewOf projects the spec's branding, applying defaults: the app name
+// falls back to the project name, and the appearance to "system".
+func brandingViewOf(s *spec.ProjectSpec) brandingView {
+	view := brandingView{Appearance: "system"}
+	if s.Branding != nil {
+		view.AppName = s.Branding.AppName
+		view.LogoRef = s.Branding.LogoRef
+		view.AccentColor = s.Branding.AccentColor
+		if s.Branding.Appearance != "" {
+			view.Appearance = s.Branding.Appearance
+		}
+	}
+	if strings.TrimSpace(view.AppName) == "" {
+		view.AppName = s.Project.Name
+	}
+	return view
+}
+
 // registryView is the template data for resources.tsx.
 type registryView struct {
 	Banner     string
@@ -608,6 +636,7 @@ type registryView struct {
 	Forms      []formView
 	Dashboards []dashboardView
 	Navigation []navEntryView
+	Branding   brandingView
 }
 
 func renderTS(tmpl *template.Template, view any) (string, error) {

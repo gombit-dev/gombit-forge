@@ -652,6 +652,72 @@ button:disabled {
   color: var(--accent-fg);
 }
 
+.branding-editor {
+  margin-top: 1.25rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+
+.branding-editor h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.branding-editor .stacked {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.branding-editor input:not([type="color"]),
+.branding-editor select {
+  font: inherit;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  min-width: 220px;
+}
+
+.branding-row {
+  display: flex;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.accent-controls {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.accent-controls input[type="color"] {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.accent-controls input:not([type="color"]) {
+  min-width: 120px;
+}
+
+.branding-editor button[type="submit"] {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
 .health-panel {
   margin-bottom: 1rem;
   padding: 0.6rem 0.9rem;
