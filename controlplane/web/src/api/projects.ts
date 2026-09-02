@@ -84,8 +84,29 @@ export const EDITABLE_FIELD_TYPES: FieldType[] = [
   "enum",
 ];
 
+// The four structured MVP page types (DESIGN.md §4.4). There is deliberately no
+// freeform canvas (D6).
+export type PageType = "resource_table" | "resource_form" | "resource_detail" | "dashboard";
+
+export const PAGE_TYPES: { type: PageType; label: string; boundToResource: boolean }[] = [
+  { type: "resource_table", label: "Resource table", boundToResource: true },
+  { type: "resource_form", label: "Resource form", boundToResource: true },
+  { type: "resource_detail", label: "Resource detail", boundToResource: true },
+  { type: "dashboard", label: "Dashboard", boundToResource: false },
+];
+
+// A page as it appears in a ProjectSpec.
+export interface SpecPage {
+  id: string;
+  slug: string;
+  label: string;
+  type: PageType;
+  resource?: string; // bound resource id; absent for dashboard
+}
+
 export interface ProjectSpec {
   resources?: SpecResource[] | null;
+  pages?: SpecPage[] | null;
 }
 
 // A revision reference returned by a committed edit.
@@ -182,6 +203,20 @@ export const addRelationship = (projectID: number, resourceID: string, input: Re
 // the complete object, not a delta (omitted settings reset).
 export const updateBehavior = (projectID: number, resourceID: string, behavior: ResourceBehavior) =>
   api.patch<RevisionRef>(`/projects/${projectID}/resources/${encodeURIComponent(resourceID)}/behavior`, behavior);
+
+// PageInput is what the page editor sends; the backend mints the id and derives
+// the slug. resource is required for every type except dashboard.
+export interface PageInput {
+  label: string;
+  type: PageType;
+  resource?: string;
+}
+
+export const addPage = (projectID: number, input: PageInput) =>
+  api.post<RevisionRef>(`/projects/${projectID}/pages`, input);
+
+export const deletePage = (projectID: number, pageID: string) =>
+  api.delete<RevisionRef>(`/projects/${projectID}/pages/${encodeURIComponent(pageID)}`);
 
 export const listProjects = (orgID: number) => api.get<Project[]>(`/organizations/${orgID}/projects`);
 
