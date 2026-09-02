@@ -344,3 +344,68 @@ button:disabled {
   background: var(--accent);
   color: var(--accent-fg);
 }
+
+.relationship-editor {
+  margin: 0.25rem 0 0.5rem 1.6rem;
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--border);
+}
+
+.relationship-editor h4 {
+  margin: 0.5rem 0 0.25rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.relationship-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.5rem;
+}
+
+.relationship-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0;
+}
+
+.relationship-row button {
+  margin-left: auto;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.82rem;
+  background: transparent;
+  color: var(--fg);
+}
+
+.relationship-form {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 0.4rem 0;
+}
+
+.relationship-form input,
+.relationship-form select {
+  font: inherit;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.relationship-form .check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.relationship-form button[type="submit"] {
+  background: var(--accent);
+  color: var(--accent-fg);
+}

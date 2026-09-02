@@ -9,6 +9,7 @@ import {
   type SpecResource,
 } from "../api/projects";
 import { FieldEditor } from "./FieldEditor";
+import { RelationshipEditor } from "./RelationshipEditor";
 
 // The editable resource tree (DESIGN.md §17 Data, §4.2). It edits resources
 // through the backend operations — the backend mints code symbols and runs the
@@ -44,7 +45,7 @@ export function ResourceTree({
       ) : (
         <ul className="resource-tree" aria-label="Resources">
           {resources.map((r) => (
-            <ResourceRow key={r.id} projectID={projectID} resource={r} onChanged={onChanged} setError={setError} />
+            <ResourceRow key={r.id} projectID={projectID} resource={r} resources={resources} onChanged={onChanged} setError={setError} />
           ))}
         </ul>
       )}
@@ -70,11 +71,13 @@ export function ResourceTree({
 function ResourceRow({
   projectID,
   resource,
+  resources,
   onChanged,
   setError,
 }: {
   projectID: number;
   resource: SpecResource;
+  resources: SpecResource[];
   onChanged: () => void;
   setError: (m: string | null) => void;
 }) {
@@ -160,12 +163,21 @@ function ResourceRow({
       </div>
 
       {expanded && (
-        <FieldEditor
-          projectID={projectID}
-          resourceID={resource.id}
-          fields={resource.fields ?? []}
-          onChanged={onChanged}
-        />
+        <>
+          <FieldEditor
+            projectID={projectID}
+            resourceID={resource.id}
+            fields={resource.fields ?? []}
+            onChanged={onChanged}
+          />
+          <RelationshipEditor
+            projectID={projectID}
+            resourceID={resource.id}
+            fields={resource.fields ?? []}
+            resources={resources}
+            onChanged={onChanged}
+          />
+        </>
       )}
 
       {confirming && (

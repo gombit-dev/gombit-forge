@@ -132,6 +132,18 @@ export const updateField = (projectID: number, resourceID: string, fieldID: stri
 export const deleteField = (projectID: number, resourceID: string, fieldID: string) =>
   api.delete<RevisionRef>(`${fieldPath(projectID, resourceID)}/${encodeURIComponent(fieldID)}`);
 
+// RelationshipInput describes a belongs_to relationship to create. The has_many
+// side is derived by the compiler from inverse_label.
+export interface RelationshipInput {
+  label: string;
+  target: string;
+  inverse_label?: string;
+  required?: boolean;
+}
+
+export const addRelationship = (projectID: number, resourceID: string, input: RelationshipInput) =>
+  api.post<RevisionRef>(`/projects/${projectID}/resources/${encodeURIComponent(resourceID)}/relationships`, input);
+
 export const listProjects = (orgID: number) => api.get<Project[]>(`/organizations/${orgID}/projects`);
 
 // getProjectSpec returns the head revision's spec, or null when the project has
