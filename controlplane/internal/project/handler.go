@@ -417,6 +417,36 @@ func (h *Handler) deleteField(ctx context.Context, in *deleteFieldInput) (*submi
 	return candidateResponse(ctx, result)
 }
 
+// --- relationship operation ------------------------------------------------
+
+type addRelationshipInput struct {
+	ProjectID  string `path:"projectID" doc:"Project identifier"`
+	ResourceID string `path:"resourceID" doc:"Owning resource stable ID"`
+	Body       struct {
+		Label        string `json:"label" minLength:"1" maxLength:"120" doc:"Relationship label on the owning resource"`
+		Target       string `json:"target" minLength:"1" doc:"Target resource stable ID"`
+		InverseLabel string `json:"inverse_label,omitempty" doc:"Derived has_many label on the target"`
+		Required     bool   `json:"required,omitempty"`
+	}
+}
+
+func (h *Handler) addRelationship(ctx context.Context, in *addRelationshipInput) (*submitCandidateOutput, error) {
+	p, user, err := h.loadAuthorized(ctx, in.ProjectID, org.CapProjectEdit)
+	if err != nil {
+		return nil, err
+	}
+	result, err := h.svc.AddRelationship(ctx, p.ID, spec.ID(in.ResourceID), RelationshipInput{
+		Label:        in.Body.Label,
+		Target:       spec.ID(in.Body.Target),
+		InverseLabel: in.Body.InverseLabel,
+		Required:     in.Body.Required,
+	}, user.ID)
+	if err != nil {
+		return nil, mapError(ctx, err, "add relationship")
+	}
+	return candidateResponse(ctx, result)
+}
+
 // --- helpers ---------------------------------------------------------------
 
 // caller extracts the authenticated user the cookie gate guarantees.
@@ -491,6 +521,10 @@ func mapError(ctx context.Context, err error, action string) error {
 		return contract.WithContext(ctx, contract.NotFound("resource not found"))
 	case errors.Is(err, ErrFieldNotFound):
 		return contract.WithContext(ctx, contract.NotFound("field not found"))
+	case errors.Is(err, ErrRelationshipTarget):
+		return contract.WithContext(ctx, contract.Validation("invalid relationship", map[string][]string{
+			"target": {"must reference an existing resource"},
+		}))
 	case errors.Is(err, ErrInvalidFieldEdit):
 		return contract.WithContext(ctx, contract.Validation("invalid field", map[string][]string{
 			"type": {"must be a supported MVP field type"},
