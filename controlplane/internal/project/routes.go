@@ -202,6 +202,18 @@ func RegisterRoutes(api huma.API, prefix string, gate huma.Middlewares, svc *Ser
 	}, h.addPage)
 
 	huma.Register(api, huma.Operation{
+		OperationID:   "update-table-config",
+		Method:        http.MethodPatch,
+		Path:          prefix + "/projects/{projectID}/pages/{pageID}/table",
+		Summary:       "Configure a resource_table page (label, title, columns, search, page size)",
+		Description:   "Replaces the page's table configuration: omitted columns/toggles reset to their defaults, so the client sends the complete configuration, not a delta. ABI-neutral.",
+		Tags:          tags,
+		Security:      security,
+		Middlewares:   gate,
+		DefaultStatus: http.StatusCreated,
+	}, h.updateTableConfig)
+
+	huma.Register(api, huma.Operation{
 		OperationID: "delete-page",
 		Method:      http.MethodDelete,
 		Path:        prefix + "/projects/{projectID}/pages/{pageID}",

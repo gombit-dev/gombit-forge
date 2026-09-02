@@ -612,6 +612,36 @@ func (h *Handler) addPage(ctx context.Context, in *addPageInput) (*submitCandida
 	return candidateResponse(ctx, result)
 }
 
+type updateTableConfigInput struct {
+	ProjectID string `path:"projectID" doc:"Project identifier"`
+	PageID    string `path:"pageID" doc:"Page stable ID"`
+	Body      struct {
+		Label    string   `json:"label" minLength:"1" maxLength:"120" doc:"Human-readable page label"`
+		Title    string   `json:"title,omitempty" maxLength:"120" doc:"Table heading; defaults to the label when empty"`
+		Columns  []string `json:"columns,omitempty" doc:"Ordered column field IDs; must belong to the bound resource"`
+		Search   bool     `json:"search,omitempty" doc:"Whether the table offers search (honored at runtime in a later change)"`
+		PageSize int      `json:"page_size,omitempty" minimum:"0" doc:"Rows per page; 0 uses the default"`
+	}
+}
+
+func (h *Handler) updateTableConfig(ctx context.Context, in *updateTableConfigInput) (*submitCandidateOutput, error) {
+	p, user, err := h.loadAuthorized(ctx, in.ProjectID, org.CapProjectEdit)
+	if err != nil {
+		return nil, err
+	}
+	result, err := h.svc.UpdateTableConfig(ctx, p.ID, spec.ID(in.PageID), TableConfigInput{
+		Label:    in.Body.Label,
+		Title:    in.Body.Title,
+		Columns:  toIDs(in.Body.Columns),
+		Search:   in.Body.Search,
+		PageSize: in.Body.PageSize,
+	}, user.ID)
+	if err != nil {
+		return nil, mapError(ctx, err, "update table config")
+	}
+	return candidateResponse(ctx, result)
+}
+
 type deletePageInput struct {
 	ProjectID string `path:"projectID" doc:"Project identifier"`
 	PageID    string `path:"pageID" doc:"Page stable ID"`

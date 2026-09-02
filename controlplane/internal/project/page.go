@@ -78,6 +78,72 @@ func (s *Service) AddPage(ctx context.Context, projectID uint, in PageInput, by 
 	return result, err
 }
 
+// TableConfigInput is the human-facing configuration of a resource_table page
+// the editor supplies: the page's display label, plus the table's heading,
+// ordered columns, search toggle and page size. Column IDs must belong to the
+// page's bound resource — spec.Validate enforces that and surfaces a dangling
+// column as invalid_spec.
+type TableConfigInput struct {
+	Label    string
+	Title    string
+	Columns  []spec.ID
+	Search   bool
+	PageSize int
+}
+
+// UpdateTableConfig sets a resource_table page's label and table configuration
+// (DESIGN.md §4.4, §18). A page is a frontend view with no extension contract,
+// so the edit is ABI-neutral and commits (unless the result is spec-invalid — a
+// column that is not on the bound resource, or a negative page size). The table
+// block is dropped when the configuration is entirely empty, so a page that
+// configures nothing stays on the graph's column defaults rather than pinning an
+// empty block.
+func (s *Service) UpdateTableConfig(ctx context.Context, projectID uint, pageID spec.ID, in TableConfigInput, by uint) (CandidateResult, error) {
+	if strings.TrimSpace(in.Label) == "" {
+		return CandidateResult{}, fmt.Errorf("%w: a page label is required", ErrInvalidPageEdit)
+	}
+	if in.PageSize < 0 {
+		return CandidateResult{}, fmt.Errorf("%w: page size must not be negative", ErrInvalidPageEdit)
+	}
+	var result CandidateResult
+	err := s.withLockedSpec(ctx, projectID, func(tx *gorm.DB, p Project, current *spec.ProjectSpec) error {
+		if current == nil {
+			return ErrNoSpec
+		}
+		candidate, err := current.Clone()
+		if err != nil {
+			return err
+		}
+		page := candidate.FindPage(pageID)
+		if page == nil {
+			return ErrPageNotFound
+		}
+		if page.Type != spec.PageResourceTable {
+			return fmt.Errorf("%w: only a resource_table page has a table configuration", ErrInvalidPageEdit)
+		}
+		page.Label = in.Label
+		page.Table = tableConfigOrNil(in)
+		result, err = s.classifyAndInsertLocked(ctx, tx, p, current, candidate, by)
+		return err
+	})
+	return result, err
+}
+
+// tableConfigOrNil builds a TableConfig from the input, or nil when the input
+// configures nothing (so the page falls back to the graph's column defaults
+// rather than serializing an empty block).
+func tableConfigOrNil(in TableConfigInput) *spec.TableConfig {
+	if strings.TrimSpace(in.Title) == "" && len(in.Columns) == 0 && !in.Search && in.PageSize == 0 {
+		return nil
+	}
+	return &spec.TableConfig{
+		Title:    strings.TrimSpace(in.Title),
+		Columns:  in.Columns,
+		Search:   in.Search,
+		PageSize: in.PageSize,
+	}
+}
+
 // DeletePage removes a page. A page generates no extension contract, so its
 // removal is ABI-neutral and commits; a navigation entry that still points at
 // the page fails validation (a dangling reference) and is returned as
