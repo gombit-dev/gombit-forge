@@ -252,13 +252,25 @@ func newTableView(page *graph.Page) tableView {
 }
 
 // pascalSlug turns a lower-kebab-case slug into a PascalCase identifier segment:
-// "active-customers" -> "ActiveCustomers". Slug uniqueness makes the result
-// unique in the common case; the freak digit-adjacency collision (e.g. "a1" vs
-// "a-1") is caught by the component-name guard in Frontend.
+// "active-customers" -> "ActiveCustomers".
+//
+// It is injective over valid slugs, so two distinct slugs can never derive the
+// same component name (which would make an already-committed revision fail to
+// build — the #134 footgun). A letter-starting segment is PascalCased, marking
+// the boundary with a capital; a digit-starting segment can't be upper-cased, so
+// PascalCasing alone would erase its hyphen boundary ("a1" and "a-1" would both
+// fold to "A1") — an underscore keeps the boundary, and since a valid slug never
+// starts with a digit no leading underscore is ever produced. The component-name
+// guard in Frontend is then pure belt-and-suspenders.
 func pascalSlug(slug string) string {
 	var b strings.Builder
 	for _, part := range strings.Split(slug, "-") {
 		if part == "" {
+			continue
+		}
+		if c := part[0]; c >= '0' && c <= '9' {
+			b.WriteByte('_')
+			b.WriteString(part)
 			continue
 		}
 		b.WriteString(strings.ToUpper(part[:1]))

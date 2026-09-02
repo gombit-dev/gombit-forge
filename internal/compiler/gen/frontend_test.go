@@ -615,6 +615,67 @@ func TestFrontendNoImplicitList(t *testing.T) {
 	}
 }
 
+// TestPascalSlugIsInjective guards the component-name derivation: two distinct,
+// valid slugs must never fold to the same identifier, or two committed pages
+// could fail to build (the #134 pattern). The digit-adjacency case is the one
+// that a naive PascalCase collides ("a1" vs "a-1").
+func TestPascalSlugIsInjective(t *testing.T) {
+	slugs := []string{"a1", "a-1", "ab", "a-b", "active-customers", "x1y", "x-1y", "order-lines"}
+	seen := map[string]string{}
+	for _, s := range slugs {
+		got := pascalSlug(s)
+		if other, dup := seen[got]; dup {
+			t.Errorf("pascalSlug(%q) == pascalSlug(%q) == %q; must be injective", s, other, got)
+		}
+		seen[got] = s
+	}
+}
+
+// TestFrontendDigitAdjacentSlugsBuild is the end-to-end proof of the fix: two
+// resource_table pages with the once-colliding slugs "a1" and "a-1" now build
+// to two distinct table components rather than tripping the Frontend guard.
+func TestFrontendDigitAdjacentSlugsBuild(t *testing.T) {
+	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
+	res := id(spec.KindResource)
+	s := &spec.ProjectSpec{
+		SpecVersion: spec.SpecVersion,
+		Project:     spec.Project{ID: id(spec.KindProject), Name: "Acme", Slug: "acme"},
+		Database:    spec.Database{Driver: spec.DriverPostgres},
+		Auth:        spec.Auth{Mode: spec.AuthCookie},
+		Resources: []*spec.Resource{
+			{ID: res, Label: "Customer", CodeName: "Customer", StorageName: "customers",
+				Fields: []*spec.Field{{ID: id(spec.KindField), Label: "Email", Type: spec.TypeString, CodeName: "Email", StorageName: "email"}}},
+		},
+		Pages: []*spec.Page{
+			{ID: id(spec.KindPage), Slug: "a1", Label: "A1", Type: spec.PageResourceTable, Resource: res},
+			{ID: id(spec.KindPage), Slug: "a-1", Label: "A 1", Type: spec.PageResourceTable, Resource: res},
+		},
+	}
+	if d := spec.Validate(s); d != nil {
+		t.Fatalf("fixture invalid: %s", d.Error())
+	}
+	g, err := graph.Build(s)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	files, err := Frontend(g)
+	if err != nil {
+		t.Fatalf("Frontend must not fail on distinct digit-adjacent slugs: %v", err)
+	}
+	got := map[string]bool{}
+	for _, f := range files {
+		got[f.Path] = true
+	}
+	for _, want := range []string{
+		"frontend/src/forge_generated/customer/A1TablePage.tsx",
+		"frontend/src/forge_generated/customer/A_1TablePage.tsx",
+	} {
+		if !got[want] {
+			t.Errorf("missing distinct table component %s", want)
+		}
+	}
+}
+
 func frontendFilesSlice(t *testing.T, g *graph.Graph) []File {
 	t.Helper()
 	files, err := Frontend(g)
