@@ -162,12 +162,27 @@ func Frontend(g *graph.Graph) ([]File, error) {
 		files = append(files, File{Path: path.Join(FrontendRoot, dashboardPackage, view.Component+".tsx"), Content: []byte(src)})
 	}
 
+	// Ordered navigation from the spec (DESIGN.md §4.5): each entry points at a
+	// page's route (dashboard or resource_table) or an external URL. Validation
+	// guarantees a page target is a dashboard/table, so its route is "/{slug}".
+	nav := make([]navEntryView, 0, len(g.Navigation))
+	for _, entry := range g.Navigation {
+		item := navEntryView{Label: entry.Spec.Label}
+		if entry.Spec.Target == spec.NavExternal {
+			item.To, item.External = entry.Spec.URL, true
+		} else {
+			item.To = "/" + entry.Page.Spec.Slug
+		}
+		nav = append(nav, item)
+	}
+
 	registry, err := renderTS(registryTemplate, registryView{
 		Banner:     tsBanner,
 		Details:    details,
 		Tables:     tables,
 		Forms:      forms,
 		Dashboards: dashboards,
+		Navigation: nav,
 	})
 	if err != nil {
 		return nil, err
@@ -578,6 +593,13 @@ type recentListView struct {
 	ViewAllRoute string // the resource's first table page route, or ""
 }
 
+// navEntryView is one generated navigation entry (DESIGN.md §4.5).
+type navEntryView struct {
+	Label    string
+	To       string // "/{slug}" for a page target, or the external URL
+	External bool
+}
+
 // registryView is the template data for resources.tsx.
 type registryView struct {
 	Banner     string
@@ -585,6 +607,7 @@ type registryView struct {
 	Tables     []tableView
 	Forms      []formView
 	Dashboards []dashboardView
+	Navigation []navEntryView
 }
 
 func renderTS(tmpl *template.Template, view any) (string, error) {
