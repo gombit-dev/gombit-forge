@@ -113,9 +113,21 @@ export interface SpecPage {
   table?: SpecTableConfig; // present only for a resource_table page that configures one
 }
 
+// A navigation entry as it appears in a ProjectSpec (DESIGN.md §4.5).
+export type NavTarget = "page" | "external";
+
+export interface SpecNavItem {
+  id: string;
+  label: string;
+  target: NavTarget;
+  page?: string; // target page id (for a page entry)
+  url?: string; // external URL (for an external entry)
+}
+
 export interface ProjectSpec {
   resources?: SpecResource[] | null;
   pages?: SpecPage[] | null;
+  navigation?: SpecNavItem[] | null;
 }
 
 // A revision reference returned by a committed edit.
@@ -241,6 +253,18 @@ export const updateTableConfig = (projectID: number, pageID: string, input: Tabl
   api.patch<RevisionRef>(`/projects/${projectID}/pages/${encodeURIComponent(pageID)}/table`, input);
 
 export const listProjects = (orgID: number) => api.get<Project[]>(`/organizations/${orgID}/projects`);
+
+// NavItemInput is one navigation entry the editor sends. SetNavigation replaces
+// the whole ordered list, so the client sends the complete navigation.
+export interface NavItemInput {
+  label: string;
+  target: NavTarget;
+  page?: string;
+  url?: string;
+}
+
+export const setNavigation = (projectID: number, items: NavItemInput[]) =>
+  api.put<RevisionRef>(`/projects/${projectID}/navigation`, { items });
 
 // getProjectSpec returns the head revision's spec, or null when the project has
 // no revisions yet.
