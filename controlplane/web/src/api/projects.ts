@@ -17,16 +17,59 @@ export interface Project {
   head_revision_id?: number | null;
 }
 
-// A resource as it appears in a ProjectSpec. The full spec has more, but the
-// resource tree needs only identity and the human-facing labels (DESIGN.md
-// §4.3).
+// One enum value on a field.
+export interface EnumValue {
+  value: string;
+  label?: string;
+}
+
+// A field as it appears in a ProjectSpec's resource.
+export interface SpecField {
+  id: string;
+  label: string;
+  type: FieldType;
+  code_name: string;
+  storage_name: string;
+  required?: boolean;
+  unique?: boolean;
+  default?: string | null;
+  enum_values?: EnumValue[];
+  target?: string; // belongs_to target resource id
+}
+
+// A resource as it appears in a ProjectSpec.
 export interface SpecResource {
   id: string;
   label: string;
   label_plural?: string;
   code_name: string;
   storage_name: string;
+  fields?: SpecField[];
 }
+
+// The MVP field types the field editor offers. belongs_to is created with the
+// relationship editor (#46), so it is not in this list.
+export type FieldType =
+  | "string"
+  | "text"
+  | "integer"
+  | "decimal"
+  | "boolean"
+  | "datetime"
+  | "date"
+  | "enum"
+  | "belongs_to";
+
+export const EDITABLE_FIELD_TYPES: FieldType[] = [
+  "string",
+  "text",
+  "integer",
+  "decimal",
+  "boolean",
+  "datetime",
+  "date",
+  "enum",
+];
 
 export interface ProjectSpec {
   resources?: SpecResource[] | null;
@@ -66,6 +109,28 @@ export const renameResource = (projectID: number, resourceID: string, label: str
 
 export const deleteResource = (projectID: number, resourceID: string) =>
   api.delete<DeleteResult>(`/projects/${projectID}/resources/${encodeURIComponent(resourceID)}`);
+
+// FieldInput is what the field editor sends; the backend mints the symbol.
+export interface FieldInput {
+  label: string;
+  type: FieldType;
+  required?: boolean;
+  unique?: boolean;
+  default?: string | null;
+  enum_values?: EnumValue[];
+}
+
+const fieldPath = (projectID: number, resourceID: string) =>
+  `/projects/${projectID}/resources/${encodeURIComponent(resourceID)}/fields`;
+
+export const addField = (projectID: number, resourceID: string, input: FieldInput) =>
+  api.post<RevisionRef>(fieldPath(projectID, resourceID), input);
+
+export const updateField = (projectID: number, resourceID: string, fieldID: string, input: FieldInput) =>
+  api.patch<RevisionRef>(`${fieldPath(projectID, resourceID)}/${encodeURIComponent(fieldID)}`, input);
+
+export const deleteField = (projectID: number, resourceID: string, fieldID: string) =>
+  api.delete<RevisionRef>(`${fieldPath(projectID, resourceID)}/${encodeURIComponent(fieldID)}`);
 
 export const listProjects = (orgID: number) => api.get<Project[]>(`/organizations/${orgID}/projects`);
 

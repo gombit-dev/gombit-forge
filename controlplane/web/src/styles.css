@@ -269,3 +269,78 @@ button:disabled {
   margin: 0.25rem 0 0;
   padding-left: 1.2rem;
 }
+
+.expand {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 0 0.3rem;
+  cursor: pointer;
+}
+
+.field-editor {
+  margin: 0.25rem 0 0.5rem 1.6rem;
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--border);
+}
+
+.field-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.5rem;
+}
+
+.field-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0;
+}
+
+.field-label {
+  font-weight: 500;
+}
+
+.field-type {
+  font-size: 0.85rem;
+}
+
+.badge {
+  font-size: 0.72rem;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+}
+
+.field-form {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 0.4rem 0;
+}
+
+.field-form input[type="text"],
+.field-form input:not([type]),
+.field-form select {
+  font: inherit;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.field-form .check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.field-form button[type="submit"] {
+  background: var(--accent);
+  color: var(--accent-fg);
+}

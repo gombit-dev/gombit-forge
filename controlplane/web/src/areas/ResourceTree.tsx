@@ -8,6 +8,7 @@ import {
   type DeletionBlocker,
   type SpecResource,
 } from "../api/projects";
+import { FieldEditor } from "./FieldEditor";
 
 // The editable resource tree (DESIGN.md §17 Data, §4.2). It edits resources
 // through the backend operations — the backend mints code symbols and runs the
@@ -79,6 +80,7 @@ function ResourceRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [pending, setPending] = useState(false);
   const [blockers, setBlockers] = useState<DeletionBlocker[] | null>(null);
 
@@ -136,6 +138,15 @@ function ResourceRow({
   return (
     <li>
       <div className="resource-row">
+        <button
+          type="button"
+          className="expand"
+          aria-expanded={expanded}
+          aria-label={`Fields of ${resource.label}`}
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? "▾" : "▸"}
+        </button>
         <span className="resource-label">{resource.label}</span>
         {resource.label_plural && <span className="muted"> · {resource.label_plural}</span>}
         <span className="row-actions">
@@ -147,6 +158,15 @@ function ResourceRow({
           </button>
         </span>
       </div>
+
+      {expanded && (
+        <FieldEditor
+          projectID={projectID}
+          resourceID={resource.id}
+          fields={resource.fields ?? []}
+          onChanged={onChanged}
+        />
+      )}
 
       {confirming && (
         <div className="confirm" role="group" aria-label={`Delete ${resource.label}`}>
