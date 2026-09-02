@@ -42,13 +42,17 @@ export function FieldEditor({
     }
   };
 
+  // belongs_to fields are owned by the relationship editor below, so they are
+  // left out of the scalar field list rather than shown twice.
+  const scalarFields = fields.filter((f) => f.type !== "belongs_to");
+
   return (
     <div className="field-editor">
-      {fields.length === 0 ? (
+      {scalarFields.length === 0 ? (
         <p className="muted">No fields yet.</p>
       ) : (
         <ul className="field-list" aria-label="Fields">
-          {fields.map((f) => (
+          {scalarFields.map((f) => (
             <FieldRow key={f.id} projectID={projectID} resourceID={resourceID} field={f} onChanged={onChanged} run={run} />
           ))}
         </ul>
@@ -93,18 +97,8 @@ function FieldRow({
   const [editing, setEditing] = useState(false);
   const [pending, setPending] = useState(false);
 
-  // A relationship field is the #46 editor's domain — this scalar form can't
-  // express its target and the backend rejects an update that would strip it —
-  // so render it read-only here rather than offer an Edit that cannot succeed.
-  if (field.type === "belongs_to") {
-    return (
-      <li className="field-row">
-        <span className="field-label">{field.label}</span>
-        <span className="field-type muted">belongs_to</span>
-        <span className="muted"> · edit in the relationship editor</span>
-      </li>
-    );
-  }
+  // Only scalar fields reach here — belongs_to fields are filtered out by
+  // FieldEditor and managed in the relationship editor.
 
   if (editing) {
     return (
