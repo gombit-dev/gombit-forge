@@ -56,24 +56,16 @@ describe("DataArea", () => {
     expect(list).toHaveTextContent("Customers");
   });
 
-  it("distinguishes a project with no revisions from a saved-but-empty spec", async () => {
-    wire({ data: null });
+  it("lets an empty project add its first resource (no read-only dead end)", async () => {
+    wire({ data: null }); // no revisions yet
     render(<DataArea />);
     const user = userEvent.setup();
     await screen.findByRole("option", { name: "Acme" });
     await user.selectOptions(screen.getByRole("combobox", { name: "Organization" }), "7");
     await user.selectOptions(await screen.findByRole("combobox", { name: "Project" }), "3");
-    expect(await screen.findByText(/no revisions yet/i)).toBeInTheDocument();
-  });
-
-  it("shows 'no resources yet' for a saved spec with zero resources", async () => {
-    wire({ data: { resources: [] } });
-    render(<DataArea />);
-    const user = userEvent.setup();
-    await screen.findByRole("option", { name: "Acme" });
-    await user.selectOptions(screen.getByRole("combobox", { name: "Organization" }), "7");
-    await user.selectOptions(await screen.findByRole("combobox", { name: "Project" }), "3");
+    // The tree renders with the add form even before any revision exists.
     expect(await screen.findByText(/no resources yet/i)).toBeInTheDocument();
+    expect(screen.getByRole("form", { name: "Add resource" })).toBeInTheDocument();
   });
 
   // A stale response must not win: select project 3, then 4; resolve 4's spec

@@ -317,13 +317,16 @@ func (h *Handler) deleteResource(ctx context.Context, in *deleteResourceInput) (
 	if len(del.Diagnostics) > 0 {
 		return nil, contract.WithContext(ctx, contract.Validation("deletion produced an invalid spec", diagnosticFields(del.Diagnostics)))
 	}
-	// Blocked by dependencies (§45): a 409 carrying the concrete blockers so the
-	// editor can tell the user what still references the resource.
+	// Blocked by dependencies (§45). This is an expected outcome the editor must
+	// render (what still references the resource), not a client error, so it is a
+	// 200 carrying committed:false and the concrete blockers rather than a 4xx
+	// whose structured body the client would have to parse out of an error
+	// envelope.
 	blockers := make([]blockerData, 0, len(del.Blockers))
 	for _, b := range del.Blockers {
 		blockers = append(blockers, blockerData{Kind: b.Kind, Message: b.Message})
 	}
-	return &deleteResourceOutput{Status: 409, Body: contract.Data[deleteResourceResult]{Data: deleteResourceResult{
+	return &deleteResourceOutput{Status: 200, Body: contract.Data[deleteResourceResult]{Data: deleteResourceResult{
 		Committed: false, HadExtension: del.HadExtension, Blockers: blockers,
 	}}}, nil
 }
