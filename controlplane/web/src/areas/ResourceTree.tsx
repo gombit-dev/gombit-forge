@@ -8,6 +8,7 @@ import {
   type DeletionBlocker,
   type SpecResource,
 } from "../api/projects";
+import { BehaviorEditor } from "./BehaviorEditor";
 import { FieldEditor } from "./FieldEditor";
 import { RelationshipEditor } from "./RelationshipEditor";
 
@@ -175,6 +176,17 @@ function ResourceRow({
             resourceID={resource.id}
             fields={resource.fields ?? []}
             resources={resources}
+            onChanged={onChanged}
+          />
+          <BehaviorEditor
+            // Re-key on the behavior so a reload that changed it (e.g. a
+            // concurrent edit by another member) remounts the form and re-seeds
+            // its state rather than showing stale initial values.
+            key={JSON.stringify(resource.behavior ?? {})}
+            projectID={projectID}
+            resourceID={resource.id}
+            fields={resource.fields ?? []}
+            behavior={resource.behavior}
             onChanged={onChanged}
           />
         </>

@@ -37,6 +37,18 @@ export interface SpecField {
   target?: string; // belongs_to target resource id
 }
 
+// A resource's behavior settings (DESIGN.md §4.3).
+export interface ResourceBehavior {
+  create_enabled?: boolean;
+  update_enabled?: boolean;
+  delete_enabled?: boolean;
+  admin_visible?: boolean;
+  list_fields?: string[];
+  searchable_fields?: string[];
+  sortable_fields?: string[];
+  filterable_fields?: string[];
+}
+
 // A resource as it appears in a ProjectSpec.
 export interface SpecResource {
   id: string;
@@ -45,6 +57,7 @@ export interface SpecResource {
   code_name: string;
   storage_name: string;
   fields?: SpecField[];
+  behavior?: ResourceBehavior;
 }
 
 // The MVP field types the field editor offers. belongs_to is created with the
@@ -143,6 +156,11 @@ export interface RelationshipInput {
 
 export const addRelationship = (projectID: number, resourceID: string, input: RelationshipInput) =>
   api.post<RevisionRef>(`/projects/${projectID}/resources/${encodeURIComponent(resourceID)}/relationships`, input);
+
+// updateBehavior replaces the resource's whole behavior — the client must send
+// the complete object, not a delta (omitted settings reset).
+export const updateBehavior = (projectID: number, resourceID: string, behavior: ResourceBehavior) =>
+  api.patch<RevisionRef>(`/projects/${projectID}/resources/${encodeURIComponent(resourceID)}/behavior`, behavior);
 
 export const listProjects = (orgID: number) => api.get<Project[]>(`/organizations/${orgID}/projects`);
 
