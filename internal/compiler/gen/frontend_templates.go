@@ -520,6 +520,22 @@ export const generatedNavigation: NavEntry[] = [
 {{- end}}
 ];
 
+// Branding is the generated application branding (DESIGN.md §19). The app shell
+// applies the accent color, shows the name/logo and honors the appearance mode.
+export type Branding = {
+  appName: string;
+  logoRef: string;
+  accentColor: string;
+  appearance: "light" | "dark" | "system";
+};
+
+export const generatedBranding: Branding = {
+  appName: {{js .Branding.AppName}},
+  logoRef: {{js .Branding.LogoRef}},
+  accentColor: {{js .Branding.AccentColor}},
+  appearance: {{js .Branding.Appearance}},
+};
+
 export const generatedResourceRoutes: RouteObject[] = [
 {{- range .Dashboards}}
   { path: "{{.Slug}}", element: <{{.Component}} /> },

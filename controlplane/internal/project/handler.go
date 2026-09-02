@@ -694,6 +694,35 @@ func (h *Handler) setNavigation(ctx context.Context, in *setNavigationInput) (*s
 	return candidateResponse(ctx, result)
 }
 
+// --- branding operation ----------------------------------------------------
+
+type setBrandingInput struct {
+	ProjectID string `path:"projectID" doc:"Project identifier"`
+	Body      struct {
+		AppName     string `json:"app_name,omitempty" maxLength:"120" doc:"Application name"`
+		LogoRef     string `json:"logo_ref,omitempty" maxLength:"2048" doc:"Logo reference (URL or asset)"`
+		AccentColor string `json:"accent_color,omitempty" doc:"Primary accent color as a hex color"`
+		Appearance  string `json:"appearance,omitempty" enum:",light,dark,system" doc:"Appearance mode"`
+	}
+}
+
+func (h *Handler) setBranding(ctx context.Context, in *setBrandingInput) (*submitCandidateOutput, error) {
+	p, user, err := h.loadAuthorized(ctx, in.ProjectID, org.CapProjectEdit)
+	if err != nil {
+		return nil, err
+	}
+	result, err := h.svc.SetBranding(ctx, p.ID, BrandingInput{
+		AppName:     in.Body.AppName,
+		LogoRef:     in.Body.LogoRef,
+		AccentColor: in.Body.AccentColor,
+		Appearance:  in.Body.Appearance,
+	}, user.ID)
+	if err != nil {
+		return nil, mapError(ctx, err, "set branding")
+	}
+	return candidateResponse(ctx, result)
+}
+
 // --- helpers ---------------------------------------------------------------
 
 // caller extracts the authenticated user the cookie gate guarantees.

@@ -266,6 +266,20 @@ func TestValidateRejects(t *testing.T) {
 			},
 			wantAny: CodeInvalidNav,
 		},
+		{
+			name: "branding accent color is not a hex color",
+			mutate: func(s *ProjectSpec) {
+				s.Branding = &Branding{AccentColor: "blue"}
+			},
+			wantAny: CodeInvalidBranding,
+		},
+		{
+			name: "branding appearance is unsupported",
+			mutate: func(s *ProjectSpec) {
+				s.Branding = &Branding{Appearance: "sepia"}
+			},
+			wantAny: CodeInvalidBranding,
+		},
 
 		// Page type must agree with the attached configuration block,
 		// otherwise the domain graph cannot project a single view per page.

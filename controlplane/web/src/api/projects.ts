@@ -124,10 +124,21 @@ export interface SpecNavItem {
   url?: string; // external URL (for an external entry)
 }
 
+// Application branding (DESIGN.md §19).
+export type Appearance = "light" | "dark" | "system";
+
+export interface SpecBranding {
+  app_name?: string;
+  logo_ref?: string;
+  accent_color?: string;
+  appearance?: Appearance;
+}
+
 export interface ProjectSpec {
   resources?: SpecResource[] | null;
   pages?: SpecPage[] | null;
   navigation?: SpecNavItem[] | null;
+  branding?: SpecBranding | null;
 }
 
 // A revision reference returned by a committed edit.
@@ -265,6 +276,18 @@ export interface NavItemInput {
 
 export const setNavigation = (projectID: number, items: NavItemInput[]) =>
   api.put<RevisionRef>(`/projects/${projectID}/navigation`, { items });
+
+// BrandingInput is what the branding editor sends. It replaces the whole
+// branding; an all-empty body clears it to the generated defaults.
+export interface BrandingInput {
+  app_name?: string;
+  logo_ref?: string;
+  accent_color?: string;
+  appearance?: "" | Appearance;
+}
+
+export const setBranding = (projectID: number, input: BrandingInput) =>
+  api.put<RevisionRef>(`/projects/${projectID}/branding`, input);
 
 // getProjectSpec returns the head revision's spec, or null when the project has
 // no revisions yet.

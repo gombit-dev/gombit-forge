@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { describeError } from "../api/client";
 import { getProjectSpec, type ProjectSpec } from "../api/projects";
+import { BrandingEditor } from "./BrandingEditor";
 import { NavigationEditor } from "./NavigationEditor";
 import { PageList } from "./PageList";
 import { ProjectPicker } from "./ProjectPicker";
@@ -61,6 +62,12 @@ export function PagesArea() {
             projectID={projectID}
             navigation={spec?.navigation ?? []}
             pages={spec?.pages ?? []}
+            onChanged={() => setReloadKey((k) => k + 1)}
+          />
+          <BrandingEditor
+            key={JSON.stringify(spec?.branding ?? {})}
+            projectID={projectID}
+            branding={spec?.branding ?? {}}
             onChanged={() => setReloadKey((k) => k + 1)}
           />
         </>

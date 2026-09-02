@@ -36,6 +36,7 @@ func TestRoutesEnforceGate(t *testing.T) {
 		{http.MethodPatch, "/api/v1/projects/1/pages/pag_x/table"},
 		{http.MethodDelete, "/api/v1/projects/1/pages/pag_x"},
 		{http.MethodPut, "/api/v1/projects/1/navigation"},
+		{http.MethodPut, "/api/v1/projects/1/branding"},
 	}
 
 	var gated int
