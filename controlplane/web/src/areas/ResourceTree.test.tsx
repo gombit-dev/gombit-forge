@@ -47,6 +47,62 @@ describe("ResourceTree", () => {
 
     expect(fetchMock).toHaveBeenCalled();
     expect(onChanged).toHaveBeenCalledTimes(1);
+    // Cleared only after the add succeeded.
+    expect(within(form).getByLabelText("New resource label")).toHaveValue("");
+  });
+
+  it("keeps the typed label when the add fails, and clears on success", async () => {
+    let ok = false;
+    mockApi((url, init) => {
+      if (url.endsWith("/projects/3/resources") && init?.method === "POST") {
+        return ok
+          ? { status: 201, body: { data: { id: 1, spec_hash: "x" } } }
+          : { status: 422, body: { error: { code: "validation_error", message: "invalid" } } };
+      }
+      return { status: 404 };
+    });
+
+    render(<ResourceTree projectID={3} resources={[]} onChanged={vi.fn()} />);
+    const user = userEvent.setup();
+    const form = screen.getByRole("form", { name: "Add resource" });
+    const input = within(form).getByLabelText("New resource label");
+
+    await user.type(input, "Order");
+    await user.click(within(form).getByRole("button", { name: "Add resource" }));
+    // Failed: the label the user typed is still there to fix.
+    expect(input).toHaveValue("Order");
+
+    ok = true;
+    await user.click(within(form).getByRole("button", { name: "Add resource" }));
+    expect(input).toHaveValue("");
+  });
+
+  it("does not add twice on a double submit", async () => {
+    let resolve!: () => void;
+    const gate = new Promise<void>((r) => (resolve = r));
+    let calls = 0;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/projects/3/resources") && init?.method === "POST") {
+        calls++;
+        await gate; // hold the first request in flight
+        return { ok: true, status: 201, statusText: "", json: async () => ({ data: { id: 1, spec_hash: "x" } }) } as Response;
+      }
+      return { ok: false, status: 404, statusText: "", json: async () => ({}) } as Response;
+    }) as unknown as typeof fetch;
+
+    render(<ResourceTree projectID={3} resources={[]} onChanged={vi.fn()} />);
+    const user = userEvent.setup();
+    const form = screen.getByRole("form", { name: "Add resource" });
+    await user.type(within(form).getByLabelText("New resource label"), "Order");
+
+    const button = within(form).getByRole("button", { name: /add resource|adding/i });
+    await user.click(button); // fires, then the button disables while pending
+    await user.click(button); // ignored — button is disabled
+
+    resolve();
+    await screen.findByRole("button", { name: "Add resource" }); // back to idle
+    expect(calls).toBe(1);
   });
 
   it("renames a resource (labels only)", async () => {

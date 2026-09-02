@@ -24,12 +24,15 @@ export function ResourceTree({
 }) {
   const [error, setError] = useState<string | null>(null);
 
-  const run = async (op: () => Promise<void>) => {
+  // run reports success so a form can clear only when the edit actually landed.
+  const run = async (op: () => Promise<void>): Promise<boolean> => {
     setError(null);
     try {
       await op();
+      return true;
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong");
+      return false;
     }
   };
 
@@ -46,10 +49,12 @@ export function ResourceTree({
       )}
 
       <AddResourceForm
-        onAdd={(label, plural) => run(async () => {
-          await addResource(projectID, label, plural);
-          onChanged();
-        })}
+        onAdd={(label, plural) =>
+          run(async () => {
+            await addResource(projectID, label, plural);
+            onChanged();
+          })
+        }
       />
 
       {error && (
@@ -74,11 +79,14 @@ function ResourceRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [pending, setPending] = useState(false);
   const [blockers, setBlockers] = useState<DeletionBlocker[] | null>(null);
 
   const fail = (err: unknown) => setError(err instanceof ApiError ? err.message : "Something went wrong");
 
   async function save(label: string, plural: string) {
+    if (pending) return;
+    setPending(true);
     setError(null);
     try {
       await renameResource(projectID, resource.id, label, plural);
@@ -86,10 +94,14 @@ function ResourceRow({
       onChanged();
     } catch (err) {
       fail(err);
+    } finally {
+      setPending(false);
     }
   }
 
   async function confirmDelete() {
+    if (pending) return; // guard a double "Confirm delete"
+    setPending(true);
     setError(null);
     setBlockers(null);
     try {
@@ -103,6 +115,7 @@ function ResourceRow({
     } catch (err) {
       fail(err);
     } finally {
+      setPending(false);
       setConfirming(false);
     }
   }
@@ -112,6 +125,7 @@ function ResourceRow({
       <li>
         <RenameForm
           resource={resource}
+          pending={pending}
           onSave={save}
           onCancel={() => setEditing(false)}
         />
@@ -137,10 +151,10 @@ function ResourceRow({
       {confirming && (
         <div className="confirm" role="group" aria-label={`Delete ${resource.label}`}>
           <span>Delete “{resource.label}”? Any custom code is archived at build time.</span>
-          <button type="button" onClick={confirmDelete}>
-            Confirm delete
+          <button type="button" onClick={confirmDelete} disabled={pending}>
+            {pending ? "Deleting…" : "Confirm delete"}
           </button>
-          <button type="button" onClick={() => setConfirming(false)}>
+          <button type="button" onClick={() => setConfirming(false)} disabled={pending}>
             Cancel
           </button>
         </div>
@@ -162,10 +176,12 @@ function ResourceRow({
 
 function RenameForm({
   resource,
+  pending,
   onSave,
   onCancel,
 }: {
   resource: SpecResource;
+  pending: boolean;
   onSave: (label: string, plural: string) => void;
   onCancel: () => void;
 }) {
@@ -177,36 +193,49 @@ function RenameForm({
       aria-label={`Rename ${resource.label}`}
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
-        onSave(label, plural);
+        if (!pending) onSave(label, plural);
       }}
     >
-      <input aria-label="Label" value={label} onChange={(e) => setLabel(e.target.value)} required />
-      <input aria-label="Plural label" value={plural} onChange={(e) => setPlural(e.target.value)} placeholder="Plural" />
-      <button type="submit">Save</button>
-      <button type="button" onClick={onCancel}>
+      <input aria-label="Label" value={label} onChange={(e) => setLabel(e.target.value)} disabled={pending} required />
+      <input aria-label="Plural label" value={plural} onChange={(e) => setPlural(e.target.value)} disabled={pending} placeholder="Plural" />
+      <button type="submit" disabled={pending}>
+        {pending ? "Saving…" : "Save"}
+      </button>
+      <button type="button" onClick={onCancel} disabled={pending}>
         Cancel
       </button>
     </form>
   );
 }
 
-function AddResourceForm({ onAdd }: { onAdd: (label: string, plural: string) => void }) {
+// onAdd resolves true when the add landed, so the form clears only on success —
+// a failed add keeps the typed label for the user to fix and retry. A pending
+// flag disables the form so a double-click cannot create two resources.
+function AddResourceForm({ onAdd }: { onAdd: (label: string, plural: string) => Promise<boolean> }) {
   const [label, setLabel] = useState("");
   const [plural, setPlural] = useState("");
+  const [pending, setPending] = useState(false);
   return (
     <form
       className="resource-form add"
       aria-label="Add resource"
-      onSubmit={(e: FormEvent) => {
+      onSubmit={async (e: FormEvent) => {
         e.preventDefault();
-        onAdd(label, plural);
-        setLabel("");
-        setPlural("");
+        if (pending) return;
+        setPending(true);
+        const ok = await onAdd(label, plural);
+        setPending(false);
+        if (ok) {
+          setLabel("");
+          setPlural("");
+        }
       }}
     >
-      <input aria-label="New resource label" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Resource label" required />
-      <input aria-label="New resource plural" value={plural} onChange={(e) => setPlural(e.target.value)} placeholder="Plural (optional)" />
-      <button type="submit">Add resource</button>
+      <input aria-label="New resource label" value={label} onChange={(e) => setLabel(e.target.value)} disabled={pending} placeholder="Resource label" required />
+      <input aria-label="New resource plural" value={plural} onChange={(e) => setPlural(e.target.value)} disabled={pending} placeholder="Plural (optional)" />
+      <button type="submit" disabled={pending}>
+        {pending ? "Adding…" : "Add resource"}
+      </button>
     </form>
   );
 }
