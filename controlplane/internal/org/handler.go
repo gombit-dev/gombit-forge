@@ -69,6 +69,30 @@ func (h *Handler) createOrganization(ctx context.Context, in *createOrganization
 	}}, nil
 }
 
+// --- list my organizations -------------------------------------------------
+
+type listOrganizationsInput struct{}
+
+type listOrganizationsOutput struct {
+	Body contract.Data[[]organizationData]
+}
+
+func (h *Handler) listOrganizations(ctx context.Context, _ *listOrganizationsInput) (*listOrganizationsOutput, error) {
+	user, ok := auth.UserFromContext(ctx)
+	if !ok {
+		return nil, contract.WithContext(ctx, contract.Authentication("authentication required"))
+	}
+	orgs, err := h.svc.OrgsForUser(ctx, user.ID)
+	if err != nil {
+		return nil, mapError(ctx, err, "list organizations")
+	}
+	rows := make([]organizationData, 0, len(orgs))
+	for _, o := range orgs {
+		rows = append(rows, organizationData{ID: o.ID, Name: o.Name, Slug: o.Slug})
+	}
+	return &listOrganizationsOutput{Body: contract.Data[[]organizationData]{Data: rows}}, nil
+}
+
 // --- list members ----------------------------------------------------------
 
 type listMembersInput struct {

@@ -80,6 +80,7 @@ func (f *httpFixture) sessionCookie(t *testing.T, userID uint) string {
 func TestRoutesEnforceGate(t *testing.T) {
 	ops := []struct{ method, path string }{
 		{http.MethodPost, "/api/v1/organizations"},
+		{http.MethodGet, "/api/v1/organizations"},
 		{http.MethodGet, "/api/v1/organizations/1/members"},
 		{http.MethodPost, "/api/v1/organizations/1/invitations"},
 		{http.MethodPost, "/api/v1/invitations/accept"},

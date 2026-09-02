@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { DataArea } from "../areas/DataArea";
 
 // The four editor areas (DESIGN.md §17). This is the single source of truth for
 // navigation and routing, so the shell nav and the router can never disagree
@@ -6,13 +7,16 @@ import type { ReactNode } from "react";
 export interface EditorArea {
   path: string;
   label: string;
-  // summary describes what the area will hold; the concrete editors land in the
-  // later M2/M3 issues, so today each area renders its summary as a placeholder.
+  // summary describes what the area will hold; areas whose editor is not built
+  // yet render their summary as a placeholder.
   summary: string;
+  // element is the area's editor, when it exists; areas without one fall back to
+  // the summary placeholder (see App).
+  element?: ReactNode;
 }
 
 export const AREAS: EditorArea[] = [
-  { path: "data", label: "Data", summary: "Resource tree and field editor." },
+  { path: "data", label: "Data", summary: "Resource tree and field editor.", element: <DataArea /> },
   { path: "pages", label: "Pages", summary: "Page list and structured page properties." },
   { path: "access", label: "Access", summary: "Users, groups and permission configuration." },
   { path: "deploy", label: "Deploy", summary: "Preview, build history, production deployment and logs." },

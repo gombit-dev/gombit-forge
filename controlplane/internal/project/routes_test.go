@@ -21,6 +21,7 @@ func TestRoutesEnforceGate(t *testing.T) {
 		{http.MethodPost, "/api/v1/organizations/1/projects"},
 		{http.MethodGet, "/api/v1/organizations/1/projects"},
 		{http.MethodGet, "/api/v1/projects/1"},
+		{http.MethodGet, "/api/v1/projects/1/spec"},
 		{http.MethodPost, "/api/v1/projects/1/revisions"},
 	}
 

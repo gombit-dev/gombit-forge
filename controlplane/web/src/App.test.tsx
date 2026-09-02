@@ -45,9 +45,11 @@ describe("App gate", () => {
   });
 
   it("shows the four-area shell when authenticated, defaulting to Data", async () => {
-    mockApi((url) =>
-      url.endsWith("/me") ? { status: 200, body: { data: { id: 1, email: "ada@example.test" } } } : { status: 404 },
-    );
+    mockApi((url) => {
+      if (url.endsWith("/me")) return { status: 200, body: { data: { id: 1, email: "ada@example.test" } } };
+      if (url.endsWith("/organizations")) return { status: 200, body: { data: [] } };
+      return { status: 404 };
+    });
     renderApp();
 
     // Every editor area appears in the nav (DESIGN.md §17).
