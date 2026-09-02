@@ -12,6 +12,10 @@ export function HealthPanel({ projectID, reloadKey }: { projectID: number; reloa
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Clear any prior error at the start of every load so a transient failure
+    // cannot latch: a recovered fetch (after an edit bumps reloadKey, or a
+    // project switch) must render live health again, not the stale error.
+    setError(null);
     let active = true;
     getProjectHealth(projectID)
       .then((h) => active && setHealth(h))
