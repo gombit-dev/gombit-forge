@@ -9,6 +9,7 @@ import {
   type SpecPage,
   type SpecResource,
 } from "../api/projects";
+import { TableConfigEditor } from "./TableConfigEditor";
 
 // PageList renders a project's structured pages and the create/delete controls
 // (DESIGN.md §4.4, §18). The backend derives each page's slug and mints its id;
@@ -51,9 +52,12 @@ export function PageList({
           {pages.map((p) => (
             <PageRow
               key={p.id}
+              projectID={projectID}
               page={p}
               typeLabel={typeLabel(p.type)}
+              resource={resources.find((r) => r.id === p.resource)}
               resourceLabel={resourceLabel(p.resource)}
+              onChanged={onChanged}
               onDelete={() =>
                 run(async () => {
                   await deletePage(projectID, p.id);
@@ -85,18 +89,29 @@ export function PageList({
 }
 
 function PageRow({
+  projectID,
   page,
   typeLabel,
+  resource,
   resourceLabel,
+  onChanged,
   onDelete,
 }: {
+  projectID: number;
   page: SpecPage;
   typeLabel: string;
+  resource: SpecResource | undefined;
   resourceLabel: string;
+  onChanged: () => void;
   onDelete: () => Promise<boolean>;
 }) {
   const [confirming, setConfirming] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [pending, setPending] = useState(false);
+
+  // Only a resource_table page has a configuration to edit (form/detail/dashboard
+  // builders are later M3 issues).
+  const configurable = page.type === "resource_table";
 
   async function confirmDelete() {
     if (pending) return;
@@ -109,6 +124,17 @@ function PageRow({
   return (
     <li className="page-row">
       <div className="page-summary">
+        {configurable && (
+          <button
+            type="button"
+            className="expand"
+            aria-expanded={expanded}
+            aria-label={`Configure ${page.label}`}
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? "▾" : "▸"}
+          </button>
+        )}
         <span className="page-label">{page.label}</span>
         <span className="badge">{typeLabel}</span>
         {page.resource && <span className="muted"> · {resourceLabel}</span>}
@@ -119,6 +145,18 @@ function PageRow({
           </button>
         </span>
       </div>
+
+      {expanded && configurable && (
+        <TableConfigEditor
+          // Re-key on the persisted config so a reload that changed it remounts
+          // the form and re-seeds its state rather than showing stale values.
+          key={JSON.stringify(page.table ?? {}) + page.label}
+          projectID={projectID}
+          page={page}
+          resource={resource}
+          onChanged={onChanged}
+        />
+      )}
 
       {confirming && (
         <div className="confirm" role="group" aria-label={`Delete ${page.label}`}>

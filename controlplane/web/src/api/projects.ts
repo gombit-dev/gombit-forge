@@ -95,6 +95,14 @@ export const PAGE_TYPES: { type: PageType; label: string; boundToResource: boole
   { type: "dashboard", label: "Dashboard", boundToResource: false },
 ];
 
+// A resource_table page's configuration (DESIGN.md §4.4, §18).
+export interface SpecTableConfig {
+  title?: string;
+  columns?: string[]; // ordered column field ids
+  search?: boolean;
+  page_size?: number;
+}
+
 // A page as it appears in a ProjectSpec.
 export interface SpecPage {
   id: string;
@@ -102,6 +110,7 @@ export interface SpecPage {
   label: string;
   type: PageType;
   resource?: string; // bound resource id; absent for dashboard
+  table?: SpecTableConfig; // present only for a resource_table page that configures one
 }
 
 export interface ProjectSpec {
@@ -217,6 +226,19 @@ export const addPage = (projectID: number, input: PageInput) =>
 
 export const deletePage = (projectID: number, pageID: string) =>
   api.delete<RevisionRef>(`/projects/${projectID}/pages/${encodeURIComponent(pageID)}`);
+
+// TableConfigInput is what the table-config editor sends. It replaces the whole
+// configuration, so the client sends the complete set, not a delta.
+export interface TableConfigInput {
+  label: string;
+  title?: string;
+  columns?: string[];
+  search?: boolean;
+  page_size?: number;
+}
+
+export const updateTableConfig = (projectID: number, pageID: string, input: TableConfigInput) =>
+  api.patch<RevisionRef>(`/projects/${projectID}/pages/${encodeURIComponent(pageID)}/table`, input);
 
 export const listProjects = (orgID: number) => api.get<Project[]>(`/organizations/${orgID}/projects`);
 

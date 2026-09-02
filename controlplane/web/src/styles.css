@@ -520,6 +520,72 @@ button:disabled {
   color: var(--accent-fg);
 }
 
+.table-config {
+  margin: 0.4rem 0 0.6rem 1.6rem;
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+  max-width: 520px;
+}
+
+.table-config .stacked {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.table-config input[type="text"],
+.table-config input:not([type]),
+.table-config input[type="number"] {
+  font: inherit;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  min-width: 220px;
+}
+
+.table-config .columns {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  padding: 0.5rem 0.75rem;
+  margin: 0;
+}
+
+.table-config .columns legend {
+  font-size: 0.85rem;
+  color: var(--muted);
+  padding: 0 0.3rem;
+}
+
+.table-config .check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+}
+
+.table-config-row {
+  display: flex;
+  gap: 1.25rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.table-config button[type="submit"] {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
 .health-panel {
   margin-bottom: 1rem;
   padding: 0.6rem 0.9rem;

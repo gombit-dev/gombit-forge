@@ -135,6 +135,108 @@ func TestDeletePageIsNeutral(t *testing.T) {
 	}
 }
 
+// pageWithField adds a field and a resource_table page, returning the field ID
+// and page ID, for the table-config tests.
+func pageWithField(t *testing.T, svc *project.Service, projectID uint, resID spec.ID) (spec.ID, spec.ID) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := svc.AddField(ctx, projectID, resID, project.FieldInput{Label: "Name", Type: spec.TypeString}, 7); err != nil {
+		t.Fatalf("add field: %v", err)
+	}
+	if _, err := svc.AddPage(ctx, projectID, project.PageInput{Label: "Orders", Type: spec.PageResourceTable, Resource: resID}, 7); err != nil {
+		t.Fatalf("add page: %v", err)
+	}
+	head := headSpec(t, svc, projectID)
+	return head.Resources[0].Fields[0].ID, head.Pages[0].ID
+}
+
+func TestUpdateTableConfigCommits(t *testing.T) {
+	svc, projectID, resID := projectWithResource(t)
+	fieldID, pageID := pageWithField(t, svc, projectID, resID)
+	ctx := context.Background()
+
+	res, err := svc.UpdateTableConfig(ctx, projectID, pageID, project.TableConfigInput{
+		Label: "All orders", Title: "Every order", Columns: []spec.ID{fieldID}, Search: true, PageSize: 25,
+	}, 7)
+	if err != nil {
+		t.Fatalf("update table config: %v", err)
+	}
+	if res.Outcome != project.OutcomeCommitted || res.Class != "neutral" {
+		t.Fatalf("outcome=%s class=%s, want committed/neutral", res.Outcome, res.Class)
+	}
+	page := headSpec(t, svc, projectID).Pages[0]
+	if page.Label != "All orders" {
+		t.Errorf("label = %q, want All orders", page.Label)
+	}
+	if page.Table == nil || page.Table.Title != "Every order" || !page.Table.Search || page.Table.PageSize != 25 {
+		t.Fatalf("table config not persisted: %+v", page.Table)
+	}
+	if len(page.Table.Columns) != 1 || page.Table.Columns[0] != fieldID {
+		t.Errorf("columns = %v, want [%s]", page.Table.Columns, fieldID)
+	}
+}
+
+// TestUpdateTableConfigEmptyDropsBlock: a save that configures nothing leaves no
+// table block, so the page stays on the graph's column defaults.
+func TestUpdateTableConfigEmptyDropsBlock(t *testing.T) {
+	svc, projectID, resID := projectWithResource(t)
+	fieldID, pageID := pageWithField(t, svc, projectID, resID)
+	ctx := context.Background()
+
+	// First pin a config, then clear it.
+	if _, err := svc.UpdateTableConfig(ctx, projectID, pageID, project.TableConfigInput{Label: "X", Columns: []spec.ID{fieldID}}, 7); err != nil {
+		t.Fatalf("pin: %v", err)
+	}
+	if _, err := svc.UpdateTableConfig(ctx, projectID, pageID, project.TableConfigInput{Label: "Orders"}, 7); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	if page := headSpec(t, svc, projectID).Pages[0]; page.Table != nil {
+		t.Errorf("an all-empty config must drop the table block; got %+v", page.Table)
+	}
+}
+
+// TestUpdateTableConfigDanglingColumnInvalid: a column that is not on the bound
+// resource is caught by the spec validator as invalid_spec, not committed.
+func TestUpdateTableConfigDanglingColumnInvalid(t *testing.T) {
+	svc, projectID, resID := projectWithResource(t)
+	_, pageID := pageWithField(t, svc, projectID, resID)
+
+	res, err := svc.UpdateTableConfig(context.Background(), projectID, pageID, project.TableConfigInput{
+		Label: "Orders", Columns: []spec.ID{spec.MustNewID(spec.KindField)},
+	}, 7)
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if res.Outcome != project.OutcomeInvalidSpec {
+		t.Fatalf("dangling column outcome = %s, want invalid_spec", res.Outcome)
+	}
+}
+
+func TestUpdateTableConfigErrors(t *testing.T) {
+	svc, projectID, resID := projectWithResource(t)
+	_, pageID := pageWithField(t, svc, projectID, resID)
+	ctx := context.Background()
+
+	if _, err := svc.UpdateTableConfig(ctx, projectID, pageID, project.TableConfigInput{Label: "  "}, 7); !errors.Is(err, project.ErrInvalidPageEdit) {
+		t.Errorf("empty label = %v, want ErrInvalidPageEdit", err)
+	}
+	if _, err := svc.UpdateTableConfig(ctx, projectID, pageID, project.TableConfigInput{Label: "X", PageSize: -1}, 7); !errors.Is(err, project.ErrInvalidPageEdit) {
+		t.Errorf("negative page size = %v, want ErrInvalidPageEdit", err)
+	}
+	if _, err := svc.UpdateTableConfig(ctx, projectID, spec.MustNewID(spec.KindPage), project.TableConfigInput{Label: "X"}, 7); !errors.Is(err, project.ErrPageNotFound) {
+		t.Errorf("unknown page = %v, want ErrPageNotFound", err)
+	}
+
+	// A dashboard page has no table configuration.
+	if _, err := svc.AddPage(ctx, projectID, project.PageInput{Label: "Home", Type: spec.PageDashboard}, 7); err != nil {
+		t.Fatalf("add dashboard: %v", err)
+	}
+	dashID := headSpec(t, svc, projectID).Pages[1].ID
+	if _, err := svc.UpdateTableConfig(ctx, projectID, dashID, project.TableConfigInput{Label: "Home"}, 7); !errors.Is(err, project.ErrInvalidPageEdit) {
+		t.Errorf("table config on a dashboard = %v, want ErrInvalidPageEdit", err)
+	}
+}
+
 func TestPageEditErrors(t *testing.T) {
 	svc, projectID, _ := projectWithResource(t)
 	ctx := context.Background()
