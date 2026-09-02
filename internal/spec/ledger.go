@@ -81,6 +81,25 @@ func NewLedger() *Ledger {
 	return &Ledger{namespaces: map[Namespace]map[string]entry{}}
 }
 
+// Clone returns a deep copy of the ledger, so a candidate operation (a
+// code-symbol refactor, §13) can update a copy and leave the accepted ledger
+// untouched until the candidate is committed. A nil receiver clones to an empty
+// ledger.
+func (l *Ledger) Clone() *Ledger {
+	if l == nil || l.namespaces == nil {
+		return NewLedger()
+	}
+	namespaces := make(map[Namespace]map[string]entry, len(l.namespaces))
+	for ns, table := range l.namespaces {
+		copied := make(map[string]entry, len(table))
+		for symbol, e := range table {
+			copied[symbol] = e
+		}
+		namespaces[ns] = copied
+	}
+	return &Ledger{namespaces: namespaces}
+}
+
 // Status reports a symbol's status and whether it is recorded at all. A symbol
 // that is not recorded is free — available to mint. Callers testing for
 // availability should prefer IsFree, which names the intent.
