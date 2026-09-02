@@ -108,19 +108,24 @@ func ArchiveExtensions(dir, key string, deleted []DeletedResource) ([]ArchivedEx
 		if err := moveDir(srcAbs, destAbs); err != nil {
 			return archived, fmt.Errorf("compiler: archiving %s: %w", srcRel, err)
 		}
-		archived = append(archived, ArchivedExtension{
+		entry := ArchivedExtension{
 			ResourceID:   d.ID,
 			CodeName:     d.CodeName,
 			OriginalPath: srcRel,
 			ArchivedPath: destRel,
-		})
-	}
-
-	if len(archived) > 0 {
-		if err := writeManifest(dir, key, archived); err != nil {
+		}
+		// Record the association the instant the source moves, not after the whole
+		// batch. The source is now gone from internal/extensions and a retry would
+		// skip it (nothing left to move), so if a later resource in the batch fails
+		// and we returned before writing, this move's association would be lost for
+		// good — the durable record §47 promises. Persisting per move keeps the
+		// manifest consistent with what is actually on disk however the batch ends.
+		if err := writeManifest(dir, key, []ArchivedExtension{entry}); err != nil {
 			return archived, err
 		}
+		archived = append(archived, entry)
 	}
+
 	return archived, nil
 }
 
@@ -179,14 +184,20 @@ func moveDir(src, dst string) error {
 		return err
 	}
 	if err := copyDirVerbatim(src, dst); err != nil {
+		// A half-written destination would trip the "refuse to overwrite" guard on
+		// the next attempt and wedge every retry. The source is untouched (copy,
+		// not move), so discarding the partial copy is safe and lets a retry
+		// proceed. Best effort: report the copy error, not a cleanup error.
+		_ = os.RemoveAll(dst)
 		return err
 	}
 	return os.RemoveAll(src)
 }
 
-// copyDirVerbatim copies the whole tree at src to dst, preserving every entry
-// and file mode — unlike copyTree (used for the candidate typecheck), it skips
-// nothing, because an archive must be a faithful, recoverable copy.
+// copyDirVerbatim copies the whole tree at src to dst, preserving every entry,
+// file mode and symlink — unlike copyTree (used for the candidate typecheck), it
+// skips nothing and dereferences nothing, because an archive must be a faithful,
+// recoverable copy.
 func copyDirVerbatim(src, dst string) error {
 	return filepath.WalkDir(src, func(p string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -203,6 +214,15 @@ func copyDirVerbatim(src, dst string) error {
 				return err
 			}
 			return os.MkdirAll(target, info.Mode().Perm()|0o700)
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			// Preserve the link itself rather than copying its target's bytes, so
+			// "verbatim" holds across a device boundary too.
+			linkTarget, err := os.Readlink(p)
+			if err != nil {
+				return err
+			}
+			return os.Symlink(linkTarget, target)
 		}
 		return copyFile(p, target, d)
 	})

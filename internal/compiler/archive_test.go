@@ -204,6 +204,56 @@ func TestArchiveManifestMerges(t *testing.T) {
 	}
 }
 
+// TestArchivePartialBatchPersistsMovedAssociations is the §47 durability
+// guarantee under a mid-batch failure: when a later resource's move is refused,
+// the resources already moved must still be recorded in the manifest — their
+// source is gone, so a retry cannot re-derive the association, and losing it
+// would strand archived code with no record of what it was.
+func TestArchivePartialBatchPersistsMovedAssociations(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, gen.ExtensionPackageDirForCodeName("Alpha")+"/hooks.go", "package alpha\n")
+	writeFile(t, dir, gen.ExtensionPackageDirForCodeName("Beta")+"/hooks.go", "package beta\n")
+	// Pre-existing archive for Beta blocks its move mid-batch.
+	writeFile(t, dir, ".forge/orphaned/rev-1/beta/old.go", "package beta\n")
+
+	a := deletedResource("Alpha")
+	b := deletedResource("Beta")
+	archived, err := ArchiveExtensions(dir, "rev-1", []DeletedResource{a, b})
+	if err == nil {
+		t.Fatal("expected the batch to fail on Beta's blocked destination")
+	}
+	// Alpha moved; Beta did not.
+	if len(archived) != 1 || archived[0].ResourceID != a.ID {
+		t.Fatalf("only Alpha should be reported moved; got %+v", archived)
+	}
+	// Alpha's source is gone but its association is already on disk.
+	if _, statErr := os.Stat(filepath.Join(dir, filepath.FromSlash(gen.ExtensionPackageDirForCodeName("Alpha")))); !os.IsNotExist(statErr) {
+		t.Errorf("Alpha source should be moved; stat err = %v", statErr)
+	}
+	m := readManifest(t, dir, "rev-1")
+	if len(m.Extensions) != 1 || m.Extensions[0].ResourceID != a.ID {
+		t.Fatalf("Alpha's association must survive the mid-batch failure; manifest = %+v", m.Extensions)
+	}
+
+	// Recovery: clear Beta's blocker and retry. Alpha is skipped (already moved),
+	// Beta moves, and the manifest ends with BOTH associations — Alpha's was not
+	// erased by the retry.
+	if err := os.RemoveAll(filepath.Join(dir, ".forge", "orphaned", "rev-1", "beta")); err != nil {
+		t.Fatalf("clear blocker: %v", err)
+	}
+	if _, err := ArchiveExtensions(dir, "rev-1", []DeletedResource{a, b}); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	m = readManifest(t, dir, "rev-1")
+	ids := map[spec.ID]bool{}
+	for _, e := range m.Extensions {
+		ids[e.ResourceID] = true
+	}
+	if !ids[a.ID] || !ids[b.ID] {
+		t.Errorf("after recovery the manifest must hold both associations; got %+v", m.Extensions)
+	}
+}
+
 func TestArchiveRejectsBadInput(t *testing.T) {
 	dir := t.TempDir()
 	del := []DeletedResource{deletedResource("Customer")}
