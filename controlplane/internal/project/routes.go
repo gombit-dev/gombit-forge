@@ -124,4 +124,36 @@ func RegisterRoutes(api huma.API, prefix string, gate huma.Middlewares, svc *Ser
 		Security:    security,
 		Middlewares: gate,
 	}, h.deleteResource)
+
+	huma.Register(api, huma.Operation{
+		OperationID:   "add-field",
+		Method:        http.MethodPost,
+		Path:          prefix + "/projects/{projectID}/resources/{resourceID}/fields",
+		Summary:       "Add a field to a resource; the backend mints its code symbol",
+		Tags:          tags,
+		Security:      security,
+		Middlewares:   gate,
+		DefaultStatus: http.StatusCreated,
+	}, h.addField)
+
+	huma.Register(api, huma.Operation{
+		OperationID:   "update-field",
+		Method:        http.MethodPatch,
+		Path:          prefix + "/projects/{projectID}/resources/{resourceID}/fields/{fieldID}",
+		Summary:       "Update a field; a type change is ABI-breaking and returned for validation",
+		Tags:          tags,
+		Security:      security,
+		Middlewares:   gate,
+		DefaultStatus: http.StatusCreated,
+	}, h.updateField)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "delete-field",
+		Method:      http.MethodDelete,
+		Path:        prefix + "/projects/{projectID}/resources/{resourceID}/fields/{fieldID}",
+		Summary:     "Delete a field (ABI-breaking; returned for validation)",
+		Tags:        tags,
+		Security:    security,
+		Middlewares: gate,
+	}, h.deleteField)
 }

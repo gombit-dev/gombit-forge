@@ -26,6 +26,9 @@ func TestRoutesEnforceGate(t *testing.T) {
 		{http.MethodPost, "/api/v1/projects/1/resources"},
 		{http.MethodPatch, "/api/v1/projects/1/resources/res_x"},
 		{http.MethodDelete, "/api/v1/projects/1/resources/res_x"},
+		{http.MethodPost, "/api/v1/projects/1/resources/res_x/fields"},
+		{http.MethodPatch, "/api/v1/projects/1/resources/res_x/fields/fld_y"},
+		{http.MethodDelete, "/api/v1/projects/1/resources/res_x/fields/fld_y"},
 	}
 
 	var gated int
