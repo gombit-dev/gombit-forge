@@ -61,15 +61,17 @@ func sampleSpec(t *testing.T) *spec.ProjectSpec {
 	return s
 }
 
-// sampleSpecWithTable is the sample plus a customers resource_table page, for
-// the frontend assertions: table generation is page-driven (#51), so a spec
-// needs a resource_table page to produce a list page. The base sampleSpec stays
-// page-free so the deletion tests exercise relationship blockers in isolation.
+// sampleSpecWithTable is the sample plus a customers resource_table page and a
+// resource_form page, for the frontend assertions: table and form generation
+// are page-driven (#51, #52), so a spec needs those pages to produce the list
+// and create/edit pages. The base sampleSpec stays page-free so the deletion
+// tests exercise relationship blockers in isolation.
 func sampleSpecWithTable(t *testing.T) *spec.ProjectSpec {
 	t.Helper()
 	s := sampleSpec(t)
 	s.Pages = []*spec.Page{
 		{ID: spec.MustNewID(spec.KindPage), Slug: "customers", Label: "Customers", Type: spec.PageResourceTable, Resource: s.Resources[0].ID},
+		{ID: spec.MustNewID(spec.KindPage), Slug: "edit-customer", Label: "Edit customer", Type: spec.PageResourceForm, Resource: s.Resources[0].ID},
 	}
 	if d := spec.Validate(s); d != nil {
 		t.Fatalf("sample spec with table invalid: %s", d.Error())
@@ -142,7 +144,7 @@ func TestCompileTreeShape(t *testing.T) {
 		// table page's slug); detail/form are resource-driven.
 		"frontend/src/forge_generated/customer/CustomersTablePage.tsx",
 		"frontend/src/forge_generated/customer/CustomerDetailPage.tsx",
-		"frontend/src/forge_generated/customer/CustomerFormPage.tsx",
+		"frontend/src/forge_generated/customer/EditCustomerFormPage.tsx",
 		"frontend/src/forge_generated/resources.tsx",
 		// Composition root (wiring stage).
 		"internal/forge_generated/register.go",

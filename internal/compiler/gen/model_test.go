@@ -100,6 +100,11 @@ func buildGraph(t *testing.T) (*graph.Graph, map[string]spec.ID) {
 				ID: id(spec.KindPage), Slug: "invoices", Label: "Invoices", Type: spec.PageResourceTable,
 				Resource: ids["invoice"],
 			},
+			// One resource_form page per resource (the MVP allows at most one).
+			// Form generation is page-driven (#52), so these produce the create/edit
+			// pages; slugs avoid the word "form" so the component reads cleanly.
+			{ID: id(spec.KindPage), Slug: "edit-customer", Label: "Edit customer", Type: spec.PageResourceForm, Resource: ids["customer"]},
+			{ID: id(spec.KindPage), Slug: "edit-invoice", Label: "Edit invoice", Type: spec.PageResourceForm, Resource: ids["invoice"]},
 		},
 	}
 

@@ -51,9 +51,15 @@ func Frontend(g *graph.Graph) ([]File, error) {
 	}
 
 	var files []File
+	// One guard for every page-driven component name, so a table and a form (or
+	// two of either) can never collide on a file path or a registry import name.
+	// Slugs are globally unique and pascalSlug is injective, so this is
+	// belt-and-suspenders.
+	seen := make(map[string]string) // component name -> slug
 
-	// Resource-driven detail/form pages, and the metadata the table pages and
-	// registry need (route base, package, first table route for back-links).
+	// Resource-driven detail pages (always), plus the metadata the table/form
+	// pages and registry need (route base, package, first table route for
+	// back-links, the resource's form-page route for Edit links).
 	resources := make([]frontendView, 0, len(g.Resources))
 	for _, resource := range g.Resources {
 		if err := validateNames(resource); err != nil {
@@ -62,37 +68,49 @@ func Frontend(g *graph.Graph) ([]File, error) {
 		view := newFrontendView(g, resource)
 		resources = append(resources, view)
 
-		pages := []struct {
-			file string
-			tmpl *template.Template
-		}{
-			{view.Type + "DetailPage.tsx", detailPageTemplate},
+		src, err := renderTS(detailPageTemplate, view)
+		if err != nil {
+			return nil, err
 		}
-		if view.Create || view.Update {
-			pages = append(pages, struct {
-				file string
-				tmpl *template.Template
-			}{view.Type + "FormPage.tsx", formPageTemplate})
+		files = append(files, File{Path: path.Join(FrontendRoot, view.Package, view.Type+"DetailPage.tsx"), Content: []byte(src)})
+	}
+
+	// Page-driven form pages: one per resource_form page whose resource is
+	// writable (validation guarantees at most one form page per resource). A
+	// read-only resource, or one with no form page, gets no create/edit UI.
+	forms := make([]formView, 0, len(g.Pages))
+	for _, page := range g.Pages {
+		if page.Spec.Type != spec.PageResourceForm {
+			continue
 		}
-		for _, page := range pages {
-			src, err := renderTS(page.tmpl, view)
-			if err != nil {
-				return nil, err
-			}
-			files = append(files, File{Path: path.Join(FrontendRoot, view.Package, page.file), Content: []byte(src)})
+		resource := page.Resource
+		if !resource.Spec.Behavior.CreateEnabled && !resource.Spec.Behavior.UpdateEnabled {
+			continue
 		}
+		view := newFormView(g, page)
+		if other, dup := seen[view.Component]; dup {
+			return nil, fmt.Errorf("gen: pages %q and %q derive the same component name %q; rename one page slug",
+				other, page.Spec.Slug, view.Component)
+		}
+		seen[view.Component] = page.Spec.Slug
+		forms = append(forms, view)
+
+		src, err := renderTS(formPageTemplate, view)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, File{Path: path.Join(FrontendRoot, view.Package, view.Component+".tsx"), Content: []byte(src)})
 	}
 
 	// Page-driven table pages: one per resource_table page.
 	tables := make([]tableView, 0, len(g.Pages))
-	seen := make(map[string]string) // component name -> slug, guards a name collision
 	for _, page := range g.Pages {
 		if page.Spec.Type != spec.PageResourceTable {
 			continue
 		}
-		view := newTableView(page)
+		view := newTableView(g, page)
 		if other, dup := seen[view.Component]; dup {
-			return nil, fmt.Errorf("gen: table pages %q and %q derive the same component name %q; rename one page slug",
+			return nil, fmt.Errorf("gen: pages %q and %q derive the same component name %q; rename one page slug",
 				other, page.Spec.Slug, view.Component)
 		}
 		seen[view.Component] = page.Spec.Slug
@@ -109,6 +127,7 @@ func Frontend(g *graph.Graph) ([]File, error) {
 		Banner:    tsBanner,
 		Resources: resources,
 		Tables:    tables,
+		Forms:     forms,
 	})
 	if err != nil {
 		return nil, err
@@ -118,7 +137,7 @@ func Frontend(g *graph.Graph) ([]File, error) {
 	return files, nil
 }
 
-// frontendView is the template data for one resource's detail and form pages.
+// frontendView is the template data for one resource's detail page.
 type frontendView struct {
 	Banner  string
 	Package string // customer
@@ -127,18 +146,47 @@ type frontendView struct {
 
 	// CollectionPath is the API collection path, e.g. "/api/v1/customers".
 	CollectionPath string
-	// RouteBase is the SPA route base for detail/form, e.g. "customers".
+	// RouteBase is the SPA route base for the detail page, e.g. "customers".
 	RouteBase string
 	// ListRoute is the route of this resource's first table page, e.g.
 	// "customers", or "" when the resource has no table page — in which case the
-	// detail/form "back to list" link is omitted.
+	// detail "back to list" link is omitted.
 	ListRoute string
+	// FormRoute is the route of this resource's form page (unique per resource),
+	// e.g. "customers-form", or "" when the resource has no writable form page —
+	// in which case the detail "Edit" link is omitted.
+	FormRoute string
 
 	// CRUD toggles, mirrored from the resource behavior so the UI matches the
 	// routes the handlers emit. Detail is always generated (reads).
 	Create bool
 	Update bool
 	Delete bool
+
+	Fields []frontendField
+}
+
+// formView is the template data for one resource_form page. The form is
+// page-driven (its component and route come from the page) but still writes the
+// bound resource's normal API endpoints.
+type formView struct {
+	Banner    string
+	Package   string // the bound resource's package, e.g. customer
+	Component string // the component/file name, e.g. CustomersFormFormPage
+	Type      string // the bound resource's code name, e.g. Customer
+
+	Slug string // the page slug — the form's route base (/{slug}/new, /{slug}/:id/edit)
+	// Title is the bound resource's plural label, for the "back to list" link.
+	Title string
+
+	// CollectionPath is the bound resource's API collection path (POST/PUT here).
+	CollectionPath string
+	// ListRoute is the resource's first table page route for the back link and
+	// the post-submit redirect, or "" when it has none.
+	ListRoute string
+
+	Create bool
+	Update bool
 
 	Fields []frontendField
 }
@@ -162,6 +210,9 @@ type tableView struct {
 	// Create mirrors the resource behavior so the table shows a "New" link only
 	// when the resource is writable.
 	Create bool
+	// FormRoute is the resource's form-page route, used for the "New" link, or ""
+	// when the resource has no writable form page (then no "New" link is shown).
+	FormRoute string
 	// PageSize is the rows-per-page the table requests, from TableConfig.PageSize
 	// or defaultPageSize when unconfigured. The generated list handler already
 	// paginates (query page/per_page, PageMeta), so the table honors it at
@@ -215,6 +266,7 @@ func newFrontendView(g *graph.Graph, resource *graph.Resource) frontendView {
 		CollectionPath: "/api/v1/" + kebab(resource.Spec.StorageName),
 		RouteBase:      kebab(resource.Spec.StorageName),
 		ListRoute:      firstTableRoute(g, resource),
+		FormRoute:      formRoute(g, resource),
 		Create:         resource.Spec.Behavior.CreateEnabled,
 		Update:         resource.Spec.Behavior.UpdateEnabled,
 		Delete:         resource.Spec.Behavior.DeleteEnabled,
@@ -237,7 +289,59 @@ func firstTableRoute(g *graph.Graph, resource *graph.Resource) string {
 	return ""
 }
 
-func newTableView(page *graph.Page) tableView {
+// formPageFor is the resource's resource_form page, or nil. Validation
+// guarantees at most one, so the first match is the one.
+func formPageFor(g *graph.Graph, resource *graph.Resource) *graph.Page {
+	for _, page := range g.Pages {
+		if page.Spec.Type == spec.PageResourceForm && page.Resource == resource {
+			return page
+		}
+	}
+	return nil
+}
+
+// formRoute is the route of the resource's form page — the slug used for the
+// "New" and "Edit" links — or "" when the resource has no form page or is
+// read-only (no form is generated in either case).
+func formRoute(g *graph.Graph, resource *graph.Resource) string {
+	page := formPageFor(g, resource)
+	if page == nil {
+		return ""
+	}
+	if !resource.Spec.Behavior.CreateEnabled && !resource.Spec.Behavior.UpdateEnabled {
+		return ""
+	}
+	return page.Spec.Slug
+}
+
+func newFormView(g *graph.Graph, page *graph.Page) formView {
+	resource := page.Resource
+	title := resource.Spec.LabelPlural
+	if strings.TrimSpace(title) == "" {
+		title = resource.Spec.Label
+	}
+	view := formView{
+		Banner:         tsBanner,
+		Package:        PackageName(resource),
+		Component:      pascalSlug(page.Spec.Slug) + "FormPage",
+		Type:           resource.CodeName(),
+		Slug:           page.Spec.Slug,
+		Title:          title,
+		CollectionPath: "/api/v1/" + kebab(resource.Spec.StorageName),
+		ListRoute:      firstTableRoute(g, resource),
+		Create:         resource.Spec.Behavior.CreateEnabled,
+		Update:         resource.Spec.Behavior.UpdateEnabled,
+	}
+	// The form renders the resource's fields (FormConfig subset/order + layout
+	// are a follow-up under #52); the graph's default form fields are exactly the
+	// resource's fields in authored order.
+	for _, field := range resource.Fields {
+		view.Fields = append(view.Fields, frontendFieldFor(field))
+	}
+	return view
+}
+
+func newTableView(g *graph.Graph, page *graph.Page) tableView {
 	resource := page.Resource
 	title := page.Spec.Label
 	pageSize := defaultPageSize
@@ -259,6 +363,7 @@ func newTableView(page *graph.Page) tableView {
 		CollectionPath: "/api/v1/" + kebab(resource.Spec.StorageName),
 		RouteBase:      kebab(resource.Spec.StorageName),
 		Create:         resource.Spec.Behavior.CreateEnabled,
+		FormRoute:      formRoute(g, resource),
 		PageSize:       pageSize,
 	}
 	for _, field := range page.Columns {
@@ -336,6 +441,7 @@ type registryView struct {
 	Banner    string
 	Resources []frontendView
 	Tables    []tableView
+	Forms     []formView
 }
 
 func renderTS(tmpl *template.Template, view any) (string, error) {
