@@ -5,6 +5,12 @@
 // { error: { code, message, fields? } }. The control plane sets an HttpOnly
 // session cookie on login, so the browser attaches it automatically and the SPA
 // never handles a token itself (DESIGN.md D5).
+//
+// CSRF protection for these cookie-authenticated, state-changing requests is the
+// control plane's responsibility (D12 — do not reimplement auth), resting on the
+// session cookie's SameSite attribute rather than a token minted here. This
+// client deliberately adds no CSRF header; the dependency is that the control
+// plane sets SameSite=Lax/Strict on the session cookie.
 
 export const API_PREFIX = "/api/v1";
 

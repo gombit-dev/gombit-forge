@@ -63,12 +63,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const logout = useCallback(async () => {
-    try {
-      await api.post("/auth/logout");
-    } finally {
-      setUser(null);
-      setStatus("anonymous");
-    }
+    // Only drop to anonymous once the server has actually invalidated the
+    // session. The session cookie is HttpOnly and can die only server-side, so
+    // optimistically clearing local state on a failed POST would leave a valid
+    // cookie that the next /me probe signs straight back in — "I signed out but
+    // I'm still signed in after a refresh". On failure the error propagates and
+    // the session stays as it really is.
+    await api.post("/auth/logout");
+    setUser(null);
+    setStatus("anonymous");
   }, []);
 
   const value = useMemo<Session>(

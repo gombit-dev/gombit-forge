@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionProvider, useSession } from "./session";
 
@@ -58,5 +59,37 @@ describe("SessionProvider", () => {
       </SessionProvider>,
     );
     expect(await screen.findByText("anonymous")).toBeInTheDocument();
+  });
+
+  it("stays authenticated when logout fails server-side", async () => {
+    // /me authenticates; POST /auth/logout fails. The session must NOT drop to
+    // anonymous, because the HttpOnly cookie is still valid and a reload would
+    // sign the user right back in.
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/auth/logout")) {
+        return { ok: false, status: 500, statusText: "", json: async () => ({ error: { code: "internal" } }) } as Response;
+      }
+      return { ok: true, status: 200, statusText: "", json: async () => ({ data: { id: 5, email: "grace@example.test" } }) } as Response;
+    }) as unknown as typeof fetch;
+
+    function LogoutProbe() {
+      const { status, logout } = useSession();
+      return (
+        <div>
+          <span data-testid="status">{status}</span>
+          <button onClick={() => void logout().catch(() => {})}>sign out</button>
+        </div>
+      );
+    }
+    render(
+      <SessionProvider>
+        <LogoutProbe />
+      </SessionProvider>,
+    );
+    expect(await screen.findByText("authenticated")).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "sign out" }));
+    // Still authenticated: the failed logout left the real (cookie-backed) state.
+    expect(screen.getByTestId("status")).toHaveTextContent("authenticated");
   });
 });

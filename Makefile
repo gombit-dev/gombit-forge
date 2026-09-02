@@ -13,8 +13,11 @@ WEB := controlplane/web
 
 .PHONY: all test lint fmt fmt-check vet tidy clean skills-check \
 	cp-build cp-vet cp-test cp-race \
-	web-install web-check web-build web-test
+	web web-install web-check web-build web-test
 
+# `all` is the Go merge gate; it deliberately does not run the web SPA (that
+# would put node on every Go dev's critical path). A frontend dev runs `make web`
+# separately, and CI's dedicated `web` job gates the SPA on every PR.
 all: fmt-check vet cp-vet test cp-test skills-check
 
 test:
@@ -41,8 +44,11 @@ cp-test-short:
 cp-race:
 	cd $(CONTROLPLANE) && go test ./... -race -count=1
 
-# Forge editor SPA (controlplane/web). web-install uses `npm ci` against the
-# committed lockfile for a reproducible install.
+# Forge editor SPA (controlplane/web). `make web` is the SPA gate a frontend dev
+# runs; web-install uses `npm ci` against the committed lockfile for a
+# reproducible install.
+web: web-check web-build web-test
+
 web-install:
 	cd $(WEB) && npm ci
 
