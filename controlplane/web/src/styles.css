@@ -409,3 +409,50 @@ button:disabled {
   background: var(--accent);
   color: var(--accent-fg);
 }
+
+.behavior-editor {
+  margin: 0.25rem 0 0.5rem 1.6rem;
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  align-items: flex-start;
+}
+
+.behavior-editor h4 {
+  margin: 0.5rem 0 0.25rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.behavior-editor .toggles {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.behavior-editor .field-select {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.behavior-editor select {
+  font: inherit;
+  min-width: 180px;
+  padding: 0.2rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.behavior-editor button[type="submit"] {
+  background: var(--accent);
+  color: var(--accent-fg);
+  margin-top: 0.25rem;
+}

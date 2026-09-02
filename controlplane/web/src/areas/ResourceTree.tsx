@@ -8,6 +8,7 @@ import {
   type DeletionBlocker,
   type SpecResource,
 } from "../api/projects";
+import { BehaviorEditor } from "./BehaviorEditor";
 import { FieldEditor } from "./FieldEditor";
 import { RelationshipEditor } from "./RelationshipEditor";
 
@@ -175,6 +176,13 @@ function ResourceRow({
             resourceID={resource.id}
             fields={resource.fields ?? []}
             resources={resources}
+            onChanged={onChanged}
+          />
+          <BehaviorEditor
+            projectID={projectID}
+            resourceID={resource.id}
+            fields={resource.fields ?? []}
+            behavior={resource.behavior}
             onChanged={onChanged}
           />
         </>
