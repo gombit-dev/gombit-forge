@@ -28,16 +28,18 @@ func mustTemplate(name, src string) *template.Template {
 }
 
 var (
-	listPageTemplate   = mustTemplate("listpage", listPageSrc)
+	tablePageTemplate  = mustTemplate("tablepage", tablePageSrc)
 	detailPageTemplate = mustTemplate("detailpage", detailPageSrc)
 	formPageTemplate   = mustTemplate("formpage", formPageSrc)
 	registryTemplate   = mustTemplate("registry", registrySrc)
 )
 
-// listPageSrc renders a resource list: a table populated from the collection
-// GET, mirroring Gombit's own generated list page (openapi-fetch client,
-// unwrap, the paths/schema types).
-const listPageSrc = `{{.Banner}}
+// tablePageSrc renders a resource_table page: a table populated from the
+// collection GET, mirroring Gombit's own generated list page (openapi-fetch
+// client, unwrap, the paths/schema types). It is page-driven — the component,
+// title and columns come from the spec's resource_table page — while its row and
+// "New" links target the bound resource's canonical detail/form routes.
+const tablePageSrc = `{{.Banner}}
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 
@@ -49,7 +51,7 @@ type ListResponse =
   paths["{{.CollectionPath}}"]["get"]["responses"][200]["content"]["application/json"];
 type {{.Type}}Row = NonNullable<ListResponse["data"]>[number];
 
-export function {{.Type}}ListPage() {
+export function {{.Component}}() {
   const client = useApiClient();
   const [rows, setRows] = useState<{{.Type}}Row[]>([]);
   const [status, setStatus] = useState({{js (printf "Loading %s…" .Title)}});
@@ -89,7 +91,7 @@ export function {{.Type}}ListPage() {
         <thead>
           <tr>
             <th>id</th>
-{{- range .Fields}}
+{{- range .Columns}}
             <th>{ {{js .Label}} }</th>
 {{- end}}
           </tr>
@@ -100,7 +102,7 @@ export function {{.Type}}ListPage() {
               <td>
                 <Link to={` + "`/{{.RouteBase}}/${row.id}`" + `}>{String(row.id)}</Link>
               </td>
-{{- range .Fields}}
+{{- range .Columns}}
               <td>{String(row["{{.JSONName}}"] ?? "")}</td>
 {{- end}}
             </tr>
@@ -113,7 +115,8 @@ export function {{.Type}}ListPage() {
 }
 `
 
-// detailPageSrc renders a single record fetched by id.
+// detailPageSrc renders a single record fetched by id. Its "back to list" link
+// targets the resource's first table page and is omitted when it has none.
 const detailPageSrc = `{{.Banner}}
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
@@ -159,13 +162,19 @@ export function {{.Type}}DetailPage() {
   return (
     <section>
       <h1>{{.Type}}</h1>
+{{- if or .ListRoute .Update}}
       <p>
-        <Link to="/{{.RouteBase}}">Back to { {{js .Title}} }</Link>
-{{- if .Update}}
+{{- if .ListRoute}}
+        <Link to="/{{.ListRoute}}">Back to { {{js .Title}} }</Link>
+{{- end}}
+{{- if and .ListRoute .Update}}
         {" · "}
+{{- end}}
+{{- if .Update}}
         <Link to={` + "`/{{.RouteBase}}/${id}/edit`" + `}>Edit</Link>
 {{- end}}
       </p>
+{{- end}}
       {record ? (
         <dl>
           <dt>id</dt>
@@ -188,7 +197,8 @@ export function {{.Type}}DetailPage() {
 // and branch are omitted so the module stays lint-clean. Empty date/datetime
 // values with a wire type that rejects "" (time.Time, decimal.Decimal) are
 // dropped from the request body, since the API rejects
-// "" (only RFC 3339 or a missing/null key unmarshal).
+// "" (only RFC 3339 or a missing/null key unmarshal). On success it navigates
+// to the resource's first table page, or the app root when it has none.
 const formPageSrc = `{{.Banner}}
 import { useState{{if .Update}}, useEffect{{end}} } from "react";
 import { useForm } from "react-hook-form";
@@ -292,7 +302,7 @@ export function {{.Type}}FormPage() {
 {{- else}}
       await unwrap(await client.POST("{{.CollectionPath}}", { body }));
 {{- end}}
-      navigate("/{{.RouteBase}}");
+      navigate("{{if .ListRoute}}/{{.ListRoute}}{{else}}/{{end}}");
     } catch (err: unknown) {
       if (!applyContractErrors(setError, err)) {
         setStatus(err instanceof Error ? err.message : "request failed");
@@ -303,9 +313,11 @@ export function {{.Type}}FormPage() {
   return (
     <section>
       <h1>{editing ? "Edit {{.Type}}" : "New {{.Type}}"}</h1>
+{{- if .ListRoute}}
       <p>
-        <Link to="/{{.RouteBase}}">Back to { {{js .Title}} }</Link>
+        <Link to="/{{.ListRoute}}">Back to { {{js .Title}} }</Link>
       </p>
+{{- end}}
       <form onSubmit={handleSubmit(onSubmit)}>
 {{- range .Fields}}
         <label>
@@ -338,17 +350,22 @@ export function {{.Type}}FormPage() {
 `
 
 // registrySrc renders resources.tsx: the routes and metadata the application
-// shell consumes. Routes are RouteObjects so the scaffold router can spread
-// them in; only the operations a resource enables are registered.
+// shell consumes. Table routes are page-driven (one per resource_table page);
+// detail/form routes are resource-driven. Routes are RouteObjects so the
+// scaffold router can spread them in; only the operations a resource enables are
+// registered, and only resources with a table page appear in generatedResources
+// (the nav metadata).
 const registrySrc = `{{.Banner}}
 import type { RouteObject } from "react-router";
 
 {{range .Resources -}}
-import { {{.Type}}ListPage } from "./{{.Package}}/{{.Type}}ListPage";
 import { {{.Type}}DetailPage } from "./{{.Package}}/{{.Type}}DetailPage";
 {{if or .Create .Update -}}
 import { {{.Type}}FormPage } from "./{{.Package}}/{{.Type}}FormPage";
 {{end -}}
+{{end -}}
+{{range .Tables -}}
+import { {{.Component}} } from "./{{.Package}}/{{.Component}}";
 {{end}}
 export type GeneratedResource = {
   slug: string;
@@ -357,14 +374,16 @@ export type GeneratedResource = {
 };
 
 export const generatedResources: GeneratedResource[] = [
-{{- range .Resources}}
-  { slug: "{{.Package}}", title: {{js .Title}}, listPath: "/{{.RouteBase}}" },
+{{- range .Tables}}
+  { slug: "{{.Slug}}", title: {{js .Title}}, listPath: "/{{.Slug}}" },
 {{- end}}
 ];
 
 export const generatedResourceRoutes: RouteObject[] = [
+{{- range .Tables}}
+  { path: "{{.Slug}}", element: <{{.Component}} /> },
+{{- end}}
 {{- range .Resources}}
-  { path: "{{.RouteBase}}", element: <{{.Type}}ListPage /> },
 {{- if .Create}}
   { path: "{{.RouteBase}}/new", element: <{{.Type}}FormPage /> },
 {{- end}}
