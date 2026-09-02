@@ -331,6 +331,92 @@ func (h *Handler) deleteResource(ctx context.Context, in *deleteResourceInput) (
 	}}}, nil
 }
 
+// --- field operations ------------------------------------------------------
+
+type enumValueBody struct {
+	Value string `json:"value" doc:"Stored enum value"`
+	Label string `json:"label,omitempty" doc:"Human-readable enum label"`
+}
+
+type fieldBody struct {
+	Label      string          `json:"label" minLength:"1" maxLength:"120" doc:"Human-readable field label"`
+	Type       string          `json:"type" enum:"string,text,integer,decimal,boolean,datetime,date,enum" doc:"MVP field type"`
+	Required   bool            `json:"required,omitempty"`
+	Unique     bool            `json:"unique,omitempty"`
+	Default    *string         `json:"default,omitempty" doc:"Literal default, null for none"`
+	EnumValues []enumValueBody `json:"enum_values,omitempty" doc:"Permitted values when type is enum"`
+}
+
+func fieldInputFrom(b fieldBody) FieldInput {
+	values := make([]spec.EnumValue, 0, len(b.EnumValues))
+	for _, e := range b.EnumValues {
+		values = append(values, spec.EnumValue{Value: e.Value, Label: e.Label})
+	}
+	return FieldInput{
+		Label:      b.Label,
+		Type:       spec.FieldType(b.Type),
+		Required:   b.Required,
+		Unique:     b.Unique,
+		Default:    b.Default,
+		EnumValues: values,
+	}
+}
+
+type addFieldInput struct {
+	ProjectID  string `path:"projectID" doc:"Project identifier"`
+	ResourceID string `path:"resourceID" doc:"Resource stable ID"`
+	Body       fieldBody
+}
+
+func (h *Handler) addField(ctx context.Context, in *addFieldInput) (*submitCandidateOutput, error) {
+	p, user, err := h.loadAuthorized(ctx, in.ProjectID, org.CapProjectEdit)
+	if err != nil {
+		return nil, err
+	}
+	result, err := h.svc.AddField(ctx, p.ID, spec.ID(in.ResourceID), fieldInputFrom(in.Body), user.ID)
+	if err != nil {
+		return nil, mapError(ctx, err, "add field")
+	}
+	return candidateResponse(ctx, result)
+}
+
+type updateFieldInput struct {
+	ProjectID  string `path:"projectID" doc:"Project identifier"`
+	ResourceID string `path:"resourceID" doc:"Resource stable ID"`
+	FieldID    string `path:"fieldID" doc:"Field stable ID"`
+	Body       fieldBody
+}
+
+func (h *Handler) updateField(ctx context.Context, in *updateFieldInput) (*submitCandidateOutput, error) {
+	p, user, err := h.loadAuthorized(ctx, in.ProjectID, org.CapProjectEdit)
+	if err != nil {
+		return nil, err
+	}
+	result, err := h.svc.UpdateField(ctx, p.ID, spec.ID(in.ResourceID), spec.ID(in.FieldID), fieldInputFrom(in.Body), user.ID)
+	if err != nil {
+		return nil, mapError(ctx, err, "update field")
+	}
+	return candidateResponse(ctx, result)
+}
+
+type deleteFieldInput struct {
+	ProjectID  string `path:"projectID" doc:"Project identifier"`
+	ResourceID string `path:"resourceID" doc:"Resource stable ID"`
+	FieldID    string `path:"fieldID" doc:"Field stable ID"`
+}
+
+func (h *Handler) deleteField(ctx context.Context, in *deleteFieldInput) (*submitCandidateOutput, error) {
+	p, user, err := h.loadAuthorized(ctx, in.ProjectID, org.CapProjectEdit)
+	if err != nil {
+		return nil, err
+	}
+	result, err := h.svc.DeleteField(ctx, p.ID, spec.ID(in.ResourceID), spec.ID(in.FieldID), user.ID)
+	if err != nil {
+		return nil, mapError(ctx, err, "delete field")
+	}
+	return candidateResponse(ctx, result)
+}
+
 // --- helpers ---------------------------------------------------------------
 
 // caller extracts the authenticated user the cookie gate guarantees.
@@ -403,6 +489,12 @@ func mapError(ctx context.Context, err error, action string) error {
 		return contract.WithContext(ctx, contract.NotFound("project not found"))
 	case errors.Is(err, ErrResourceNotFound):
 		return contract.WithContext(ctx, contract.NotFound("resource not found"))
+	case errors.Is(err, ErrFieldNotFound):
+		return contract.WithContext(ctx, contract.NotFound("field not found"))
+	case errors.Is(err, ErrInvalidFieldEdit):
+		return contract.WithContext(ctx, contract.Validation("invalid field", map[string][]string{
+			"type": {"must be a supported MVP field type"},
+		}))
 	case errors.Is(err, org.ErrNotMember), errors.Is(err, org.ErrForbidden):
 		return contract.WithContext(ctx, contract.Authorization("not permitted"))
 	case errors.Is(err, ErrInvalidResourceEdit):
