@@ -29,10 +29,10 @@ func TestFrontendFileLayout(t *testing.T) {
 		// Detail/form are resource-driven; the list is page-driven (named by the
 		// resource_table page's slug), so there is no CustomerListPage.
 		"frontend/src/forge_generated/customer/CustomerDetailPage.tsx",
-		"frontend/src/forge_generated/customer/CustomerFormPage.tsx",
+		"frontend/src/forge_generated/customer/EditCustomerFormPage.tsx",
 		"frontend/src/forge_generated/customer/CustomersTablePage.tsx",
 		"frontend/src/forge_generated/invoice/InvoiceDetailPage.tsx",
-		"frontend/src/forge_generated/invoice/InvoiceFormPage.tsx",
+		"frontend/src/forge_generated/invoice/EditInvoiceFormPage.tsx",
 		"frontend/src/forge_generated/invoice/InvoicesTablePage.tsx",
 		"frontend/src/forge_generated/resources.tsx",
 	}
@@ -59,7 +59,7 @@ func TestFrontendBannerOnEveryFile(t *testing.T) {
 func TestFrontendConsumesGeneratedClient(t *testing.T) {
 	files := frontendFiles(t, buildGraph2(t))
 	table := files["frontend/src/forge_generated/customer/CustomersTablePage.tsx"]
-	form := files["frontend/src/forge_generated/customer/CustomerFormPage.tsx"]
+	form := files["frontend/src/forge_generated/customer/EditCustomerFormPage.tsx"]
 	detail := files["frontend/src/forge_generated/customer/CustomerDetailPage.tsx"]
 
 	tableWants := []string{
@@ -102,8 +102,8 @@ func TestFrontendConsumesGeneratedClient(t *testing.T) {
 // TestFrontendFieldInputs maps each field type to the right form control.
 func TestFrontendFieldInputs(t *testing.T) {
 	files := frontendFiles(t, buildGraph2(t))
-	customer := files["frontend/src/forge_generated/customer/CustomerFormPage.tsx"]
-	invoice := files["frontend/src/forge_generated/invoice/InvoiceFormPage.tsx"]
+	customer := files["frontend/src/forge_generated/customer/EditCustomerFormPage.tsx"]
+	invoice := files["frontend/src/forge_generated/invoice/EditInvoiceFormPage.tsx"]
 
 	checks := []struct {
 		name, src, want string
@@ -129,7 +129,7 @@ func TestFrontendFieldInputs(t *testing.T) {
 // string/number/boolean.
 func TestFrontendFormValueTypes(t *testing.T) {
 	files := frontendFiles(t, buildGraph2(t))
-	invoice := files["frontend/src/forge_generated/invoice/InvoiceFormPage.tsx"]
+	invoice := files["frontend/src/forge_generated/invoice/EditInvoiceFormPage.tsx"]
 
 	for _, want := range []string{
 		"customer_id: number;", // belongs_to FK
@@ -148,12 +148,14 @@ func TestFrontendRegistryRoutes(t *testing.T) {
 
 	for _, want := range []string{
 		`import { CustomerDetailPage } from "./customer/CustomerDetailPage"`,
-		`import { CustomerFormPage } from "./customer/CustomerFormPage"`,
+		`import { EditCustomerFormPage } from "./customer/EditCustomerFormPage"`,
 		`import { CustomersTablePage } from "./customer/CustomersTablePage"`,
 		`{ path: "customers", element: <CustomersTablePage /> }`,
-		`{ path: "customers/new", element: <CustomerFormPage /> }`,
+		// Form routes are page-driven: the create/edit UI lives at the form page's
+		// own slug, not the resource route base.
+		`{ path: "edit-customer/new", element: <EditCustomerFormPage /> }`,
 		`{ path: "customers/:id", element: <CustomerDetailPage /> }`,
-		`{ path: "customers/:id/edit", element: <CustomerFormPage /> }`,
+		`{ path: "edit-customer/:id/edit", element: <EditCustomerFormPage /> }`,
 		`{ slug: "customers", title: "Customers", listPath: "/customers" }`,
 		`export const generatedResourceRoutes: RouteObject[]`,
 		`export const generatedResources: GeneratedResource[]`,
@@ -214,7 +216,7 @@ func TestFrontendHonorsToggles(t *testing.T) {
 	t.Run("create only", func(t *testing.T) {
 		g := toggledFrontendGraph(t, true, false, false)
 		files := frontendFiles(t, g)
-		form := files["frontend/src/forge_generated/customer/CustomerFormPage.tsx"]
+		form := files["frontend/src/forge_generated/customer/EditCustomerFormPage.tsx"]
 		list := files["frontend/src/forge_generated/customer/CustomersTablePage.tsx"]
 		detail := files["frontend/src/forge_generated/customer/CustomerDetailPage.tsx"]
 		registry := files["frontend/src/forge_generated/resources.tsx"]
@@ -228,14 +230,15 @@ func TestFrontendHonorsToggles(t *testing.T) {
 		if strings.Contains(form, "useEffect") {
 			t.Error("create-only form must not load a record")
 		}
-		if !strings.Contains(list, `to="/customers/new"`) {
-			t.Error("create-only table must show a New link")
+		// The New link targets the form page's own slug, not the resource route.
+		if !strings.Contains(list, `to="/edit-customer/new"`) {
+			t.Error("create-only table must show a New link to the form page")
 		}
 		if strings.Contains(detail, "/edit") {
 			t.Error("create-only detail must not show an Edit link")
 		}
-		if !strings.Contains(registry, `{ path: "customers/new"`) {
-			t.Error("registry must route /new when create is on")
+		if !strings.Contains(registry, `{ path: "edit-customer/new"`) {
+			t.Error("registry must route the form page /new when create is on")
 		}
 		if strings.Contains(registry, `/:id/edit`) {
 			t.Error("registry must not route /:id/edit when update is off")
@@ -245,7 +248,7 @@ func TestFrontendHonorsToggles(t *testing.T) {
 	t.Run("update only", func(t *testing.T) {
 		g := toggledFrontendGraph(t, false, true, false)
 		files := frontendFiles(t, g)
-		form := files["frontend/src/forge_generated/customer/CustomerFormPage.tsx"]
+		form := files["frontend/src/forge_generated/customer/EditCustomerFormPage.tsx"]
 		list := files["frontend/src/forge_generated/customer/CustomersTablePage.tsx"]
 		registry := files["frontend/src/forge_generated/resources.tsx"]
 
@@ -258,14 +261,14 @@ func TestFrontendHonorsToggles(t *testing.T) {
 		if !strings.Contains(form, "const editing = true;") {
 			t.Error("update-only form is always editing")
 		}
-		if strings.Contains(list, `/customers/new`) {
+		if strings.Contains(list, `/edit-customer/new`) {
 			t.Error("update-only table must not show a New link")
 		}
-		if strings.Contains(registry, `{ path: "customers/new"`) {
+		if strings.Contains(registry, `{ path: "edit-customer/new"`) {
 			t.Error("registry must not route /new when create is off")
 		}
-		if !strings.Contains(registry, `{ path: "customers/:id/edit"`) {
-			t.Error("registry must route /:id/edit when update is on")
+		if !strings.Contains(registry, `{ path: "edit-customer/:id/edit"`) {
+			t.Error("registry must route the form page /:id/edit when update is on")
 		}
 	})
 
@@ -273,7 +276,7 @@ func TestFrontendHonorsToggles(t *testing.T) {
 		g := toggledFrontendGraph(t, false, false, false)
 		files := frontendFiles(t, g)
 
-		if _, ok := files["frontend/src/forge_generated/customer/CustomerFormPage.tsx"]; ok {
+		if _, ok := files["frontend/src/forge_generated/customer/EditCustomerFormPage.tsx"]; ok {
 			t.Error("a read-only resource must not get a form page")
 		}
 		registry := files["frontend/src/forge_generated/resources.tsx"]
@@ -310,6 +313,7 @@ func toggledFrontendGraph(t *testing.T, create, update, del bool) *graph.Graph {
 // date/datetime-local control that would corrupt the time.Time JSON.
 func TestFrontendDateFieldsRoundTrip(t *testing.T) {
 	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
+	eventID := id(spec.KindResource)
 	s := &spec.ProjectSpec{
 		SpecVersion: spec.SpecVersion,
 		Project:     spec.Project{ID: id(spec.KindProject), Name: "Acme", Slug: "acme"},
@@ -317,13 +321,16 @@ func TestFrontendDateFieldsRoundTrip(t *testing.T) {
 		Auth:        spec.Auth{Mode: spec.AuthCookie},
 		Resources: []*spec.Resource{
 			{
-				ID: id(spec.KindResource), Label: "Event", CodeName: "Event", StorageName: "events",
+				ID: eventID, Label: "Event", CodeName: "Event", StorageName: "events",
 				Behavior: spec.ResourceBehavior{CreateEnabled: true},
 				Fields: []*spec.Field{
 					{ID: id(spec.KindField), Label: "Day", Type: spec.TypeDate, CodeName: "Day", StorageName: "day"},
 					{ID: id(spec.KindField), Label: "At", Type: spec.TypeDatetime, CodeName: "At", StorageName: "at"},
 				},
 			},
+		},
+		Pages: []*spec.Page{
+			{ID: id(spec.KindPage), Slug: "edit-event", Label: "Edit event", Type: spec.PageResourceForm, Resource: eventID},
 		},
 	}
 	if d := spec.Validate(s); d != nil {
@@ -333,7 +340,7 @@ func TestFrontendDateFieldsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
-	form := frontendFiles(t, g)["frontend/src/forge_generated/event/EventFormPage.tsx"]
+	form := frontendFiles(t, g)["frontend/src/forge_generated/event/EditEventFormPage.tsx"]
 
 	// No native date controls, which cannot hold or produce RFC 3339.
 	if strings.Contains(form, `type="date"`) || strings.Contains(form, `type="datetime-local"`) {
@@ -364,6 +371,7 @@ func TestFrontendDateFieldsRoundTrip(t *testing.T) {
 // POSTed as "".
 func TestFrontendOmitsEmptyDecimal(t *testing.T) {
 	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
+	quoteID := id(spec.KindResource)
 	s := &spec.ProjectSpec{
 		SpecVersion: spec.SpecVersion,
 		Project:     spec.Project{ID: id(spec.KindProject), Name: "Acme", Slug: "acme"},
@@ -371,7 +379,7 @@ func TestFrontendOmitsEmptyDecimal(t *testing.T) {
 		Auth:        spec.Auth{Mode: spec.AuthCookie},
 		Resources: []*spec.Resource{
 			{
-				ID: id(spec.KindResource), Label: "Quote", CodeName: "Quote", StorageName: "quotes",
+				ID: quoteID, Label: "Quote", CodeName: "Quote", StorageName: "quotes",
 				Behavior: spec.ResourceBehavior{CreateEnabled: true},
 				Fields: []*spec.Field{
 					// Optional decimal, and a plain string alongside it.
@@ -379,6 +387,9 @@ func TestFrontendOmitsEmptyDecimal(t *testing.T) {
 					{ID: id(spec.KindField), Label: "Note", Type: spec.TypeString, CodeName: "Note", StorageName: "note"},
 				},
 			},
+		},
+		Pages: []*spec.Page{
+			{ID: id(spec.KindPage), Slug: "edit-quote", Label: "Edit quote", Type: spec.PageResourceForm, Resource: quoteID},
 		},
 	}
 	if d := spec.Validate(s); d != nil {
@@ -388,7 +399,7 @@ func TestFrontendOmitsEmptyDecimal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
-	form := frontendFiles(t, g)["frontend/src/forge_generated/quote/QuoteFormPage.tsx"]
+	form := frontendFiles(t, g)["frontend/src/forge_generated/quote/EditQuoteFormPage.tsx"]
 
 	if !strings.Contains(form, `if (body.fee === "") {`) {
 		t.Errorf("empty decimal must be omitted from the request body:\n%s", form)
@@ -426,6 +437,7 @@ func TestFrontendEscapesLabels(t *testing.T) {
 		// the table <h1> is exercised.
 		Pages: []*spec.Page{
 			{ID: id(spec.KindPage), Slug: "items", Label: "Items {n}", Type: spec.PageResourceTable, Resource: itemID},
+			{ID: id(spec.KindPage), Slug: "edit-item", Label: "Edit item", Type: spec.PageResourceForm, Resource: itemID},
 		},
 	}
 	if d := spec.Validate(s); d != nil {
@@ -437,7 +449,7 @@ func TestFrontendEscapesLabels(t *testing.T) {
 	}
 	files := frontendFiles(t, g)
 	list := files["frontend/src/forge_generated/item/ItemsTablePage.tsx"]
-	form := files["frontend/src/forge_generated/item/ItemFormPage.tsx"]
+	form := files["frontend/src/forge_generated/item/EditItemFormPage.tsx"]
 
 	// The title "Items {n}" must be an inert string, not a JSX expression.
 	if !strings.Contains(list, `<h1>{ "Items {n}" }</h1>`) {
@@ -618,6 +630,77 @@ func TestFrontendMultipleTablesPerResource(t *testing.T) {
 		if !strings.Contains(registry, want) {
 			t.Errorf("registry must contain %q", want)
 		}
+	}
+}
+
+// TestFrontendFormIsPageDriven is the #52 acceptance point: a resource_form
+// page generates the create/edit UI at its own slug, the table "New" and detail
+// "Edit" links target that slug, and a resource with no form page gets no
+// create/edit UI at all.
+func TestFrontendFormIsPageDriven(t *testing.T) {
+	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
+	withForm := id(spec.KindResource)
+	noForm := id(spec.KindResource)
+	s := &spec.ProjectSpec{
+		SpecVersion: spec.SpecVersion,
+		Project:     spec.Project{ID: id(spec.KindProject), Name: "Acme", Slug: "acme"},
+		Database:    spec.Database{Driver: spec.DriverPostgres},
+		Auth:        spec.Auth{Mode: spec.AuthCookie},
+		Resources: []*spec.Resource{
+			{ID: withForm, Label: "Customer", CodeName: "Customer", StorageName: "customers",
+				Behavior: spec.ResourceBehavior{CreateEnabled: true, UpdateEnabled: true},
+				Fields:   []*spec.Field{{ID: id(spec.KindField), Label: "Email", Type: spec.TypeString, CodeName: "Email", StorageName: "email"}}},
+			{ID: noForm, Label: "Audit", CodeName: "Audit", StorageName: "audits",
+				Behavior: spec.ResourceBehavior{CreateEnabled: true, UpdateEnabled: true},
+				Fields:   []*spec.Field{{ID: id(spec.KindField), Label: "Note", Type: spec.TypeString, CodeName: "Note", StorageName: "note"}}},
+		},
+		Pages: []*spec.Page{
+			{ID: id(spec.KindPage), Slug: "customers", Label: "Customers", Type: spec.PageResourceTable, Resource: withForm},
+			{ID: id(spec.KindPage), Slug: "audits", Label: "Audits", Type: spec.PageResourceTable, Resource: noForm},
+			// Only the customer has a form page; the audit has none.
+			{ID: id(spec.KindPage), Slug: "edit-customer", Label: "Edit customer", Type: spec.PageResourceForm, Resource: withForm},
+		},
+	}
+	if d := spec.Validate(s); d != nil {
+		t.Fatalf("fixture invalid: %s", d.Error())
+	}
+	g, err := graph.Build(s)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	files := frontendFiles(t, g)
+
+	// The customer's form page is generated at its slug; the table "New" and
+	// detail "Edit" links target that slug (POST/PUT still hit the resource API).
+	form := files["frontend/src/forge_generated/customer/EditCustomerFormPage.tsx"]
+	if form == "" {
+		t.Fatal("the resource_form page must generate a form component")
+	}
+	if !strings.Contains(form, `await client.POST("/api/v1/customers"`) {
+		t.Error("the form still POSTs the resource's normal API endpoint")
+	}
+	if !strings.Contains(files["frontend/src/forge_generated/customer/CustomersTablePage.tsx"], `to="/edit-customer/new"`) {
+		t.Error("the customer table 'New' link must target the form page slug")
+	}
+	if !strings.Contains(files["frontend/src/forge_generated/customer/CustomerDetailPage.tsx"], "/edit-customer/${id}/edit") {
+		t.Error("the customer detail 'Edit' link must target the form page slug")
+	}
+
+	// The audit has no form page: no create/edit UI, no New/Edit links, no routes.
+	for path := range files {
+		if strings.Contains(path, "/audit/") && strings.Contains(path, "FormPage") {
+			t.Errorf("a resource with no form page must get no create/edit UI; found %s", path)
+		}
+	}
+	if strings.Contains(files["frontend/src/forge_generated/audit/AuditsTablePage.tsx"], "/new") {
+		t.Error("the audit table must show no 'New' link (no form page)")
+	}
+	if strings.Contains(files["frontend/src/forge_generated/audit/AuditDetailPage.tsx"], "/edit") {
+		t.Error("the audit detail must show no 'Edit' link (no form page)")
+	}
+	registry := files["frontend/src/forge_generated/resources.tsx"]
+	if strings.Contains(registry, `element: <AuditFormPage`) || strings.Contains(registry, "audits/new") {
+		t.Error("no form route for a resource without a form page")
 	}
 }
 

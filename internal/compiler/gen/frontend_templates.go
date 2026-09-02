@@ -96,9 +96,9 @@ export function {{.Component}}() {
   return (
     <section>
       <h1>{ {{js .Title}} }</h1>
-{{- if .Create}}
+{{- if and .Create .FormRoute}}
       <p>
-        <Link to="/{{.RouteBase}}/new">New {{.Type}}</Link>
+        <Link to="/{{.FormRoute}}/new">New {{.Type}}</Link>
       </p>
 {{- end}}
       <table>
@@ -190,16 +190,16 @@ export function {{.Type}}DetailPage() {
   return (
     <section>
       <h1>{{.Type}}</h1>
-{{- if or .ListRoute .Update}}
+{{- if or .ListRoute (and .Update .FormRoute)}}
       <p>
 {{- if .ListRoute}}
         <Link to="/{{.ListRoute}}">Back to { {{js .Title}} }</Link>
 {{- end}}
-{{- if and .ListRoute .Update}}
+{{- if and .ListRoute .Update .FormRoute}}
         {" · "}
 {{- end}}
-{{- if .Update}}
-        <Link to={` + "`/{{.RouteBase}}/${id}/edit`" + `}>Edit</Link>
+{{- if and .Update .FormRoute}}
+        <Link to={` + "`/{{.FormRoute}}/${id}/edit`" + `}>Edit</Link>
 {{- end}}
       </p>
 {{- end}}
@@ -248,7 +248,7 @@ const emptyValues: {{.Type}}FormValues = {
 {{- end}}
 };
 
-export function {{.Type}}FormPage() {
+export function {{.Component}}() {
   const client = useApiClient();
   const navigate = useNavigate();
 {{- if .Update}}
@@ -388,9 +388,9 @@ import type { RouteObject } from "react-router";
 
 {{range .Resources -}}
 import { {{.Type}}DetailPage } from "./{{.Package}}/{{.Type}}DetailPage";
-{{if or .Create .Update -}}
-import { {{.Type}}FormPage } from "./{{.Package}}/{{.Type}}FormPage";
 {{end -}}
+{{range .Forms -}}
+import { {{.Component}} } from "./{{.Package}}/{{.Component}}";
 {{end -}}
 {{range .Tables -}}
 import { {{.Component}} } from "./{{.Package}}/{{.Component}}";
@@ -411,14 +411,16 @@ export const generatedResourceRoutes: RouteObject[] = [
 {{- range .Tables}}
   { path: "{{.Slug}}", element: <{{.Component}} /> },
 {{- end}}
-{{- range .Resources}}
+{{- range .Forms}}
 {{- if .Create}}
-  { path: "{{.RouteBase}}/new", element: <{{.Type}}FormPage /> },
+  { path: "{{.Slug}}/new", element: <{{.Component}} /> },
 {{- end}}
-  { path: "{{.RouteBase}}/:id", element: <{{.Type}}DetailPage /> },
 {{- if .Update}}
-  { path: "{{.RouteBase}}/:id/edit", element: <{{.Type}}FormPage /> },
+  { path: "{{.Slug}}/:id/edit", element: <{{.Component}} /> },
 {{- end}}
+{{- end}}
+{{- range .Resources}}
+  { path: "{{.RouteBase}}/:id", element: <{{.Type}}DetailPage /> },
 {{- end}}
 ];
 `

@@ -232,6 +232,19 @@ func TestValidateRejects(t *testing.T) {
 			wantAny: CodeInvalidPage,
 		},
 
+		{
+			// The MVP allows at most one resource_form page per resource, so "the
+			// form page" a New/Edit link targets is unambiguous (#52).
+			name: "two form pages for one resource",
+			mutate: func(s *ProjectSpec) {
+				s.Pages = append(s.Pages,
+					&Page{ID: MustNewID(KindPage), Slug: "edit-customer", Label: "Edit customer", Type: PageResourceForm, Resource: fixCustomer},
+					&Page{ID: MustNewID(KindPage), Slug: "edit-customer-2", Label: "Edit customer again", Type: PageResourceForm, Resource: fixCustomer},
+				)
+			},
+			wantAny: CodeDuplicateForm,
+		},
+
 		// Page type must agree with the attached configuration block,
 		// otherwise the domain graph cannot project a single view per page.
 		{

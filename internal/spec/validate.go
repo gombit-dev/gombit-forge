@@ -36,6 +36,7 @@ const (
 	CodeReservedName    Code = "reserved_name"
 	CodePageMismatch    Code = "page_config_mismatch"
 	CodeInvalidHook     Code = "invalid_hook"
+	CodeDuplicateForm   Code = "duplicate_form_page"
 )
 
 // Diagnostic is one structured, machine-readable validation failure.
@@ -500,6 +501,10 @@ func (v *validator) validateBehavior(resource *Resource, resourcePath string) {
 
 func (v *validator) validatePages() {
 	slugs := map[string]ID{}
+	// The MVP allows at most one resource_form page per resource, so "the form
+	// page" is unambiguous: the compiler generates its create/edit UI at the
+	// page's own route and every "New"/"Edit" link targets it (DESIGN.md §18).
+	formPageByResource := map[ID]ID{}
 
 	for pageIndex, page := range v.spec.Pages {
 		path := fmt.Sprintf("$.pages[%d]", pageIndex)
@@ -527,6 +532,14 @@ func (v *validator) validatePages() {
 		case PageResourceTable, PageResourceForm, PageResourceDetail:
 			v.validatePageConfigMatchesType(page, path)
 			v.validateResourcePage(page, path)
+			if page.Type == PageResourceForm && page.Resource != "" {
+				if owner, taken := formPageByResource[page.Resource]; taken {
+					v.report(CodeDuplicateForm, path+".resource", page.ID,
+						"resource %s already has a form page (%s); at most one is allowed", page.Resource, owner)
+				} else {
+					formPageByResource[page.Resource] = page.ID
+				}
+			}
 		case PageDashboard:
 			v.validatePageConfigMatchesType(page, path)
 			v.validateDashboardPage(page, path)
