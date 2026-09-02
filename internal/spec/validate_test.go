@@ -244,6 +244,17 @@ func TestValidateRejects(t *testing.T) {
 			},
 			wantAny: CodeDuplicateForm,
 		},
+		{
+			// Likewise at most one resource_detail page per resource (#53).
+			name: "two detail pages for one resource",
+			mutate: func(s *ProjectSpec) {
+				s.Pages = append(s.Pages,
+					&Page{ID: MustNewID(KindPage), Slug: "customer", Label: "Customer", Type: PageResourceDetail, Resource: fixCustomer},
+					&Page{ID: MustNewID(KindPage), Slug: "customer-again", Label: "Customer again", Type: PageResourceDetail, Resource: fixCustomer},
+				)
+			},
+			wantAny: CodeDuplicateDetail,
+		},
 
 		// Page type must agree with the attached configuration block,
 		// otherwise the domain graph cannot project a single view per page.

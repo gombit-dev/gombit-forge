@@ -105,6 +105,10 @@ func buildGraph(t *testing.T) (*graph.Graph, map[string]spec.ID) {
 			// pages; slugs avoid the word "form" so the component reads cleanly.
 			{ID: id(spec.KindPage), Slug: "edit-customer", Label: "Edit customer", Type: spec.PageResourceForm, Resource: ids["customer"]},
 			{ID: id(spec.KindPage), Slug: "edit-invoice", Label: "Edit invoice", Type: spec.PageResourceForm, Resource: ids["invoice"]},
+			// One resource_detail page per resource (page-driven detail, #53). The
+			// singular slug keeps the component name CustomerDetailPage/InvoiceDetailPage.
+			{ID: id(spec.KindPage), Slug: "customer", Label: "Customer", Type: spec.PageResourceDetail, Resource: ids["customer"]},
+			{ID: id(spec.KindPage), Slug: "invoice", Label: "Invoice", Type: spec.PageResourceDetail, Resource: ids["invoice"]},
 		},
 	}
 
