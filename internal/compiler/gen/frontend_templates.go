@@ -504,6 +504,22 @@ export const generatedResources: GeneratedResource[] = [
 {{- end}}
 ];
 
+// NavEntry is one authored navigation entry (DESIGN.md §4.5): an internal page
+// route or an external URL, in authored order. The application shell renders
+// these as the primary navigation; an entry is external iff its external flag
+// is true.
+export type NavEntry = {
+  label: string;
+  to: string;
+  external: boolean;
+};
+
+export const generatedNavigation: NavEntry[] = [
+{{- range .Navigation}}
+  { label: {{js .Label}}, to: {{js .To}}, external: {{.External}} },
+{{- end}}
+];
+
 export const generatedResourceRoutes: RouteObject[] = [
 {{- range .Dashboards}}
   { path: "{{.Slug}}", element: <{{.Component}} /> },

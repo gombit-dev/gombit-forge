@@ -222,4 +222,16 @@ func RegisterRoutes(api huma.API, prefix string, gate huma.Middlewares, svc *Ser
 		Security:    security,
 		Middlewares: gate,
 	}, h.deletePage)
+
+	huma.Register(api, huma.Operation{
+		OperationID:   "set-navigation",
+		Method:        http.MethodPut,
+		Path:          prefix + "/projects/{projectID}/navigation",
+		Summary:       "Replace the project's ordered navigation (dashboard / resource list / external URL entries)",
+		Description:   "Replaces the whole navigation in authored order; the client sends the complete list, not a delta. ABI-neutral.",
+		Tags:          tags,
+		Security:      security,
+		Middlewares:   gate,
+		DefaultStatus: http.StatusCreated,
+	}, h.setNavigation)
 }

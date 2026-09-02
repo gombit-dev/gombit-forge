@@ -695,9 +695,14 @@ func (v *validator) validateNavigation() {
 			if item.Page == "" {
 				v.report(CodeDanglingRef, path+".page", item.ID,
 					"page navigation entry must reference a page")
-			} else if v.spec.FindPage(item.Page) == nil {
+			} else if target := v.spec.FindPage(item.Page); target == nil {
 				v.report(CodeDanglingRef, path+".page", item.ID,
 					"navigation references page %q which does not exist", item.Page)
+			} else if target.Type != PageDashboard && target.Type != PageResourceTable {
+				// §4.5: navigation points to a dashboard or a resource list. A
+				// detail/form page routes on an :id and cannot be a nav destination.
+				v.report(CodeInvalidNav, path+".page", item.ID,
+					"navigation must point to a dashboard or a resource_table page, not a %s page", target.Type)
 			}
 
 		case NavExternal:

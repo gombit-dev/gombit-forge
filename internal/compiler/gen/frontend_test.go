@@ -633,6 +633,35 @@ func TestFrontendMultipleTablesPerResource(t *testing.T) {
 	}
 }
 
+// TestFrontendNavigation is the #55 acceptance point: the spec's ordered
+// navigation is generated as generatedNavigation, in authored order, with each
+// entry pointing at a page route (dashboard / resource list) or an external URL.
+func TestFrontendNavigation(t *testing.T) {
+	registry := frontendFiles(t, buildGraph2(t))["frontend/src/forge_generated/resources.tsx"]
+
+	if !strings.Contains(registry, `export const generatedNavigation: NavEntry[]`) {
+		t.Fatal("registry must export generatedNavigation")
+	}
+	// Authored order: dashboard, resource list, external.
+	want := []string{
+		`{ label: "Home", to: "/home", external: false }`,
+		`{ label: "Customers", to: "/customers", external: false }`,
+		`{ label: "Docs", to: "https://example.com/docs", external: true }`,
+	}
+	last := -1
+	for _, w := range want {
+		i := strings.Index(registry, w)
+		if i < 0 {
+			t.Errorf("generatedNavigation must contain %q", w)
+			continue
+		}
+		if i < last {
+			t.Errorf("navigation entry out of authored order: %q", w)
+		}
+		last = i
+	}
+}
+
 // TestFrontendDashboard is the #54 acceptance point: a dashboard page renders
 // count cards with a real total (from the list PageMeta) and recent-list
 // sections with a "View all" link — no fabricated records (those await

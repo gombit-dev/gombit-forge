@@ -659,6 +659,41 @@ func (h *Handler) deletePage(ctx context.Context, in *deletePageInput) (*submitC
 	return candidateResponse(ctx, result)
 }
 
+// --- navigation operation --------------------------------------------------
+
+type setNavigationInput struct {
+	ProjectID string `path:"projectID" doc:"Project identifier"`
+	Body      struct {
+		Items []struct {
+			Label  string `json:"label" minLength:"1" maxLength:"120" doc:"Navigation label"`
+			Target string `json:"target" enum:"page,external" doc:"Navigation target kind"`
+			Page   string `json:"page,omitempty" doc:"Target page stable ID (for a page entry)"`
+			URL    string `json:"url,omitempty" doc:"External URL (for an external entry)"`
+		} `json:"items" doc:"The complete ordered navigation; replaces the existing navigation"`
+	}
+}
+
+func (h *Handler) setNavigation(ctx context.Context, in *setNavigationInput) (*submitCandidateOutput, error) {
+	p, user, err := h.loadAuthorized(ctx, in.ProjectID, org.CapProjectEdit)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]NavItemInput, 0, len(in.Body.Items))
+	for _, it := range in.Body.Items {
+		items = append(items, NavItemInput{
+			Label:  it.Label,
+			Target: spec.NavTarget(it.Target),
+			Page:   spec.ID(it.Page),
+			URL:    it.URL,
+		})
+	}
+	result, err := h.svc.SetNavigation(ctx, p.ID, items, user.ID)
+	if err != nil {
+		return nil, mapError(ctx, err, "set navigation")
+	}
+	return candidateResponse(ctx, result)
+}
+
 // --- helpers ---------------------------------------------------------------
 
 // caller extracts the authenticated user the cookie gate guarantees.
@@ -746,6 +781,10 @@ func mapError(ctx context.Context, err error, action string) error {
 	case errors.Is(err, ErrInvalidPageEdit):
 		return contract.WithContext(ctx, contract.Validation("invalid page edit", map[string][]string{
 			"type": {"must be a supported page type with a matching resource binding"},
+		}))
+	case errors.Is(err, ErrInvalidNavEdit):
+		return contract.WithContext(ctx, contract.Validation("invalid navigation edit", map[string][]string{
+			"items": {"each entry needs a label and a page or external url matching its target"},
 		}))
 	case errors.Is(err, org.ErrNotMember), errors.Is(err, org.ErrForbidden):
 		return contract.WithContext(ctx, contract.Authorization("not permitted"))

@@ -255,6 +255,17 @@ func TestValidateRejects(t *testing.T) {
 			},
 			wantAny: CodeDuplicateDetail,
 		},
+		{
+			// §4.5: navigation points to a dashboard or a resource list — a
+			// detail/form page routes on an :id and is not a nav destination.
+			name: "navigation points to a non-navigable page",
+			mutate: func(s *ProjectSpec) {
+				detail := MustNewID(KindPage)
+				s.Pages = append(s.Pages, &Page{ID: detail, Slug: "cust-detail", Label: "Detail", Type: PageResourceDetail, Resource: fixCustomer})
+				s.Navigation = append(s.Navigation, &NavItem{ID: MustNewID(KindNav), Label: "Bad", Target: NavPage, Page: detail})
+			},
+			wantAny: CodeInvalidNav,
+		},
 
 		// Page type must agree with the attached configuration block,
 		// otherwise the domain graph cannot project a single view per page.

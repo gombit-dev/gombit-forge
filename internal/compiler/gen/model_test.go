@@ -27,6 +27,8 @@ func buildGraph(t *testing.T) (*graph.Graph, map[string]spec.ID) {
 		"total":    id(spec.KindField),
 		"count":    id(spec.KindField),
 		"due":      id(spec.KindField),
+		"homePage": id(spec.KindPage),
+		"custPage": id(spec.KindPage),
 	}
 
 	s := &spec.ProjectSpec{
@@ -92,7 +94,7 @@ func buildGraph(t *testing.T) (*graph.Graph, map[string]spec.ID) {
 		// produce the list pages.
 		Pages: []*spec.Page{
 			{
-				ID: id(spec.KindPage), Slug: "customers", Label: "Customers", Type: spec.PageResourceTable,
+				ID: ids["custPage"], Slug: "customers", Label: "Customers", Type: spec.PageResourceTable,
 				Resource: ids["customer"],
 				Table:    &spec.TableConfig{Title: "Customers", Columns: []spec.ID{ids["email"], ids["active"]}},
 			},
@@ -110,11 +112,18 @@ func buildGraph(t *testing.T) (*graph.Graph, map[string]spec.ID) {
 			{ID: id(spec.KindPage), Slug: "customer", Label: "Customer", Type: spec.PageResourceDetail, Resource: ids["customer"]},
 			{ID: id(spec.KindPage), Slug: "invoice", Label: "Invoice", Type: spec.PageResourceDetail, Resource: ids["invoice"]},
 			// A dashboard with a count card (customers) and a recent list (invoices) (#54).
-			{ID: id(spec.KindPage), Slug: "home", Label: "Home", Type: spec.PageDashboard,
+			{ID: ids["homePage"], Slug: "home", Label: "Home", Type: spec.PageDashboard,
 				Dashboard: &spec.DashboardConfig{
 					CountCards:  []spec.DashboardCard{{Label: "Customers", Resource: ids["customer"]}},
 					RecentLists: []spec.DashboardCard{{Label: "Recent invoices", Resource: ids["invoice"], Limit: 5}},
 				}},
+		},
+		// Ordered navigation (#55): a dashboard entry, a resource-list entry and an
+		// external link.
+		Navigation: []*spec.NavItem{
+			{ID: id(spec.KindNav), Label: "Home", Target: spec.NavPage, Page: ids["homePage"]},
+			{ID: id(spec.KindNav), Label: "Customers", Target: spec.NavPage, Page: ids["custPage"]},
+			{ID: id(spec.KindNav), Label: "Docs", Target: spec.NavExternal, URL: "https://example.com/docs"},
 		},
 	}
 
