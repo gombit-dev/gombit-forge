@@ -73,6 +73,8 @@ func sampleSpecWithTable(t *testing.T) *spec.ProjectSpec {
 		{ID: spec.MustNewID(spec.KindPage), Slug: "customers", Label: "Customers", Type: spec.PageResourceTable, Resource: s.Resources[0].ID},
 		{ID: spec.MustNewID(spec.KindPage), Slug: "edit-customer", Label: "Edit customer", Type: spec.PageResourceForm, Resource: s.Resources[0].ID},
 		{ID: spec.MustNewID(spec.KindPage), Slug: "customer", Label: "Customer", Type: spec.PageResourceDetail, Resource: s.Resources[0].ID},
+		{ID: spec.MustNewID(spec.KindPage), Slug: "home", Label: "Home", Type: spec.PageDashboard,
+			Dashboard: &spec.DashboardConfig{CountCards: []spec.DashboardCard{{Label: "Customers", Resource: s.Resources[0].ID}}}},
 	}
 	if d := spec.Validate(s); d != nil {
 		t.Fatalf("sample spec with table invalid: %s", d.Error())
@@ -146,6 +148,7 @@ func TestCompileTreeShape(t *testing.T) {
 		"frontend/src/forge_generated/customer/CustomersTablePage.tsx",
 		"frontend/src/forge_generated/customer/CustomerDetailPage.tsx",
 		"frontend/src/forge_generated/customer/EditCustomerFormPage.tsx",
+		"frontend/src/forge_generated/dashboard/HomeDashboardPage.tsx",
 		"frontend/src/forge_generated/resources.tsx",
 		// Composition root (wiring stage).
 		"internal/forge_generated/register.go",

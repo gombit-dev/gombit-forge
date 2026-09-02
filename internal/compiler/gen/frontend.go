@@ -137,11 +137,37 @@ func Frontend(g *graph.Graph) ([]File, error) {
 		files = append(files, File{Path: path.Join(FrontendRoot, view.Package, view.Component+".tsx"), Content: []byte(src)})
 	}
 
+	// Dashboard pages: one per dashboard page. Count cards render real totals
+	// (from the list handler's PageMeta); recent lists render a section + a "View
+	// all" link, deferring actual records to server-side descending ordering in
+	// Gombit (gombit#260). Dashboards are not resource-scoped, so they live in a
+	// shared "dashboard" package.
+	dashboards := make([]dashboardView, 0, len(g.Pages))
+	for _, page := range g.Pages {
+		if page.Spec.Type != spec.PageDashboard {
+			continue
+		}
+		view := newDashboardView(g, page)
+		if other, dup := seen[view.Component]; dup {
+			return nil, fmt.Errorf("gen: pages %q and %q derive the same component name %q; rename one page slug",
+				other, page.Spec.Slug, view.Component)
+		}
+		seen[view.Component] = page.Spec.Slug
+		dashboards = append(dashboards, view)
+
+		src, err := renderTS(dashboardPageTemplate, view)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, File{Path: path.Join(FrontendRoot, dashboardPackage, view.Component+".tsx"), Content: []byte(src)})
+	}
+
 	registry, err := renderTS(registryTemplate, registryView{
-		Banner:  tsBanner,
-		Details: details,
-		Tables:  tables,
-		Forms:   forms,
+		Banner:     tsBanner,
+		Details:    details,
+		Tables:     tables,
+		Forms:      forms,
+		Dashboards: dashboards,
 	})
 	if err != nil {
 		return nil, err
@@ -323,6 +349,32 @@ func relatedSections(g *graph.Graph, resource *graph.Resource) []relatedSection 
 	return sections
 }
 
+func newDashboardView(g *graph.Graph, page *graph.Page) dashboardView {
+	view := dashboardView{
+		Banner:    tsBanner,
+		Component: pascalSlug(page.Spec.Slug) + "DashboardPage",
+		Slug:      page.Spec.Slug,
+		Title:     page.Spec.Label,
+	}
+	for _, card := range page.CountCards {
+		view.CountCards = append(view.CountCards, countCardView{
+			Label:          card.Spec.Label,
+			CollectionPath: "/api/v1/" + kebab(card.Resource.Spec.StorageName),
+		})
+	}
+	for _, card := range page.RecentLists {
+		route := firstTableRoute(g, card.Resource)
+		if route != "" {
+			view.HasLinks = true
+		}
+		view.RecentLists = append(view.RecentLists, recentListView{
+			Label:        card.Spec.Label,
+			ViewAllRoute: route,
+		})
+	}
+	return view
+}
+
 // firstTableRoute is the slug of the resource's first resource_table page, in
 // authored page order, or "" when it has none — so a detail/form page links
 // back to a real list and omits the link when there is none.
@@ -493,12 +545,46 @@ func frontendFieldFor(field *graph.Field) frontendField {
 	return f
 }
 
+// dashboardPackage is the shared frontend package for dashboard pages, which are
+// not scoped to a resource.
+const dashboardPackage = "dashboard"
+
+// dashboardView is the template data for one dashboard page.
+type dashboardView struct {
+	Banner    string
+	Component string // e.g. HomeDashboardPage
+	Slug      string // the page slug — the dashboard's route
+	Title     string // the page label
+
+	CountCards  []countCardView
+	RecentLists []recentListView
+	// HasLinks is true when at least one recent list has a table page to link to,
+	// so the Link import is emitted only when used (the generated app lints).
+	HasLinks bool
+}
+
+// countCardView is one count card: a labeled total for a resource, read from the
+// list endpoint's PageMeta so no Gombit change is needed.
+type countCardView struct {
+	Label          string
+	CollectionPath string // the resource's API collection path
+}
+
+// recentListView is one recent-record list. Until Gombit supports descending
+// list ordering (gombit#260), it renders a labeled section with a "View all"
+// link to the resource's table page rather than fabricating mis-ordered records.
+type recentListView struct {
+	Label        string
+	ViewAllRoute string // the resource's first table page route, or ""
+}
+
 // registryView is the template data for resources.tsx.
 type registryView struct {
-	Banner  string
-	Details []detailView
-	Tables  []tableView
-	Forms   []formView
+	Banner     string
+	Details    []detailView
+	Tables     []tableView
+	Forms      []formView
+	Dashboards []dashboardView
 }
 
 func renderTS(tmpl *template.Template, view any) (string, error) {

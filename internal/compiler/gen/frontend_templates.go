@@ -28,11 +28,80 @@ func mustTemplate(name, src string) *template.Template {
 }
 
 var (
-	tablePageTemplate  = mustTemplate("tablepage", tablePageSrc)
-	detailPageTemplate = mustTemplate("detailpage", detailPageSrc)
-	formPageTemplate   = mustTemplate("formpage", formPageSrc)
-	registryTemplate   = mustTemplate("registry", registrySrc)
+	tablePageTemplate     = mustTemplate("tablepage", tablePageSrc)
+	detailPageTemplate    = mustTemplate("detailpage", detailPageSrc)
+	formPageTemplate      = mustTemplate("formpage", formPageSrc)
+	dashboardPageTemplate = mustTemplate("dashboardpage", dashboardPageSrc)
+	registryTemplate      = mustTemplate("registry", registrySrc)
 )
+
+// dashboardPageSrc renders a dashboard (DESIGN.md §4.4): count cards showing a
+// real total per resource (read from the list handler's PageMeta, so no Gombit
+// change is needed) and recent-list sections. Recent lists render a heading and
+// a "View all" link to the resource's table page rather than records — actual
+// recent records need descending list ordering, deferred to gombit#260, and are
+// deliberately not faked with an ascending first-N fetch. There is no chart
+// designer (§30 non-goal).
+const dashboardPageSrc = `{{.Banner}}
+{{if .CountCards}}import { useEffect, useState } from "react";
+{{end}}{{if .HasLinks}}import { Link } from "react-router";
+{{end}}{{if .CountCards}}import { useApiClient } from "../../api/client";
+import { unwrap } from "../../api/generated/client";
+{{end}}
+export function {{.Component}}() {
+{{- if .CountCards}}
+  const client = useApiClient();
+  const [counts, setCounts] = useState<(number | null)[]>([{{range .CountCards}}null, {{end}}]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const next: (number | null)[] = [];
+{{- range .CountCards}}
+      try {
+        const listed = await unwrap(await client.GET("{{.CollectionPath}}", { params: { query: { per_page: 1 } } }));
+        next.push(listed.meta?.total ?? 0);
+      } catch {
+        next.push(null);
+      }
+{{- end}}
+      if (!cancelled) {
+        setCounts(next);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
+{{- end}}
+
+  return (
+    <section>
+      <h1>{ {{js .Title}} }</h1>
+{{- if .CountCards}}
+      <div className="count-cards">
+{{- range $i, $c := .CountCards}}
+        <div className="count-card">
+          <span className="count-card-label">{ {{js $c.Label}} }</span>
+          <strong className="count-card-value">{counts[{{$i}}] ?? "…"}</strong>
+        </div>
+{{- end}}
+      </div>
+{{- end}}
+{{- range .RecentLists}}
+      <section aria-label={ {{js .Label}} }>
+        <h2>{ {{js .Label}} }</h2>
+{{- if .ViewAllRoute}}
+        <p>
+          <Link to="/{{.ViewAllRoute}}">View all</Link>
+        </p>
+{{- end}}
+      </section>
+{{- end}}
+    </section>
+  );
+}
+`
 
 // tablePageSrc renders a resource_table page: a paginated table populated from
 // the collection GET, mirroring Gombit's own generated list page (openapi-fetch
@@ -416,6 +485,9 @@ import { {{.Component}} } from "./{{.Package}}/{{.Component}}";
 {{end -}}
 {{range .Tables -}}
 import { {{.Component}} } from "./{{.Package}}/{{.Component}}";
+{{end -}}
+{{range .Dashboards -}}
+import { {{.Component}} } from "./dashboard/{{.Component}}";
 {{end}}
 export type GeneratedResource = {
   slug: string;
@@ -424,12 +496,18 @@ export type GeneratedResource = {
 };
 
 export const generatedResources: GeneratedResource[] = [
+{{- range .Dashboards}}
+  { slug: "{{.Slug}}", title: {{js .Title}}, listPath: "/{{.Slug}}" },
+{{- end}}
 {{- range .Tables}}
   { slug: "{{.Slug}}", title: {{js .Title}}, listPath: "/{{.Slug}}" },
 {{- end}}
 ];
 
 export const generatedResourceRoutes: RouteObject[] = [
+{{- range .Dashboards}}
+  { path: "{{.Slug}}", element: <{{.Component}} /> },
+{{- end}}
 {{- range .Tables}}
   { path: "{{.Slug}}", element: <{{.Component}} /> },
 {{- end}}
