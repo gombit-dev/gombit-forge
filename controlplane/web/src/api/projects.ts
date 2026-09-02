@@ -284,6 +284,20 @@ export interface TableConfigInput {
 export const updateTableConfig = (projectID: number, pageID: string, input: TableConfigInput) =>
   api.patch<RevisionRef>(`/projects/${projectID}/pages/${encodeURIComponent(pageID)}/table`, input);
 
+// The form layouts the editor offers (DESIGN.md §18).
+export type FormLayout = "single_column" | "two_column" | "section_groups";
+
+// FormConfigInput is what the form-config editor sends; it replaces the whole
+// configuration.
+export interface FormConfigInput {
+  label: string;
+  layout?: "" | FormLayout;
+  fields?: string[];
+}
+
+export const updateFormConfig = (projectID: number, pageID: string, input: FormConfigInput) =>
+  api.patch<RevisionRef>(`/projects/${projectID}/pages/${encodeURIComponent(pageID)}/form`, input);
+
 export const listProjects = (orgID: number) => api.get<Project[]>(`/organizations/${orgID}/projects`);
 
 // NavItemInput is one navigation entry the editor sends. SetNavigation replaces

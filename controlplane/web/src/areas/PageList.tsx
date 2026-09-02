@@ -9,6 +9,7 @@ import {
   type SpecPage,
   type SpecResource,
 } from "../api/projects";
+import { FormConfigEditor } from "./FormConfigEditor";
 import { TableConfigEditor } from "./TableConfigEditor";
 
 // PageList renders a project's structured pages and the create/delete controls
@@ -109,9 +110,9 @@ function PageRow({
   const [expanded, setExpanded] = useState(false);
   const [pending, setPending] = useState(false);
 
-  // Only a resource_table page has a configuration to edit (form/detail/dashboard
+  // Resource table and form pages have a configuration to edit (detail/dashboard
   // builders are later M3 issues).
-  const configurable = page.type === "resource_table";
+  const configurable = page.type === "resource_table" || page.type === "resource_form";
 
   async function confirmDelete() {
     if (pending) return;
@@ -146,11 +147,20 @@ function PageRow({
         </span>
       </div>
 
-      {expanded && configurable && (
+      {/* Re-key on the persisted config so a reload that changed it remounts the
+          editor and re-seeds its state rather than showing stale values. */}
+      {expanded && page.type === "resource_table" && (
         <TableConfigEditor
-          // Re-key on the persisted config so a reload that changed it remounts
-          // the form and re-seeds its state rather than showing stale values.
           key={JSON.stringify(page.table ?? {}) + page.label}
+          projectID={projectID}
+          page={page}
+          resource={resource}
+          onChanged={onChanged}
+        />
+      )}
+      {expanded && page.type === "resource_form" && (
+        <FormConfigEditor
+          key={JSON.stringify(page.form ?? {}) + page.label}
           projectID={projectID}
           page={page}
           resource={resource}

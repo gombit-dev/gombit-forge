@@ -642,6 +642,32 @@ func (h *Handler) updateTableConfig(ctx context.Context, in *updateTableConfigIn
 	return candidateResponse(ctx, result)
 }
 
+type updateFormConfigInput struct {
+	ProjectID string `path:"projectID" doc:"Project identifier"`
+	PageID    string `path:"pageID" doc:"Page stable ID"`
+	Body      struct {
+		Label  string   `json:"label" minLength:"1" maxLength:"120" doc:"Human-readable page label"`
+		Layout string   `json:"layout,omitempty" enum:",single_column,two_column,section_groups" doc:"Form layout"`
+		Fields []string `json:"fields,omitempty" doc:"Ordered field IDs; must belong to the bound resource"`
+	}
+}
+
+func (h *Handler) updateFormConfig(ctx context.Context, in *updateFormConfigInput) (*submitCandidateOutput, error) {
+	p, user, err := h.loadAuthorized(ctx, in.ProjectID, org.CapProjectEdit)
+	if err != nil {
+		return nil, err
+	}
+	result, err := h.svc.UpdateFormConfig(ctx, p.ID, spec.ID(in.PageID), FormConfigInput{
+		Label:  in.Body.Label,
+		Layout: in.Body.Layout,
+		Fields: toIDs(in.Body.Fields),
+	}, user.ID)
+	if err != nil {
+		return nil, mapError(ctx, err, "update form config")
+	}
+	return candidateResponse(ctx, result)
+}
+
 type deletePageInput struct {
 	ProjectID string `path:"projectID" doc:"Project identifier"`
 	PageID    string `path:"pageID" doc:"Page stable ID"`

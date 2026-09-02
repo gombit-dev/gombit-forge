@@ -144,6 +144,58 @@ func tableConfigOrNil(in TableConfigInput) *spec.TableConfig {
 	}
 }
 
+// FormConfigInput is the human-facing configuration of a resource_form page: the
+// page's display label, the layout, and the ordered field subset. Field IDs must
+// belong to the page's bound resource — spec.Validate enforces that.
+type FormConfigInput struct {
+	Label  string
+	Layout string
+	Fields []spec.ID
+}
+
+// UpdateFormConfig sets a resource_form page's label and form configuration
+// (DESIGN.md §18, #52). It is ABI-neutral and commits, unless the result is
+// spec-invalid (an unsupported layout, or a field not on the bound resource).
+// The form block is dropped when the configuration is empty, so a page that
+// configures nothing stays on the graph's field defaults.
+func (s *Service) UpdateFormConfig(ctx context.Context, projectID uint, pageID spec.ID, in FormConfigInput, by uint) (CandidateResult, error) {
+	if strings.TrimSpace(in.Label) == "" {
+		return CandidateResult{}, fmt.Errorf("%w: a page label is required", ErrInvalidPageEdit)
+	}
+	var result CandidateResult
+	err := s.withLockedSpec(ctx, projectID, func(tx *gorm.DB, p Project, current *spec.ProjectSpec) error {
+		if current == nil {
+			return ErrNoSpec
+		}
+		candidate, err := current.Clone()
+		if err != nil {
+			return err
+		}
+		page := candidate.FindPage(pageID)
+		if page == nil {
+			return ErrPageNotFound
+		}
+		if page.Type != spec.PageResourceForm {
+			return fmt.Errorf("%w: only a resource_form page has a form configuration", ErrInvalidPageEdit)
+		}
+		page.Label = in.Label
+		page.Form = formConfigOrNil(in)
+		result, err = s.classifyAndInsertLocked(ctx, tx, p, current, candidate, by)
+		return err
+	})
+	return result, err
+}
+
+// formConfigOrNil builds a FormConfig from the input, or nil when it configures
+// nothing (so the page falls back to the graph's field defaults).
+func formConfigOrNil(in FormConfigInput) *spec.FormConfig {
+	layout := strings.TrimSpace(in.Layout)
+	if layout == "" && len(in.Fields) == 0 {
+		return nil
+	}
+	return &spec.FormConfig{Layout: layout, Fields: in.Fields}
+}
+
 // DeletePage removes a page. A page generates no extension contract, so its
 // removal is ABI-neutral and commits; a navigation entry that still points at
 // the page fails validation (a dangling reference) and is returned as

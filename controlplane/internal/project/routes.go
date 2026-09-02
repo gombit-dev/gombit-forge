@@ -214,6 +214,18 @@ func RegisterRoutes(api huma.API, prefix string, gate huma.Middlewares, svc *Ser
 	}, h.updateTableConfig)
 
 	huma.Register(api, huma.Operation{
+		OperationID:   "update-form-config",
+		Method:        http.MethodPatch,
+		Path:          prefix + "/projects/{projectID}/pages/{pageID}/form",
+		Summary:       "Configure a resource_form page (label, layout, field subset/order)",
+		Description:   "Replaces the page's form configuration; the client sends the complete configuration, not a delta. ABI-neutral.",
+		Tags:          tags,
+		Security:      security,
+		Middlewares:   gate,
+		DefaultStatus: http.StatusCreated,
+	}, h.updateFormConfig)
+
+	huma.Register(api, huma.Operation{
 		OperationID: "delete-page",
 		Method:      http.MethodDelete,
 		Path:        prefix + "/projects/{projectID}/pages/{pageID}",
