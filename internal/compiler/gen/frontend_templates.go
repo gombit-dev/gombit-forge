@@ -319,7 +319,7 @@ export function {{.Component}}() {
 // "" (only RFC 3339 or a missing/null key unmarshal). On success it navigates
 // to the resource's first table page, or the app root when it has none.
 const formPageSrc = `{{.Banner}}
-import { useState{{if .Update}}, useEffect{{end}} } from "react";
+import { useState{{if .NeedsEffect}}, useEffect{{end}} } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useNavigate{{if .Update}}, useParams{{end}} } from "react-router";
 
@@ -362,6 +362,32 @@ export function {{.Component}}() {
     setError,
     formState: { errors, isSubmitting },
   } = useForm<{{.Type}}FormValues>({ defaultValues: emptyValues });
+{{- range .RelationshipFields}}
+  const [{{.OptionsVar}}, set{{.OptionsVar}}] = useState<{ id: string; label: string }[]>([]);
+{{- end}}
+{{- if .RelationshipFields}}
+
+  // Populate the relationship selectors from each target resource's list.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+{{- range .RelationshipFields}}
+      try {
+        const listed = await unwrap(await client.GET("{{.TargetPath}}", { params: { query: { per_page: 100 } } }));
+        if (!cancelled) {
+          const rows = Array.isArray(listed.data) ? listed.data : [];
+          set{{.OptionsVar}}(rows.map((r: Record<string, unknown>) => ({ id: String(r.id), label: String(r["{{.DisplayField}}"] ?? r.id) })));
+        }
+      } catch {
+        // A failed options load leaves the selector empty rather than breaking the form.
+      }
+{{- end}}
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
+{{- end}}
 {{- if .Update}}
 
   useEffect(() => {
@@ -446,6 +472,13 @@ export function {{.Component}}() {
           <input type="checkbox" {...register("{{.JSONName}}")} />
 {{- else if eq .Input "number"}}
           <input type="number" {...register("{{.JSONName}}", { setValueAs: (value) => (value === "" ? 0 : Number(value)){{if .Required}}, required: {{js (printf "%s is required" .Label)}}{{end}} })} />
+{{- else if eq .Input "relationship"}}
+          <select {...register("{{.JSONName}}", { setValueAs: (value) => (value === "" ? 0 : Number(value)){{if .Required}}, required: {{js (printf "%s is required" .Label)}}{{end}} })}>
+            <option value="">—</option>
+            {{"{"}}{{.OptionsVar}}.map((o) => (
+              <option key={o.id} value={o.id}>{o.label}</option>
+            )){{"}"}}
+          </select>
 {{- else if eq .Input "select"}}
           <select {...register("{{.JSONName}}"{{if .Required}}, { required: {{js (printf "%s is required" .Label)}} }{{end}})}>
             <option value="">—</option>

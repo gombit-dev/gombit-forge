@@ -257,6 +257,12 @@ type formView struct {
 	Layout string
 
 	Fields []frontendField
+	// RelationshipFields is the belongs_to subset of Fields, for which the form
+	// fetches selector options from the target resource's list.
+	RelationshipFields []frontendField
+	// NeedsEffect is true when the form uses a load effect — for editing (Update)
+	// or to populate relationship selectors — so useEffect is imported only then.
+	NeedsEffect bool
 }
 
 // tableView is the template data for one resource_table page.
@@ -310,6 +316,23 @@ type frontendField struct {
 	// key unmarshals fine, and optional fields carry omitempty so the key is
 	// optional in the request schema.
 	OmitEmpty bool
+
+	// Relationship fields, set only when Input is "relationship" (a belongs_to):
+	// the form renders a selector populated from the target resource's list.
+	OptionsVar   string // the generated options state variable, e.g. CustomerOptions
+	TargetPath   string // the target resource's API collection path
+	DisplayField string // the target field shown per option (storage name), or "id"
+}
+
+// displayFieldOf picks the target resource's field to show per relationship
+// option: the first string/text field (a human-readable label), else "id".
+func displayFieldOf(target *graph.Resource) string {
+	for _, field := range target.Fields {
+		if field.Spec.Type == spec.TypeString || field.Spec.Type == spec.TypeText {
+			return field.Spec.StorageName
+		}
+	}
+	return "id"
 }
 
 // rfc3339Placeholder is the format hint shown in a date/datetime text input.
@@ -468,8 +491,13 @@ func newFormView(g *graph.Graph, page *graph.Page) formView {
 	// The form honors FormConfig (#52): the graph resolves page.FormFields to the
 	// configured subset/order, or every field in authored order by default.
 	for _, field := range page.FormFields {
-		view.Fields = append(view.Fields, frontendFieldFor(field))
+		fv := frontendFieldFor(field)
+		view.Fields = append(view.Fields, fv)
+		if fv.Input == "relationship" {
+			view.RelationshipFields = append(view.RelationshipFields, fv)
+		}
 	}
+	view.NeedsEffect = view.Update || len(view.RelationshipFields) > 0
 	return view
 }
 
@@ -542,8 +570,17 @@ func frontendFieldFor(field *graph.Field) frontendField {
 		Input:    "text",
 	}
 	switch field.Spec.Type {
-	case spec.TypeInteger, spec.TypeBelongsTo:
+	case spec.TypeInteger:
 		f.TSType, f.Input = "number", "number"
+	case spec.TypeBelongsTo:
+		// A belongs_to renders as a relationship selector: a numeric FK whose
+		// options come from the target resource's list (DESIGN.md §18). The graph
+		// resolves the target over a valid spec, so Relationship is non-nil here.
+		f.TSType, f.Input = "number", "relationship"
+		target := field.Relationship.To
+		f.OptionsVar = field.Spec.CodeName + "Options"
+		f.TargetPath = "/api/v1/" + kebab(target.Spec.StorageName)
+		f.DisplayField = displayFieldOf(target)
 	case spec.TypeDecimal:
 		// A decimal is carried as a string to avoid float rounding. Like a
 		// time, decimal.Decimal rejects "" on unmarshal, so an empty one is
