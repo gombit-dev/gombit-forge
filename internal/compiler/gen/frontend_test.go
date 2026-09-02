@@ -113,7 +113,8 @@ func TestFrontendFieldInputs(t *testing.T) {
 		{"enum is a select", customer, `<select {...register("tier")`},
 		{"enum option free", customer, `<option value="free">{ "free" }</option>`},
 		{"datetime is text (RFC3339 round-trips)", customer, `<input type="text" placeholder="YYYY-MM-DDTHH:MM:SSZ" {...register("joined_at")`},
-		{"belongs_to FK is number", invoice, `<input type="number" {...register("customer_id"`},
+		{"belongs_to is a relationship select", invoice, `<select {...register("customer_id"`},
+		{"relationship options from the target", invoice, `{CustomerOptions.map((o) => (`},
 		{"decimal is text", invoice, `<input type="text" {...register("total"`},
 	}
 	for _, c := range checks {
@@ -829,6 +830,32 @@ func TestFrontendDetailRelatedWithoutTablePage(t *testing.T) {
 	}
 	if strings.Contains(detail, "View all") {
 		t.Error("no View all link when the related resource has no table page")
+	}
+}
+
+// TestFrontendRelationshipSelector is the #52 acceptance point: a belongs_to
+// field renders as a relationship selector whose options load from the target
+// resource's list, showing the target's first text field.
+func TestFrontendRelationshipSelector(t *testing.T) {
+	// buildGraph2: Invoice belongs_to Customer; Customer's first string field is
+	// Email (storage contact_email).
+	form := frontendFiles(t, buildGraph2(t))["frontend/src/forge_generated/invoice/EditInvoiceFormPage.tsx"]
+
+	for _, want := range []string{
+		`const [CustomerOptions, setCustomerOptions] = useState<{ id: string; label: string }[]>([]);`,
+		`await client.GET("/api/v1/customers", { params: { query: { per_page: 100 } } })`,
+		`label: String(r["contact_email"] ?? r.id)`,
+		`<select {...register("customer_id"`,
+		`{CustomerOptions.map((o) => (`,
+		`<option key={o.id} value={o.id}>{o.label}</option>`,
+	} {
+		if !strings.Contains(form, want) {
+			t.Errorf("relationship selector must contain %q\n%s", want, form)
+		}
+	}
+	// The FK is still numeric on submit.
+	if !strings.Contains(form, "customer_id: number;") {
+		t.Error("belongs_to FK stays a number in the form values")
 	}
 }
 
