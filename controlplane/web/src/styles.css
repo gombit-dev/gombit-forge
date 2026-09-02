@@ -457,6 +457,69 @@ button:disabled {
   margin-top: 0.25rem;
 }
 
+.page-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-width: 560px;
+}
+
+.page-list li {
+  padding: 0.6rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.page-list li:last-child {
+  border-bottom: none;
+}
+
+.page-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.page-label {
+  font-weight: 600;
+}
+
+.page-slug {
+  font-family: ui-monospace, monospace;
+  font-size: 0.82rem;
+}
+
+.page-form {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 0.6rem 0.9rem;
+}
+
+.page-form.add {
+  margin-top: 0.75rem;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  max-width: 560px;
+}
+
+.page-form input,
+.page-form select {
+  font: inherit;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.page-form button[type="submit"] {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
 .health-panel {
   margin-bottom: 1rem;
   padding: 0.6rem 0.9rem;

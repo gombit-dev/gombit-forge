@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { DataArea } from "../areas/DataArea";
+import { PagesArea } from "../areas/PagesArea";
 
 // The four editor areas (DESIGN.md §17). This is the single source of truth for
 // navigation and routing, so the shell nav and the router can never disagree
@@ -17,7 +18,7 @@ export interface EditorArea {
 
 export const AREAS: EditorArea[] = [
   { path: "data", label: "Data", summary: "Resource tree and field editor.", element: <DataArea /> },
-  { path: "pages", label: "Pages", summary: "Page list and structured page properties." },
+  { path: "pages", label: "Pages", summary: "Page list and structured page properties.", element: <PagesArea /> },
   { path: "access", label: "Access", summary: "Users, groups and permission configuration." },
   { path: "deploy", label: "Deploy", summary: "Preview, build history, production deployment and logs." },
 ];

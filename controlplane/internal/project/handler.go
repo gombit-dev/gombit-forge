@@ -585,6 +585,50 @@ func (h *Handler) addRelationship(ctx context.Context, in *addRelationshipInput)
 	return candidateResponse(ctx, result)
 }
 
+// --- page operations -------------------------------------------------------
+
+type addPageInput struct {
+	ProjectID string `path:"projectID" doc:"Project identifier"`
+	Body      struct {
+		Label    string `json:"label" minLength:"1" maxLength:"120" doc:"Human-readable page label"`
+		Type     string `json:"type" enum:"resource_table,resource_form,resource_detail,dashboard" doc:"MVP page type"`
+		Resource string `json:"resource,omitempty" doc:"Bound resource stable ID; required for every type except dashboard"`
+	}
+}
+
+func (h *Handler) addPage(ctx context.Context, in *addPageInput) (*submitCandidateOutput, error) {
+	p, user, err := h.loadAuthorized(ctx, in.ProjectID, org.CapProjectEdit)
+	if err != nil {
+		return nil, err
+	}
+	result, err := h.svc.AddPage(ctx, p.ID, PageInput{
+		Label:    in.Body.Label,
+		Type:     spec.PageType(in.Body.Type),
+		Resource: spec.ID(in.Body.Resource),
+	}, user.ID)
+	if err != nil {
+		return nil, mapError(ctx, err, "add page")
+	}
+	return candidateResponse(ctx, result)
+}
+
+type deletePageInput struct {
+	ProjectID string `path:"projectID" doc:"Project identifier"`
+	PageID    string `path:"pageID" doc:"Page stable ID"`
+}
+
+func (h *Handler) deletePage(ctx context.Context, in *deletePageInput) (*submitCandidateOutput, error) {
+	p, user, err := h.loadAuthorized(ctx, in.ProjectID, org.CapProjectEdit)
+	if err != nil {
+		return nil, err
+	}
+	result, err := h.svc.DeletePage(ctx, p.ID, spec.ID(in.PageID), user.ID)
+	if err != nil {
+		return nil, mapError(ctx, err, "delete page")
+	}
+	return candidateResponse(ctx, result)
+}
+
 // --- helpers ---------------------------------------------------------------
 
 // caller extracts the authenticated user the cookie gate guarantees.
@@ -666,6 +710,12 @@ func mapError(ctx context.Context, err error, action string) error {
 	case errors.Is(err, ErrInvalidFieldEdit):
 		return contract.WithContext(ctx, contract.Validation("invalid field", map[string][]string{
 			"type": {"must be a supported MVP field type"},
+		}))
+	case errors.Is(err, ErrPageNotFound):
+		return contract.WithContext(ctx, contract.NotFound("page not found"))
+	case errors.Is(err, ErrInvalidPageEdit):
+		return contract.WithContext(ctx, contract.Validation("invalid page edit", map[string][]string{
+			"type": {"must be a supported page type with a matching resource binding"},
 		}))
 	case errors.Is(err, org.ErrNotMember), errors.Is(err, org.ErrForbidden):
 		return contract.WithContext(ctx, contract.Authorization("not permitted"))

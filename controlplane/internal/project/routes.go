@@ -189,4 +189,25 @@ func RegisterRoutes(api huma.API, prefix string, gate huma.Middlewares, svc *Ser
 		Middlewares:   gate,
 		DefaultStatus: http.StatusCreated,
 	}, h.addRelationship)
+
+	huma.Register(api, huma.Operation{
+		OperationID:   "add-page",
+		Method:        http.MethodPost,
+		Path:          prefix + "/projects/{projectID}/pages",
+		Summary:       "Add a structured page (table, form, detail or dashboard); the backend derives its slug",
+		Tags:          tags,
+		Security:      security,
+		Middlewares:   gate,
+		DefaultStatus: http.StatusCreated,
+	}, h.addPage)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "delete-page",
+		Method:      http.MethodDelete,
+		Path:        prefix + "/projects/{projectID}/pages/{pageID}",
+		Summary:     "Delete a page (ABI-neutral; commits unless a nav entry still references it)",
+		Tags:        tags,
+		Security:    security,
+		Middlewares: gate,
+	}, h.deletePage)
 }
