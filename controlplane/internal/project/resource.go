@@ -16,9 +16,13 @@ import (
 // Resource-tree operations (DESIGN.md §17 Data, ADR-001 §5, §45-46). These are
 // the authoritative resource mutations: the caller supplies human-readable
 // labels only, and the backend mints the frozen code symbol and derives the
-// storage name (symbol allocation is not the editor's job), then routes the
-// result through SubmitCandidate so every edit is validated and ABI-classified
-// like any other candidate.
+// storage name (symbol allocation is not the editor's job).
+//
+// Each op builds its candidate from the head loaded *inside* the project lock
+// (withLockedSpec) and commits it in the same transaction, so a concurrent edit
+// that committed first is reflected in the candidate rather than silently lost —
+// there is no read-modify-write window, and every revision genuinely descends
+// from its recorded parent (the append-only lineage of ADR-001 §60).
 
 var (
 	// ErrResourceNotFound means the project's current spec has no resource with
@@ -40,31 +44,41 @@ func (s *Service) AddResource(ctx context.Context, projectID uint, label, labelP
 	if strings.TrimSpace(label) == "" {
 		return CandidateResult{}, fmt.Errorf("%w: a resource label is required", ErrInvalidResourceEdit)
 	}
-	current, err := s.headSpecOrBootstrap(ctx, projectID)
-	if err != nil {
-		return CandidateResult{}, err
-	}
+	var result CandidateResult
+	err := s.withLockedSpec(ctx, projectID, func(tx *gorm.DB, p Project, current *spec.ProjectSpec) error {
+		// Build the candidate from the locked head (or a bootstrap for an empty
+		// project). Because current is read inside the lock, a concurrent edit that
+		// committed first is already reflected here and cannot be lost.
+		candidate := bootstrapSpec(p)
+		if current != nil {
+			c, err := current.Clone()
+			if err != nil {
+				return err
+			}
+			candidate = c
+		}
 
-	// Mint the frozen code symbol against the live resource symbols, and derive a
-	// collision-free storage name.
-	ledger := resourceLedger(current)
-	resID := spec.MustNewID(spec.KindResource)
-	codeName, err := spec.Mint(ledger, spec.NamespaceResource, label, resID, nil)
-	if err != nil {
-		return CandidateResult{}, fmt.Errorf("mint resource symbol: %w", err)
-	}
+		ledger := resourceLedger(candidate)
+		resID := spec.MustNewID(spec.KindResource)
+		codeName, err := spec.Mint(ledger, spec.NamespaceResource, label, resID, nil)
+		if err != nil {
+			return fmt.Errorf("mint resource symbol: %w", err)
+		}
+		candidate.Resources = append(candidate.Resources, &spec.Resource{
+			ID:          resID,
+			Label:       label,
+			LabelPlural: labelPlural,
+			CodeName:    codeName,
+			StorageName: deriveStorageName(labelPlural, label, candidate),
+			Behavior: spec.ResourceBehavior{
+				CreateEnabled: true, UpdateEnabled: true, DeleteEnabled: true, AdminVisible: true,
+			},
+		})
 
-	current.Resources = append(current.Resources, &spec.Resource{
-		ID:          resID,
-		Label:       label,
-		LabelPlural: labelPlural,
-		CodeName:    codeName,
-		StorageName: deriveStorageName(labelPlural, label, current),
-		Behavior: spec.ResourceBehavior{
-			CreateEnabled: true, UpdateEnabled: true, DeleteEnabled: true, AdminVisible: true,
-		},
+		result, err = s.classifyAndInsertLocked(ctx, tx, p, current, candidate, by)
+		return err
 	})
-	return s.SubmitCandidate(ctx, projectID, current, by)
+	return result, err
 }
 
 // RenameResource changes a resource's human-facing labels only (DESIGN.md §4.3).
@@ -74,17 +88,25 @@ func (s *Service) RenameResource(ctx context.Context, projectID uint, resourceID
 	if strings.TrimSpace(label) == "" {
 		return CandidateResult{}, fmt.Errorf("%w: a resource label is required", ErrInvalidResourceEdit)
 	}
-	current, err := s.headSpec(ctx, projectID)
-	if err != nil {
-		return CandidateResult{}, err
-	}
-	r := current.FindResource(resourceID)
-	if r == nil {
-		return CandidateResult{}, ErrResourceNotFound
-	}
-	r.Label = label
-	r.LabelPlural = labelPlural
-	return s.SubmitCandidate(ctx, projectID, current, by)
+	var result CandidateResult
+	err := s.withLockedSpec(ctx, projectID, func(tx *gorm.DB, p Project, current *spec.ProjectSpec) error {
+		if current == nil {
+			return ErrNoSpec
+		}
+		candidate, err := current.Clone()
+		if err != nil {
+			return err
+		}
+		r := candidate.FindResource(resourceID)
+		if r == nil {
+			return ErrResourceNotFound
+		}
+		r.Label = label
+		r.LabelPlural = labelPlural
+		result, err = s.classifyAndInsertLocked(ctx, tx, p, current, candidate, by)
+		return err
+	})
+	return result, err
 }
 
 // ResourceDeletion is the result of DeleteResource: either the delete committed
@@ -108,82 +130,70 @@ type ResourceDeletion struct {
 // §45). If anything in the candidate still references it the delete is blocked
 // and nothing is committed; otherwise the candidate is submitted.
 func (s *Service) DeleteResource(ctx context.Context, projectID uint, resourceID spec.ID, by uint) (ResourceDeletion, error) {
-	current, err := s.headSpec(ctx, projectID)
-	if err != nil {
-		return ResourceDeletion{}, err
-	}
-	target := current.FindResource(resourceID)
-	if target == nil {
-		return ResourceDeletion{}, ErrResourceNotFound
-	}
-
-	candidate, err := current.Clone()
-	if err != nil {
-		return ResourceDeletion{}, fmt.Errorf("clone spec: %w", err)
-	}
-	candidate.Resources = removeResource(candidate.Resources, resourceID)
-
-	// Deletion-centric dependency analysis before generation (§45): report what
-	// still binds the resource rather than a bare dangling-reference diagnostic.
-	deletions := compiler.AnalyzeDeletions(current, candidate)
-	if blocked := compiler.BlockedDeletions(deletions); len(blocked) > 0 {
-		return ResourceDeletion{Blocked: true, Blockers: blocked[0].Blockers, HadExtension: blocked[0].HadExtension}, nil
-	}
-
-	// A deletion is inherently ABI-breaking — the resource's generated contracts
-	// vanish — but it does not go through the candidate ABI gate: once
-	// dependencies are cleared, §45-46 make the delete an authorized operation
-	// whose orphaned extension code is archived at build time (Gombit Cloud),
-	// not a candidate that must prove its user code still compiles. So it commits
-	// directly, after a validity check that catches a delete which leaves the
-	// spec malformed (e.g. removing the project's last resource).
-	if d := spec.Validate(candidate); d != nil {
-		return ResourceDeletion{Diagnostics: d}, nil
-	}
-	hadExtension := len(target.Hooks) > 0
-	rev, err := s.CreateRevision(ctx, projectID, candidate, by)
-	if err != nil {
-		return ResourceDeletion{}, err
-	}
-	return ResourceDeletion{Committed: true, Revision: &rev, HadExtension: hadExtension}, nil
-}
-
-// headSpec loads the project's current spec, or ErrNoSpec when it has no
-// revisions yet.
-func (s *Service) headSpec(ctx context.Context, projectID uint) (*spec.ProjectSpec, error) {
-	head, ok, err := s.Head(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, ErrNoSpec
-	}
-	return spec.Unmarshal([]byte(head.SpecJSON))
-}
-
-// headSpecOrBootstrap loads the current spec, or builds a fresh one from the
-// project row when there are no revisions yet.
-func (s *Service) headSpecOrBootstrap(ctx context.Context, projectID uint) (*spec.ProjectSpec, error) {
-	head, ok, err := s.Head(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-	if ok {
-		return spec.Unmarshal([]byte(head.SpecJSON))
-	}
-	var p Project
-	if err := s.db.WithContext(ctx).First(&p, projectID).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrProjectNotFound
+	var del ResourceDeletion
+	err := s.withLockedSpec(ctx, projectID, func(tx *gorm.DB, p Project, current *spec.ProjectSpec) error {
+		if current == nil {
+			return ErrNoSpec
 		}
-		return nil, fmt.Errorf("load project: %w", err)
-	}
+		target := current.FindResource(resourceID)
+		if target == nil {
+			return ErrResourceNotFound
+		}
+		candidate, err := current.Clone()
+		if err != nil {
+			return err
+		}
+		candidate.Resources = removeResource(candidate.Resources, resourceID)
+
+		// Deletion-centric dependency analysis before generation (§45): report what
+		// still binds the resource rather than a bare dangling-reference diagnostic.
+		deletions := compiler.AnalyzeDeletions(current, candidate)
+		if blocked := compiler.BlockedDeletions(deletions); len(blocked) > 0 {
+			del = ResourceDeletion{Blocked: true, Blockers: blocked[0].Blockers, HadExtension: blocked[0].HadExtension}
+			return nil // commit the no-op locking read; nothing appended
+		}
+
+		// A deletion is inherently ABI-breaking — the resource's generated contracts
+		// vanish — but it does not go through the candidate ABI gate: once
+		// dependencies are cleared, §45-46 make the delete an authorized operation
+		// whose orphaned extension code is archived at build time (Gombit Cloud),
+		// not a candidate that must prove its user code still compiles. So it commits
+		// directly, after a validity check that catches a delete which leaves the
+		// spec malformed (e.g. removing the project's last resource). Building the
+		// candidate from the locked head means the revision genuinely descends from
+		// its recorded parent — no forged lineage under a concurrent edit.
+		if d := spec.Validate(candidate); d != nil {
+			del = ResourceDeletion{Diagnostics: d}
+			return nil
+		}
+		canonical, err := spec.Marshal(candidate)
+		if err != nil {
+			return fmt.Errorf("canonicalize spec: %w", err)
+		}
+		hash, err := spec.Hash(candidate)
+		if err != nil {
+			return fmt.Errorf("hash spec: %w", err)
+		}
+		rev, err := s.insertRevisionLocked(ctx, tx, p, candidate.SpecVersion, canonical, hash, by)
+		if err != nil {
+			return err
+		}
+		del = ResourceDeletion{Committed: true, Revision: &rev, HadExtension: len(target.Hooks) > 0}
+		return nil
+	})
+	return del, err
+}
+
+// bootstrapSpec builds a project's initial spec from its row when it has no
+// revisions yet: the control plane's locked defaults, postgres (D4) and cookie
+// auth (D5), and no resources — the first AddResource fills that in.
+func bootstrapSpec(p Project) *spec.ProjectSpec {
 	return &spec.ProjectSpec{
 		SpecVersion: spec.SpecVersion,
 		Project:     spec.Project{ID: spec.MustNewID(spec.KindProject), Name: p.Name, Slug: p.Slug},
 		Database:    spec.Database{Driver: spec.DriverPostgres},
 		Auth:        spec.Auth{Mode: spec.AuthCookie},
-	}, nil
+	}
 }
 
 // resourceLedger reconstructs the resource-symbol ledger from a spec's live

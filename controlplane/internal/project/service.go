@@ -142,6 +142,62 @@ type CandidateResult struct {
 // ValidateCandidate). It is returned as OutcomeBreaking with its reasons so the
 // editor can surface the incompatibility and offer the compatibility path.
 func (s *Service) SubmitCandidate(ctx context.Context, projectID uint, candidate *spec.ProjectSpec, submittedBy uint) (CandidateResult, error) {
+	var result CandidateResult
+	err := s.withLockedSpec(ctx, projectID, func(tx *gorm.DB, p Project, current *spec.ProjectSpec) error {
+		var err error
+		result, err = s.classifyAndInsertLocked(ctx, tx, p, current, candidate, submittedBy)
+		return err
+	})
+	if err != nil {
+		if errors.Is(err, ErrProjectNotFound) {
+			return CandidateResult{}, err
+		}
+		return CandidateResult{}, fmt.Errorf("submit candidate: %w", err)
+	}
+	return result, nil
+}
+
+// withLockedSpec runs fn inside a transaction that locks the project row FOR
+// UPDATE and loads the project's current head spec — nil when there are no
+// revisions yet. Loading the current spec inside the lock is what lets the
+// resource operations build a candidate from the true head and commit it without
+// a read-modify-write window: no concurrent revision can slip between the read
+// and the append (the append-only lineage of ADR-001 §60 depends on this).
+func (s *Service) withLockedSpec(ctx context.Context, projectID uint, fn func(tx *gorm.DB, p Project, current *spec.ProjectSpec) error) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var p Project
+		lock := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&p, projectID)
+		if errors.Is(lock.Error, gorm.ErrRecordNotFound) {
+			return ErrProjectNotFound
+		}
+		if lock.Error != nil {
+			return lock.Error
+		}
+		var current *spec.ProjectSpec
+		if p.HeadRevisionID != nil {
+			var head Revision
+			if err := tx.First(&head, *p.HeadRevisionID).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return fmt.Errorf("%w: project %d head %d", ErrCorruptLineage, projectID, *p.HeadRevisionID)
+				}
+				return err
+			}
+			s2, err := spec.Unmarshal([]byte(head.SpecJSON))
+			if err != nil {
+				return fmt.Errorf("decode head spec: %w", err)
+			}
+			current = s2
+		}
+		return fn(tx, p, current)
+	})
+}
+
+// classifyAndInsertLocked validates the candidate, classifies it against the
+// already-loaded current spec, and appends a revision for a neutral or additive
+// transition — all on the caller's locked transaction. A breaking transition is
+// classified but not committed (§41); an invalid spec is reported, not inserted.
+// current is nil for a project's first revision.
+func (s *Service) classifyAndInsertLocked(ctx context.Context, tx *gorm.DB, p Project, current, candidate *spec.ProjectSpec, by uint) (CandidateResult, error) {
 	if d := spec.Validate(candidate); d != nil {
 		return CandidateResult{Outcome: OutcomeInvalidSpec, Diagnostics: d}, nil
 	}
@@ -154,60 +210,24 @@ func (s *Service) SubmitCandidate(ctx context.Context, projectID uint, candidate
 		return CandidateResult{}, fmt.Errorf("hash spec: %w", err)
 	}
 
-	var result CandidateResult
-	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var p Project
-		lock := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&p, projectID)
-		if errors.Is(lock.Error, gorm.ErrRecordNotFound) {
-			return ErrProjectNotFound
-		}
-		if lock.Error != nil {
-			return lock.Error
-		}
-
-		var class string
-		var reasons []string
-		if p.HeadRevisionID != nil {
-			var head Revision
-			if err := tx.First(&head, *p.HeadRevisionID).Error; err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					return fmt.Errorf("%w: project %d head %d", ErrCorruptLineage, projectID, *p.HeadRevisionID)
-				}
-				return err
-			}
-			current, err := spec.Unmarshal([]byte(head.SpecJSON))
-			if err != nil {
-				return fmt.Errorf("decode head spec: %w", err)
-			}
-			transition, err := compiler.ClassifyEdit(current, candidate)
-			if err != nil {
-				return fmt.Errorf("classify candidate: %w", err)
-			}
-			class = transition.Class.String()
-			reasons = transition.Reasons
-			if transition.Class == gen.ClassBreaking {
-				// Do not commit: a breaking transition needs a compatibility build
-				// the request path may not run. The transaction did only a locking
-				// read, so it commits as a no-op.
-				result = CandidateResult{Outcome: OutcomeBreaking, Class: class, Reasons: reasons}
-				return nil
-			}
-		}
-
-		rev, err := s.insertRevisionLocked(ctx, tx, p, candidate.SpecVersion, canonical, hash, submittedBy)
+	var class string
+	var reasons []string
+	if current != nil {
+		transition, err := compiler.ClassifyEdit(current, candidate)
 		if err != nil {
-			return err
+			return CandidateResult{}, fmt.Errorf("classify candidate: %w", err)
 		}
-		result = CandidateResult{Outcome: OutcomeCommitted, Revision: &rev, Class: class, Reasons: reasons}
-		return nil
-	})
-	if err != nil {
-		if errors.Is(err, ErrProjectNotFound) {
-			return CandidateResult{}, err
+		class = transition.Class.String()
+		reasons = transition.Reasons
+		if transition.Class == gen.ClassBreaking {
+			return CandidateResult{Outcome: OutcomeBreaking, Class: class, Reasons: reasons}, nil
 		}
-		return CandidateResult{}, fmt.Errorf("submit candidate: %w", err)
 	}
-	return result, nil
+	rev, err := s.insertRevisionLocked(ctx, tx, p, candidate.SpecVersion, canonical, hash, by)
+	if err != nil {
+		return CandidateResult{}, err
+	}
+	return CandidateResult{Outcome: OutcomeCommitted, Revision: &rev, Class: class, Reasons: reasons}, nil
 }
 
 // CreateRevision records an accepted candidate spec as a new immutable revision

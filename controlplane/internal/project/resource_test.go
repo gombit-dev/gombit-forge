@@ -3,6 +3,7 @@ package project_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/dbtest"
@@ -201,6 +202,56 @@ func TestDeleteResourceBlockedByRelationship(t *testing.T) {
 	// Nothing committed: head is still the seed revision (both resources present).
 	if len(headSpec(t, svc, p.ID).Resources) != 2 {
 		t.Error("a blocked delete must not change the spec")
+	}
+}
+
+// TestConcurrentAddsNeverLose is the concurrency guard the review asked for: N
+// resources added at once must all survive. Each op builds its candidate from
+// the head read inside the project lock, so concurrent adds serialize and each
+// sees the others' commits — none is lost, and no revision forges a parent it
+// did not descend from. Against the old read-modify-write (candidate built from a
+// head read outside the lock) the stale candidates read as removing each other's
+// resources and most would be rejected, leaving fewer than N.
+func TestConcurrentAddsNeverLose(t *testing.T) {
+	db := dbtest.DB(t)
+	seedFKDeps(t, db)
+	svc := project.NewService(db)
+	ctx := context.Background()
+
+	p, _ := svc.CreateProject(ctx, 1, "Acme", "acme", 7)
+	// Seed a base resource so the concurrent adds edit a non-empty spec.
+	if _, err := svc.AddResource(ctx, p.ID, "Base", "Bases", 7); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	const n = 5
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	committed := 0
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			res, err := svc.AddResource(ctx, p.ID, "Item", "Items", 7)
+			if err == nil && res.Outcome == project.OutcomeCommitted {
+				mu.Lock()
+				committed++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+
+	if committed != n {
+		t.Errorf("committed %d of %d concurrent adds; some were lost or rejected", committed, n)
+	}
+	// The final spec holds base + all n adds, and remains valid (unique symbols).
+	s := headSpec(t, svc, p.ID)
+	if len(s.Resources) != n+1 {
+		t.Errorf("final spec has %d resources, want %d (base + %d)", len(s.Resources), n+1, n)
+	}
+	if d := spec.Validate(s); d != nil {
+		t.Errorf("final spec invalid:\n%s", d.Error())
 	}
 }
 
