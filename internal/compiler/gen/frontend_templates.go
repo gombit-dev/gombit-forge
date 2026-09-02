@@ -114,7 +114,11 @@ export function {{.Component}}() {
           {rows.map((row) => (
             <tr key={String(row.id)}>
               <td>
-                <Link to={` + "`/{{.RouteBase}}/${row.id}`" + `}>{String(row.id)}</Link>
+{{- if .DetailRoute}}
+                <Link to={` + "`/{{.DetailRoute}}/${row.id}`" + `}>{String(row.id)}</Link>
+{{- else}}
+                {String(row.id)}
+{{- end}}
               </td>
 {{- range .Columns}}
               <td>{String(row["{{.JSONName}}"] ?? "")}</td>
@@ -143,8 +147,11 @@ export function {{.Component}}() {
 }
 `
 
-// detailPageSrc renders a single record fetched by id. Its "back to list" link
-// targets the resource's first table page and is omitted when it has none.
+// detailPageSrc renders a single record fetched by id (page-driven, #53). It
+// shows the record's own fields and a section per has_many relationship, each
+// linking to the related resource's table page when it has one. Its "back to
+// list" link targets the resource's first table page and is omitted when it has
+// none. Embedded related records await server-side list filtering in Gombit.
 const detailPageSrc = `{{.Banner}}
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
@@ -157,7 +164,7 @@ type GetResponse =
   paths["{{.CollectionPath}}/{id}"]["get"]["responses"][200]["content"]["application/json"];
 type {{.Type}}Record = NonNullable<GetResponse["data"]>;
 
-export function {{.Type}}DetailPage() {
+export function {{.Component}}() {
   const client = useApiClient();
   const { id = "" } = useParams();
   const [record, setRecord] = useState<{{.Type}}Record | null>(null);
@@ -213,6 +220,21 @@ export function {{.Type}}DetailPage() {
 {{- end}}
         </dl>
       ) : null}
+{{- if .Related}}
+      <section aria-label="Related records">
+        <h2>Related</h2>
+{{- range .Related}}
+        <div aria-label={ {{js .Label}} }>
+          <h3>{ {{js .Label}} }</h3>
+{{- if .ViewAllRoute}}
+          <p>
+            <Link to="/{{.ViewAllRoute}}">View all { {{js .Label}} }</Link>
+          </p>
+{{- end}}
+        </div>
+{{- end}}
+      </section>
+{{- end}}
       {status ? <p>{status}</p> : null}
     </section>
   );
@@ -386,8 +408,8 @@ export function {{.Component}}() {
 const registrySrc = `{{.Banner}}
 import type { RouteObject } from "react-router";
 
-{{range .Resources -}}
-import { {{.Type}}DetailPage } from "./{{.Package}}/{{.Type}}DetailPage";
+{{range .Details -}}
+import { {{.Component}} } from "./{{.Package}}/{{.Component}}";
 {{end -}}
 {{range .Forms -}}
 import { {{.Component}} } from "./{{.Package}}/{{.Component}}";
@@ -419,8 +441,8 @@ export const generatedResourceRoutes: RouteObject[] = [
   { path: "{{.Slug}}/:id/edit", element: <{{.Component}} /> },
 {{- end}}
 {{- end}}
-{{- range .Resources}}
-  { path: "{{.RouteBase}}/:id", element: <{{.Type}}DetailPage /> },
+{{- range .Details}}
+  { path: "{{.Slug}}/:id", element: <{{.Component}} /> },
 {{- end}}
 ];
 `

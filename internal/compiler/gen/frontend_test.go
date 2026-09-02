@@ -151,10 +151,10 @@ func TestFrontendRegistryRoutes(t *testing.T) {
 		`import { EditCustomerFormPage } from "./customer/EditCustomerFormPage"`,
 		`import { CustomersTablePage } from "./customer/CustomersTablePage"`,
 		`{ path: "customers", element: <CustomersTablePage /> }`,
-		// Form routes are page-driven: the create/edit UI lives at the form page's
-		// own slug, not the resource route base.
+		// Form and detail routes are page-driven: the UI lives at the page's own
+		// slug, not the resource route base.
 		`{ path: "edit-customer/new", element: <EditCustomerFormPage /> }`,
-		`{ path: "customers/:id", element: <CustomerDetailPage /> }`,
+		`{ path: "customer/:id", element: <CustomerDetailPage /> }`,
 		`{ path: "edit-customer/:id/edit", element: <EditCustomerFormPage /> }`,
 		`{ slug: "customers", title: "Customers", listPath: "/customers" }`,
 		`export const generatedResourceRoutes: RouteObject[]`,
@@ -633,6 +633,79 @@ func TestFrontendMultipleTablesPerResource(t *testing.T) {
 	}
 }
 
+// TestFrontendDetailRelatedSections is the #53 acceptance point: a page-driven
+// detail renders its own fields plus a section per has_many relationship, with a
+// "View all" link to the related resource's table page when it has one. It does
+// not embed related records (that awaits Gombit list filtering).
+func TestFrontendDetailRelatedSections(t *testing.T) {
+	files := frontendFiles(t, buildGraph2(t))
+	// buildGraph2 has Invoice belongs_to Customer, and an invoices table page.
+	detail := files["frontend/src/forge_generated/customer/CustomerDetailPage.tsx"]
+	if detail == "" {
+		t.Fatal("the resource_detail page must generate a detail component")
+	}
+	// The customer's own field appears, and the has_many section links to the
+	// invoices table (the belongs_to has no inverse label, so the related
+	// resource's plural label names the section).
+	if !strings.Contains(detail, "Related") {
+		t.Error("detail must render a Related section for has_many relationships")
+	}
+	// buildGraph's invoice has no plural label, so the section falls back to the
+	// singular label "Invoice".
+	if !strings.Contains(detail, `<Link to="/invoices">View all { "Invoice" }</Link>`) {
+		t.Errorf("detail must link to the related resource's table page:\n%s", detail)
+	}
+	// The table row links to the detail page's slug (customer), not the route base.
+	table := files["frontend/src/forge_generated/customer/CustomersTablePage.tsx"]
+	if !strings.Contains(table, "/customer/${row.id}") {
+		t.Error("table rows must link to the detail page slug")
+	}
+
+	// Invoice has no has_many, so its detail has no Related section.
+	if strings.Contains(files["frontend/src/forge_generated/invoice/InvoiceDetailPage.tsx"], "Related") {
+		t.Error("a resource with no has_many must have no Related section")
+	}
+}
+
+// TestFrontendDetailRelatedWithoutTablePage: a has_many whose related resource
+// has no table page still renders its section heading, but no "View all" link.
+func TestFrontendDetailRelatedWithoutTablePage(t *testing.T) {
+	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
+	customer := id(spec.KindResource)
+	invoice := id(spec.KindResource)
+	s := &spec.ProjectSpec{
+		SpecVersion: spec.SpecVersion,
+		Project:     spec.Project{ID: id(spec.KindProject), Name: "Acme", Slug: "acme"},
+		Database:    spec.Database{Driver: spec.DriverPostgres},
+		Auth:        spec.Auth{Mode: spec.AuthCookie},
+		Resources: []*spec.Resource{
+			{ID: customer, Label: "Customer", CodeName: "Customer", StorageName: "customers",
+				Fields: []*spec.Field{{ID: id(spec.KindField), Label: "Email", Type: spec.TypeString, CodeName: "Email", StorageName: "email"}}},
+			{ID: invoice, Label: "Invoice", LabelPlural: "Invoices", CodeName: "Invoice", StorageName: "invoices",
+				Fields: []*spec.Field{{ID: id(spec.KindField), Label: "Customer", Type: spec.TypeBelongsTo, CodeName: "Customer", StorageName: "customer_id", Required: true, Target: customer, InverseLabel: "Their invoices"}}},
+		},
+		Pages: []*spec.Page{
+			// Customer detail, but NO invoice table page.
+			{ID: id(spec.KindPage), Slug: "customer", Label: "Customer", Type: spec.PageResourceDetail, Resource: customer},
+		},
+	}
+	if d := spec.Validate(s); d != nil {
+		t.Fatalf("fixture invalid: %s", d.Error())
+	}
+	g, err := graph.Build(s)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	detail := frontendFiles(t, g)["frontend/src/forge_generated/customer/CustomerDetailPage.tsx"]
+	// The inverse label names the section, and there is no "View all" link.
+	if !strings.Contains(detail, `{ "Their invoices" }`) {
+		t.Errorf("section must use the belongs_to inverse label:\n%s", detail)
+	}
+	if strings.Contains(detail, "View all") {
+		t.Error("no View all link when the related resource has no table page")
+	}
+}
+
 // TestFrontendFormIsPageDriven is the #52 acceptance point: a resource_form
 // page generates the create/edit UI at its own slug, the table "New" and detail
 // "Edit" links target that slug, and a resource with no form page gets no
@@ -657,8 +730,11 @@ func TestFrontendFormIsPageDriven(t *testing.T) {
 		Pages: []*spec.Page{
 			{ID: id(spec.KindPage), Slug: "customers", Label: "Customers", Type: spec.PageResourceTable, Resource: withForm},
 			{ID: id(spec.KindPage), Slug: "audits", Label: "Audits", Type: spec.PageResourceTable, Resource: noForm},
-			// Only the customer has a form page; the audit has none.
+			// Only the customer has a form page; the audit has none. Both have a
+			// detail page so the "Edit" link (or its absence) can be checked.
 			{ID: id(spec.KindPage), Slug: "edit-customer", Label: "Edit customer", Type: spec.PageResourceForm, Resource: withForm},
+			{ID: id(spec.KindPage), Slug: "customer", Label: "Customer", Type: spec.PageResourceDetail, Resource: withForm},
+			{ID: id(spec.KindPage), Slug: "audit", Label: "Audit", Type: spec.PageResourceDetail, Resource: noForm},
 		},
 	}
 	if d := spec.Validate(s); d != nil {
@@ -704,9 +780,10 @@ func TestFrontendFormIsPageDriven(t *testing.T) {
 	}
 }
 
-// TestFrontendNoImplicitList is the other #51 acceptance point: a resource with
-// no resource_table page gets no list page, route or nav entry — but still gets
-// its resource-driven detail page.
+// TestFrontendNoImplicitList is the other #51 acceptance point, extended for the
+// #53 page-driven detail: a resource with no pages at all gets no list page and
+// no detail page — no file, route or nav entry — while a listed resource's list
+// still comes from its table page.
 func TestFrontendNoImplicitList(t *testing.T) {
 	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
 	listed := id(spec.KindResource)
@@ -735,16 +812,13 @@ func TestFrontendNoImplicitList(t *testing.T) {
 	}
 	files := frontendFiles(t, g)
 
-	// The unlisted resource has a detail page but no table page of any name.
-	if _, ok := files["frontend/src/forge_generated/secret/SecretDetailPage.tsx"]; !ok {
-		t.Error("a resource without a table page still gets its detail page")
-	}
+	// The page-less resource gets no frontend files at all — no table, no detail.
 	for path := range files {
-		if strings.Contains(path, "/secret/") && strings.Contains(path, "TablePage") {
-			t.Errorf("a resource without a table page must get no list page; found %s", path)
+		if strings.Contains(path, "/secret/") {
+			t.Errorf("a resource with no pages must get no frontend files; found %s", path)
 		}
 	}
-	// No route or nav entry for the unlisted resource.
+	// No route or nav entry for the page-less resource.
 	registry := files["frontend/src/forge_generated/resources.tsx"]
 	if strings.Contains(registry, `{ path: "secrets", element:`) {
 		t.Error("no implicit list route for a resource without a table page")
@@ -752,9 +826,8 @@ func TestFrontendNoImplicitList(t *testing.T) {
 	if strings.Contains(registry, `slug: "secrets"`) {
 		t.Error("no nav entry for a resource without a table page")
 	}
-	// The detail route still exists (reachable directly / from other pages).
-	if !strings.Contains(registry, `{ path: "secrets/:id", element: <SecretDetailPage /> }`) {
-		t.Error("the resource's detail route must still be registered")
+	if strings.Contains(registry, `SecretDetailPage`) {
+		t.Error("no detail route for a resource without a detail page")
 	}
 }
 

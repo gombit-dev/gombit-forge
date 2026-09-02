@@ -72,6 +72,7 @@ func sampleSpecWithTable(t *testing.T) *spec.ProjectSpec {
 	s.Pages = []*spec.Page{
 		{ID: spec.MustNewID(spec.KindPage), Slug: "customers", Label: "Customers", Type: spec.PageResourceTable, Resource: s.Resources[0].ID},
 		{ID: spec.MustNewID(spec.KindPage), Slug: "edit-customer", Label: "Edit customer", Type: spec.PageResourceForm, Resource: s.Resources[0].ID},
+		{ID: spec.MustNewID(spec.KindPage), Slug: "customer", Label: "Customer", Type: spec.PageResourceDetail, Resource: s.Resources[0].ID},
 	}
 	if d := spec.Validate(s); d != nil {
 		t.Fatalf("sample spec with table invalid: %s", d.Error())

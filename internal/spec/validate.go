@@ -37,6 +37,7 @@ const (
 	CodePageMismatch    Code = "page_config_mismatch"
 	CodeInvalidHook     Code = "invalid_hook"
 	CodeDuplicateForm   Code = "duplicate_form_page"
+	CodeDuplicateDetail Code = "duplicate_detail_page"
 )
 
 // Diagnostic is one structured, machine-readable validation failure.
@@ -505,6 +506,9 @@ func (v *validator) validatePages() {
 	// page" is unambiguous: the compiler generates its create/edit UI at the
 	// page's own route and every "New"/"Edit" link targets it (DESIGN.md §18).
 	formPageByResource := map[ID]ID{}
+	// Likewise at most one resource_detail page per resource, so "the detail
+	// page" a table row links to is unambiguous (DESIGN.md §4.4).
+	detailPageByResource := map[ID]ID{}
 
 	for pageIndex, page := range v.spec.Pages {
 		path := fmt.Sprintf("$.pages[%d]", pageIndex)
@@ -538,6 +542,14 @@ func (v *validator) validatePages() {
 						"resource %s already has a form page (%s); at most one is allowed", page.Resource, owner)
 				} else {
 					formPageByResource[page.Resource] = page.ID
+				}
+			}
+			if page.Type == PageResourceDetail && page.Resource != "" {
+				if owner, taken := detailPageByResource[page.Resource]; taken {
+					v.report(CodeDuplicateDetail, path+".resource", page.ID,
+						"resource %s already has a detail page (%s); at most one is allowed", page.Resource, owner)
+				} else {
+					detailPageByResource[page.Resource] = page.ID
 				}
 			}
 		case PageDashboard:
