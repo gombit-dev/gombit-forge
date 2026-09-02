@@ -94,6 +94,19 @@ func TestValidateRejects(t *testing.T) {
 			wantAny: CodeDuplicateCode,
 		},
 		{
+			// Invoice already has belongs_to "Customer" (generated key CustomerID);
+			// a scalar whose code_name is CustomerID emits the same struct field,
+			// which bare code_name uniqueness does not see.
+			name: "belongs_to key collides with a scalar's generated field",
+			mutate: func(s *ProjectSpec) {
+				s.Resources[1].Fields = append(s.Resources[1].Fields, &Field{
+					ID: fixID(KindField, "29"), Label: "Legacy id", Type: TypeInteger,
+					CodeName: "CustomerID", StorageName: "legacy_customer_id",
+				})
+			},
+			wantAny: CodeDuplicateCode,
+		},
+		{
 			name: "enum without values",
 			mutate: func(s *ProjectSpec) {
 				s.Resources[0].Fields[3].EnumValues = nil

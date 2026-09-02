@@ -76,6 +76,21 @@ func IsReservedCodeName(name string) bool {
 	return reserved
 }
 
+// GeneratedModelFieldName is the Go struct-field name a field contributes to its
+// resource's generated model: the frozen code symbol for a scalar, and the code
+// symbol plus "ID" for a belongs_to (GORM's foreign-key convention — the
+// association is named by the symbol, its key column by <Symbol>ID). It is the
+// identifier whose per-resource uniqueness the model must preserve, so a
+// belongs_to "Customer" (key "CustomerID") and a scalar "CustomerID" would emit
+// the same struct field. Validation and the model generator share this so the
+// two cannot disagree about the name they check for collisions.
+func GeneratedModelFieldName(codeName string, fieldType FieldType) string {
+	if fieldType == TypeBelongsTo {
+		return codeName + "ID"
+	}
+	return codeName
+}
+
 // ReservedStorageName reports whether a column name collides with a gorm.Model
 // column, and if so why — the storage-side counterpart to ReservedModelSymbol,
 // so both reserved paths surface an actionable reason rather than a generic one.

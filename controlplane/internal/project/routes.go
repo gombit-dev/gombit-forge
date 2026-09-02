@@ -156,4 +156,15 @@ func RegisterRoutes(api huma.API, prefix string, gate huma.Middlewares, svc *Ser
 		Security:    security,
 		Middlewares: gate,
 	}, h.deleteField)
+
+	huma.Register(api, huma.Operation{
+		OperationID:   "add-relationship",
+		Method:        http.MethodPost,
+		Path:          prefix + "/projects/{projectID}/resources/{resourceID}/relationships",
+		Summary:       "Add a belongs_to relationship to another resource (has_many derived)",
+		Tags:          tags,
+		Security:      security,
+		Middlewares:   gate,
+		DefaultStatus: http.StatusCreated,
+	}, h.addRelationship)
 }

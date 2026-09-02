@@ -179,7 +179,12 @@ func TestPackageFoldCollisionRejected(t *testing.T) {
 
 // TestBelongsToFieldCollisionRejected covers the FK-suffix collision: a
 // belongs_to "Customer" derives "CustomerID", which must not silently coexist
-// with a scalar field whose code symbol is already "CustomerID".
+// with a scalar field whose code symbol is already "CustomerID". This is now a
+// spec-validity error (spec.GeneratedModelFieldName-based uniqueness, shared with
+// the model generator), so it is caught before generation — graph.Build refuses
+// the invalid spec. The generator keeps validateNames as a defensive check a
+// validated spec cannot reach; the collision's own coverage lives in
+// internal/spec (validate_test.go).
 func TestBelongsToFieldCollisionRejected(t *testing.T) {
 	target := spec.MustNewID(spec.KindResource)
 	s := &spec.ProjectSpec{
@@ -207,16 +212,13 @@ func TestBelongsToFieldCollisionRejected(t *testing.T) {
 			},
 		},
 	}
-	if d := spec.Validate(s); d != nil {
-		t.Fatalf("fixture should be spec-valid (the collision is a generated-symbol clash): %s", d.Error())
+	if d := spec.Validate(s); !d.Has(spec.CodeDuplicateCode) {
+		t.Fatalf("the CustomerID generated-field collision must be a spec-validity error; got %v", d)
 	}
-	g, err := graph.Build(s)
-	if err != nil {
-		t.Fatalf("build: %v", err)
-	}
-
-	if _, err := Models(g); err == nil {
-		t.Fatal("expected the CustomerID field collision to be rejected before emitting duplicate Go fields")
+	// The graph refuses to build over the invalid spec, so the collision never
+	// reaches generation.
+	if _, err := graph.Build(s); err == nil {
+		t.Fatal("graph.Build should refuse the collision spec")
 	}
 }
 

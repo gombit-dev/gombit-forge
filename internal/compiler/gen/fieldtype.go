@@ -57,10 +57,7 @@ const relationshipFKType = "uint"
 // symbol plus an "ID" suffix, matching GORM's foreign-key convention: the
 // association is named by the code symbol and its key column by <Name>ID.
 func goFieldName(field *graph.Field) string {
-	if field.Spec.Type == spec.TypeBelongsTo {
-		return field.CodeName() + "ID"
-	}
-	return field.CodeName()
+	return spec.GeneratedModelFieldName(field.CodeName(), field.Spec.Type)
 }
 
 // resolveType returns the Go type, needed import, and GORM type for a field.
