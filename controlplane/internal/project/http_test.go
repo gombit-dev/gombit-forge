@@ -143,6 +143,65 @@ func TestProjectAPIEndToEnd(t *testing.T) {
 	}
 }
 
+// TestGetProjectSpec returns the head spec once a revision exists, and null
+// before any revision is committed.
+func TestGetProjectSpec(t *testing.T) {
+	f := newHTTPFixture(t)
+	ctx := context.Background()
+
+	ownerID := f.user(t, "spec-owner@example.test")
+	o, err := f.orgSvc.CreateOrganization(ctx, "Acme", "acme", ownerID)
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	p, err := project.NewService(f.db).CreateProject(ctx, o.ID, "Acme CRM", "acme-crm", ownerID)
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	cookie := f.cookie(t, ownerID)
+	specPath := "/api/v1/projects/" + strconv.FormatUint(uint64(p.ID), 10) + "/spec"
+
+	// No revisions yet: spec is null.
+	resp := f.api.Get(specPath, cookie)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("get spec (no head) = %d, want 200\n%s", resp.Code, resp.Body.String())
+	}
+	var empty struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &empty); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if string(empty.Data) != "null" {
+		t.Errorf("spec before any revision = %s, want null", empty.Data)
+	}
+
+	// Commit a revision, then the spec comes back as the exact canonical bytes.
+	base := validSpec(t, "V1", "v1")
+	if _, err := project.NewService(f.db).SubmitCandidate(ctx, p.ID, base, ownerID); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	resp = f.api.Get(specPath, cookie)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("get spec = %d, want 200\n%s", resp.Code, resp.Body.String())
+	}
+	var got struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	want, _ := spec.Marshal(base)
+	roundtrip, err := spec.Unmarshal(got.Data)
+	if err != nil {
+		t.Fatalf("returned spec is not decodable: %v", err)
+	}
+	back, _ := spec.Marshal(roundtrip)
+	if string(back) != string(want) {
+		t.Errorf("returned spec does not round-trip to the committed one")
+	}
+}
+
 // TestProjectAPIHidesOtherOrgProjects: a user who is not a member of a project's
 // org gets 404, so project ids cannot be probed across the tenancy boundary.
 func TestProjectAPIHidesOtherOrgProjects(t *testing.T) {

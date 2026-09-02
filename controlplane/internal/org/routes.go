@@ -50,6 +50,16 @@ func RegisterRoutes(api huma.API, prefix string, gate huma.Middlewares, svc *Ser
 	}, h.createOrganization)
 
 	huma.Register(api, huma.Operation{
+		OperationID: "list-organizations",
+		Method:      http.MethodGet,
+		Path:        prefix + "/organizations",
+		Summary:     "List the organizations the caller belongs to",
+		Tags:        tags,
+		Security:    security,
+		Middlewares: gate,
+	}, h.listOrganizations)
+
+	huma.Register(api, huma.Operation{
 		OperationID: "list-organization-members",
 		Method:      http.MethodGet,
 		Path:        prefix + "/organizations/{orgID}/members",

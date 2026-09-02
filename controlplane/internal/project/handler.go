@@ -2,6 +2,7 @@ package project
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
@@ -137,6 +138,35 @@ func (h *Handler) getProject(ctx context.Context, in *getProjectInput) (*getProj
 		return nil, err
 	}
 	return &getProjectOutput{Body: contract.Data[projectData]{Data: toProjectData(p)}}, nil
+}
+
+// --- get head spec ---------------------------------------------------------
+
+type getProjectSpecInput struct {
+	ProjectID string `path:"projectID" doc:"Project identifier"`
+}
+
+type getProjectSpecOutput struct {
+	// Body wraps the head revision's canonical spec as raw JSON, or null when the
+	// project has no revisions yet. The editor loads this to populate the Data
+	// area; it is the exact bytes the revision pinned, not a re-encoding.
+	Body contract.Data[json.RawMessage]
+}
+
+func (h *Handler) getProjectSpec(ctx context.Context, in *getProjectSpecInput) (*getProjectSpecOutput, error) {
+	p, _, err := h.loadAuthorized(ctx, in.ProjectID, org.CapProjectView)
+	if err != nil {
+		return nil, err
+	}
+	head, ok, err := h.svc.Head(ctx, p.ID)
+	if err != nil {
+		return nil, mapError(ctx, err, "load project spec")
+	}
+	spec := json.RawMessage("null")
+	if ok {
+		spec = json.RawMessage(head.SpecJSON)
+	}
+	return &getProjectSpecOutput{Body: contract.Data[json.RawMessage]{Data: spec}}, nil
 }
 
 // --- submit candidate ------------------------------------------------------

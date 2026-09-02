@@ -309,6 +309,24 @@ func (s *Service) AcceptInvitation(ctx context.Context, rawToken, userEmail stri
 }
 
 // Members lists an organization's members in a stable order (oldest first).
+// OrgsForUser returns the organizations the user is a member of, in creation
+// order — the "which orgs can I open?" query the editor's org picker needs. It
+// joins memberships to organizations rather than loading associations, so it
+// stays a single query and returns only orgs the caller actually belongs to.
+func (s *Service) OrgsForUser(ctx context.Context, userID uint) ([]Organization, error) {
+	var orgs []Organization
+	err := s.db.WithContext(ctx).
+		Table("organizations AS o").
+		Joins("JOIN organization_members AS m ON m.organization_id = o.id").
+		Where("m.user_id = ?", userID).
+		Order("o.id").
+		Find(&orgs).Error
+	if err != nil {
+		return nil, fmt.Errorf("list user orgs: %w", err)
+	}
+	return orgs, nil
+}
+
 func (s *Service) Members(ctx context.Context, orgID uint) ([]Member, error) {
 	var members []Member
 	err := s.db.WithContext(ctx).

@@ -28,7 +28,7 @@ export function App() {
       <Route element={<AppShell />}>
         <Route index element={<Navigate to={`/${DEFAULT_AREA.path}`} replace />} />
         {AREAS.map((area) => (
-          <Route key={area.path} path={area.path} element={<AreaPlaceholder area={area} />} />
+          <Route key={area.path} path={area.path} element={area.element ?? <AreaPlaceholder area={area} />} />
         ))}
         <Route path="*" element={<Navigate to={`/${DEFAULT_AREA.path}`} replace />} />
       </Route>
