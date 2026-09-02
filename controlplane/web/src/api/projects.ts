@@ -109,7 +109,28 @@ export interface DeleteResult {
   blockers?: DeletionBlocker[];
 }
 
+// One of the three independent health facets (spec / ABI / build, §71).
+export interface HealthFacet {
+  name: string;
+  status: "ok" | "failed" | "unknown";
+  summary: string;
+}
+
+export interface HealthDiagnostic {
+  path: string;
+  code: string;
+  message: string;
+  entity?: string;
+}
+
+export interface ProjectHealth {
+  facets: HealthFacet[];
+  diagnostics?: HealthDiagnostic[];
+}
+
 export const listOrganizations = () => api.get<Organization[]>("/organizations");
+
+export const getProjectHealth = (projectID: number) => api.get<ProjectHealth>(`/projects/${projectID}/health`);
 
 export const addResource = (projectID: number, label: string, labelPlural: string) =>
   api.post<RevisionRef>(`/projects/${projectID}/resources`, { label, label_plural: labelPlural });

@@ -76,6 +76,23 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body.data;
 }
 
+// describeError turns an error into a message for the editor. For a validation
+// failure it surfaces the field-keyed diagnostics (path: message) so the problem
+// points at the offending entity rather than a generic "invalid" — the rest fall
+// back to the envelope message.
+export function describeError(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.fields) {
+      const parts = Object.entries(err.fields).flatMap(([key, msgs]) => msgs.map((m) => `${key}: ${m}`));
+      if (parts.length > 0) {
+        return parts.join("; ");
+      }
+    }
+    return err.message;
+  }
+  return "Something went wrong";
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown) =>

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
-import { ApiError } from "../api/client";
+import { describeError } from "../api/client";
 import { updateBehavior, type ResourceBehavior, type SpecField } from "../api/projects";
 
 // The per-resource behavior editor (DESIGN.md §4.3): CRUD toggles, admin
@@ -52,7 +52,7 @@ export function BehaviorEditor({
       await updateBehavior(projectID, resourceID, state);
       onChanged();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong");
+      setError(describeError(err));
     } finally {
       setPending(false);
     }

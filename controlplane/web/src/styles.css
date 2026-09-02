@@ -456,3 +456,55 @@ button:disabled {
   color: var(--accent-fg);
   margin-top: 0.25rem;
 }
+
+.health-panel {
+  margin-bottom: 1rem;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-width: 640px;
+}
+
+.health-panel .facets {
+  display: flex;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.health-panel .facet {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+}
+
+.health-panel .indicator {
+  font-weight: 700;
+}
+
+.health-panel .facet.status-ok .indicator {
+  color: #16a34a;
+}
+
+.health-panel .facet.status-failed .indicator {
+  color: var(--error);
+}
+
+.health-panel .facet.status-unknown .indicator {
+  color: var(--muted);
+}
+
+.health-panel .facet-summary {
+  font-size: 0.82rem;
+}
+
+.health-panel .diagnostics {
+  margin: 0.5rem 0 0;
+  padding-left: 1.2rem;
+  color: var(--error);
+  font-size: 0.85rem;
+}
+
+.health-panel .diag-path {
+  font-family: ui-monospace, monospace;
+}

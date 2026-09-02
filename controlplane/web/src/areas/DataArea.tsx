@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ApiError } from "../api/client";
+import { describeError } from "../api/client";
 import {
   getProjectSpec,
   listOrganizations,
@@ -8,6 +8,7 @@ import {
   type Project,
   type ProjectSpec,
 } from "../api/projects";
+import { HealthPanel } from "./HealthPanel";
 import { ResourceTree } from "./ResourceTree";
 
 // The Data area (DESIGN.md §17). This foundation wires organization → project
@@ -23,7 +24,7 @@ export function DataArea() {
   const [reloadKey, setReloadKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
-  const fail = (err: unknown) => setError(err instanceof ApiError ? err.message : "Something went wrong");
+  const fail = (err: unknown) => setError(describeError(err));
 
   useEffect(() => {
     let active = true;
@@ -123,13 +124,16 @@ export function DataArea() {
       {projectID == null ? (
         <p className="muted">Select a project to edit its data model.</p>
       ) : (
-        // An empty project (spec === null, no revisions) still renders the tree so
-        // the first AddResource can bootstrap it.
-        <ResourceTree
-          projectID={projectID}
-          resources={spec?.resources ?? []}
-          onChanged={() => setReloadKey((k) => k + 1)}
-        />
+        <>
+          <HealthPanel projectID={projectID} reloadKey={reloadKey} />
+          {/* An empty project (spec === null, no revisions) still renders the tree
+              so the first AddResource can bootstrap it. */}
+          <ResourceTree
+            projectID={projectID}
+            resources={spec?.resources ?? []}
+            onChanged={() => setReloadKey((k) => k + 1)}
+          />
+        </>
       )}
     </section>
   );

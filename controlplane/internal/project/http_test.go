@@ -242,6 +242,73 @@ func TestAddResourceOverHTTP(t *testing.T) {
 	}
 }
 
+// TestGetProjectHealth surfaces the three-state health: unknown before any
+// revision, and Spec ok / Extension ABI ok / Runtime Build unknown once a valid
+// spec is committed (the deployed build is Cloud's, not the control plane's).
+func TestGetProjectHealth(t *testing.T) {
+	f := newHTTPFixture(t)
+	ctx := context.Background()
+
+	ownerID := f.user(t, "health-owner@example.test")
+	o, err := f.orgSvc.CreateOrganization(ctx, "Acme", "acme", ownerID)
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	svc := project.NewService(f.db)
+	p, err := svc.CreateProject(ctx, o.ID, "Acme CRM", "acme-crm", ownerID)
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	cookie := f.cookie(t, ownerID)
+	healthPath := "/api/v1/projects/" + strconv.FormatUint(uint64(p.ID), 10) + "/health"
+
+	type facet struct {
+		Name, Status, Summary string
+	}
+	decode := func(resp interface{ Bytes() []byte }) []facet {
+		var body struct {
+			Data struct {
+				Facets []facet `json:"facets"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(resp.Bytes(), &body); err != nil {
+			t.Fatalf("decode health: %v", err)
+		}
+		return body.Data.Facets
+	}
+
+	// No revisions: all three unknown.
+	resp := f.api.Get(healthPath, cookie)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("health (no head) = %d, want 200\n%s", resp.Code, resp.Body.String())
+	}
+	facets := decode(resp.Body)
+	if len(facets) != 3 {
+		t.Fatalf("want 3 facets, got %d", len(facets))
+	}
+	for _, fc := range facets {
+		if fc.Status != "unknown" {
+			t.Errorf("before any revision facet %s = %s, want unknown", fc.Name, fc.Status)
+		}
+	}
+
+	// Commit a valid spec.
+	if _, err := svc.SubmitCandidate(ctx, p.ID, validSpec(t, "V1", "v1"), ownerID); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	facets = decode(f.api.Get(healthPath, cookie).Body)
+	got := map[string]string{}
+	for _, fc := range facets {
+		got[fc.Name] = fc.Status
+	}
+	if got["Spec"] != "ok" || got["Extension ABI"] != "ok" {
+		t.Errorf("committed spec health: Spec=%s ABI=%s, want ok/ok", got["Spec"], got["Extension ABI"])
+	}
+	if got["Runtime Build"] != "unknown" {
+		t.Errorf("Runtime Build = %s, want unknown (Cloud owns the build)", got["Runtime Build"])
+	}
+}
+
 // TestProjectAPIHidesOtherOrgProjects: a user who is not a member of a project's
 // org gets 404, so project ids cannot be probed across the tenancy boundary.
 func TestProjectAPIHidesOtherOrgProjects(t *testing.T) {

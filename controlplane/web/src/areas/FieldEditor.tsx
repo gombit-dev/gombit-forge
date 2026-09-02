@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { ApiError } from "../api/client";
+import { describeError } from "../api/client";
 import {
   addField,
   deleteField,
@@ -37,7 +37,7 @@ export function FieldEditor({
       await op();
       return true;
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong");
+      setError(describeError(err));
       return false;
     }
   };
