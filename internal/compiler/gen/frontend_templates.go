@@ -438,6 +438,7 @@ export function {{.Component}}() {
       </p>
 {{- end}}
       <form onSubmit={handleSubmit(onSubmit)}>
+        <div className="form-fields form-layout-{{.Layout}}">
 {{- range .Fields}}
         <label>
           { {{js .Label}} }
@@ -458,6 +459,7 @@ export function {{.Component}}() {
         </label>
         {errors.{{.JSONName}}?.message ? <p>{errors.{{.JSONName}}.message}</p> : null}
 {{- end}}
+        </div>
         <button type="submit" disabled={isSubmitting}>
           {editing ? "Save" : "Create"}
         </button>

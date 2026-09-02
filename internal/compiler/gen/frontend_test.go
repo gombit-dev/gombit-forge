@@ -832,6 +832,63 @@ func TestFrontendDetailRelatedWithoutTablePage(t *testing.T) {
 	}
 }
 
+// TestFrontendFormHonorsConfig is the #52 follow-up: the generated form honors
+// FormConfig — the configured field subset/order and the layout applied to the
+// field container.
+func TestFrontendFormHonorsConfig(t *testing.T) {
+	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
+	res := id(spec.KindResource)
+	email := id(spec.KindField)
+	name := id(spec.KindField)
+	s := &spec.ProjectSpec{
+		SpecVersion: spec.SpecVersion,
+		Project:     spec.Project{ID: id(spec.KindProject), Name: "Acme", Slug: "acme"},
+		Database:    spec.Database{Driver: spec.DriverPostgres},
+		Auth:        spec.Auth{Mode: spec.AuthCookie},
+		Resources: []*spec.Resource{
+			{ID: res, Label: "Customer", CodeName: "Customer", StorageName: "customers",
+				Behavior: spec.ResourceBehavior{CreateEnabled: true},
+				Fields: []*spec.Field{
+					{ID: name, Label: "Name", Type: spec.TypeString, CodeName: "Name", StorageName: "name"},
+					{ID: email, Label: "Email", Type: spec.TypeString, CodeName: "Email", StorageName: "email"},
+				}},
+		},
+		Pages: []*spec.Page{
+			// Configure a two-column form showing only Email.
+			{ID: id(spec.KindPage), Slug: "edit-customer", Label: "Edit customer", Type: spec.PageResourceForm, Resource: res,
+				Form: &spec.FormConfig{Layout: "two_column", Fields: []spec.ID{email}}},
+		},
+	}
+	if d := spec.Validate(s); d != nil {
+		t.Fatalf("fixture invalid: %s", d.Error())
+	}
+	g, err := graph.Build(s)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	form := frontendFiles(t, g)["frontend/src/forge_generated/customer/EditCustomerFormPage.tsx"]
+
+	if !strings.Contains(form, `className="form-fields form-layout-two_column"`) {
+		t.Errorf("form must apply the configured layout:\n%s", form)
+	}
+	// Only the configured field (Email) renders; Name is excluded.
+	if !strings.Contains(form, `register("email"`) {
+		t.Error("configured field must render")
+	}
+	if strings.Contains(form, `register("name"`) {
+		t.Error("unconfigured field must not render")
+	}
+}
+
+// TestFrontendFormDefaultLayout: an unconfigured form defaults to single_column
+// and renders every field.
+func TestFrontendFormDefaultLayout(t *testing.T) {
+	form := frontendFiles(t, buildGraph2(t))["frontend/src/forge_generated/customer/EditCustomerFormPage.tsx"]
+	if !strings.Contains(form, `className="form-fields form-layout-single_column"`) {
+		t.Errorf("an unconfigured form must default to single_column:\n%s", form)
+	}
+}
+
 // TestFrontendFormIsPageDriven is the #52 acceptance point: a resource_form
 // page generates the create/edit UI at its own slug, the table "New" and detail
 // "Edit" links target that slug, and a resource with no form page gets no

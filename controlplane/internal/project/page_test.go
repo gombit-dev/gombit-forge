@@ -237,6 +237,67 @@ func TestUpdateTableConfigErrors(t *testing.T) {
 	}
 }
 
+func TestUpdateFormConfigCommits(t *testing.T) {
+	svc, projectID, resID := projectWithResource(t)
+	fieldID, _ := pageWithField(t, svc, projectID, resID)
+	ctx := context.Background()
+
+	// pageWithField adds a resource_table page; add a form page too.
+	if _, err := svc.AddPage(ctx, projectID, project.PageInput{Label: "Edit order", Type: spec.PageResourceForm, Resource: resID}, 7); err != nil {
+		t.Fatalf("add form page: %v", err)
+	}
+	formPageID := headSpec(t, svc, projectID).Pages[1].ID
+
+	res, err := svc.UpdateFormConfig(ctx, projectID, formPageID, project.FormConfigInput{
+		Label: "Create order", Layout: "two_column", Fields: []spec.ID{fieldID},
+	}, 7)
+	if err != nil {
+		t.Fatalf("update form config: %v", err)
+	}
+	if res.Outcome != project.OutcomeCommitted || res.Class != "neutral" {
+		t.Fatalf("outcome=%s class=%s, want committed/neutral", res.Outcome, res.Class)
+	}
+	page := headSpec(t, svc, projectID).Pages[1]
+	if page.Label != "Create order" || page.Form == nil || page.Form.Layout != "two_column" {
+		t.Fatalf("form config not persisted: label=%q form=%+v", page.Label, page.Form)
+	}
+	if len(page.Form.Fields) != 1 || page.Form.Fields[0] != fieldID {
+		t.Errorf("fields = %v, want [%s]", page.Form.Fields, fieldID)
+	}
+}
+
+func TestUpdateFormConfigErrors(t *testing.T) {
+	svc, projectID, resID := projectWithResource(t)
+	_, tablePageID := pageWithField(t, svc, projectID, resID)
+	ctx := context.Background()
+
+	// A resource_table page has no form configuration.
+	if _, err := svc.UpdateFormConfig(ctx, projectID, tablePageID, project.FormConfigInput{Label: "X"}, 7); !errors.Is(err, project.ErrInvalidPageEdit) {
+		t.Errorf("form config on a table page = %v, want ErrInvalidPageEdit", err)
+	}
+	// Empty label.
+	if _, err := svc.UpdateFormConfig(ctx, projectID, tablePageID, project.FormConfigInput{Label: "  "}, 7); !errors.Is(err, project.ErrInvalidPageEdit) {
+		t.Errorf("empty label = %v, want ErrInvalidPageEdit", err)
+	}
+	// Unknown page.
+	if _, err := svc.UpdateFormConfig(ctx, projectID, spec.MustNewID(spec.KindPage), project.FormConfigInput{Label: "X"}, 7); !errors.Is(err, project.ErrPageNotFound) {
+		t.Errorf("unknown page = %v, want ErrPageNotFound", err)
+	}
+
+	// An unsupported layout is caught by the spec validator.
+	if _, err := svc.AddPage(ctx, projectID, project.PageInput{Label: "Edit", Type: spec.PageResourceForm, Resource: resID}, 7); err != nil {
+		t.Fatalf("add form page: %v", err)
+	}
+	formPageID := headSpec(t, svc, projectID).Pages[1].ID
+	res, err := svc.UpdateFormConfig(ctx, projectID, formPageID, project.FormConfigInput{Label: "Edit", Layout: "diagonal"}, 7)
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if res.Outcome != project.OutcomeInvalidSpec {
+		t.Errorf("bad layout outcome = %s, want invalid_spec", res.Outcome)
+	}
+}
+
 func TestPageEditErrors(t *testing.T) {
 	svc, projectID, _ := projectWithResource(t)
 	ctx := context.Background()

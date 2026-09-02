@@ -252,6 +252,9 @@ type formView struct {
 
 	Create bool
 	Update bool
+	// Layout is the FormConfig layout (single_column / two_column /
+	// section_groups), applied as a class on the generated form's field container.
+	Layout string
 
 	Fields []frontendField
 }
@@ -445,6 +448,10 @@ func newFormView(g *graph.Graph, page *graph.Page) formView {
 	if strings.TrimSpace(title) == "" {
 		title = resource.Spec.Label
 	}
+	layout := "single_column"
+	if page.Spec.Form != nil && strings.TrimSpace(page.Spec.Form.Layout) != "" {
+		layout = page.Spec.Form.Layout
+	}
 	view := formView{
 		Banner:         tsBanner,
 		Package:        PackageName(resource),
@@ -456,11 +463,11 @@ func newFormView(g *graph.Graph, page *graph.Page) formView {
 		ListRoute:      firstTableRoute(g, resource),
 		Create:         resource.Spec.Behavior.CreateEnabled,
 		Update:         resource.Spec.Behavior.UpdateEnabled,
+		Layout:         layout,
 	}
-	// The form renders the resource's fields (FormConfig subset/order + layout
-	// are a follow-up under #52); the graph's default form fields are exactly the
-	// resource's fields in authored order.
-	for _, field := range resource.Fields {
+	// The form honors FormConfig (#52): the graph resolves page.FormFields to the
+	// configured subset/order, or every field in authored order by default.
+	for _, field := range page.FormFields {
 		view.Fields = append(view.Fields, frontendFieldFor(field))
 	}
 	return view

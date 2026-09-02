@@ -520,7 +520,8 @@ button:disabled {
   color: var(--accent-fg);
 }
 
-.table-config {
+.table-config,
+.form-config {
   margin: 0.4rem 0 0.6rem 1.6rem;
   padding-left: 0.75rem;
   border-left: 2px solid var(--border);
@@ -531,7 +532,8 @@ button:disabled {
   max-width: 520px;
 }
 
-.table-config .stacked {
+.table-config .stacked,
+.form-config .stacked {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
@@ -541,7 +543,9 @@ button:disabled {
 
 .table-config input[type="text"],
 .table-config input:not([type]),
-.table-config input[type="number"] {
+.table-config input[type="number"],
+.form-config input:not([type="checkbox"]),
+.form-config select {
   font: inherit;
   padding: 0.3rem 0.45rem;
   border: 1px solid var(--border);
@@ -551,7 +555,8 @@ button:disabled {
   min-width: 220px;
 }
 
-.table-config .columns {
+.table-config .columns,
+.form-config .columns {
   border: 1px solid var(--border);
   border-radius: 6px;
   display: flex;
@@ -561,13 +566,15 @@ button:disabled {
   margin: 0;
 }
 
-.table-config .columns legend {
+.table-config .columns legend,
+.form-config .columns legend {
   font-size: 0.85rem;
   color: var(--muted);
   padding: 0 0.3rem;
 }
 
-.table-config .check {
+.table-config .check,
+.form-config .check {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
@@ -581,7 +588,8 @@ button:disabled {
   flex-wrap: wrap;
 }
 
-.table-config button[type="submit"] {
+.table-config button[type="submit"],
+.form-config button[type="submit"] {
   background: var(--accent);
   color: var(--accent-fg);
 }
