@@ -117,6 +117,11 @@ type Toolchain interface {
 	Available(ctx context.Context) bool
 	// Typecheck compiles the workspace rooted at dir, returning a non-nil error
 	// (carrying the compiler output) when it does not build.
+	//
+	// It must not mutate dir. Build-health evaluation (Evaluate) typechecks the
+	// user's real project in place and relies on this — `go build ./...` writes
+	// nothing, and any implementation substituted for GoToolchain must hold the
+	// same guarantee.
 	Typecheck(ctx context.Context, dir string) error
 }
 
