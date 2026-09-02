@@ -119,6 +119,35 @@ func TestDeleteRelationshipParticipatesInValidation(t *testing.T) {
 	}
 }
 
+// TestAddRelationshipRejectsGeneratedFieldCollision: a belongs_to "Customer"
+// derives the key CustomerID, which collides with an existing scalar field whose
+// code symbol is CustomerID. That collision is a spec-validity error now, so the
+// relationship is rejected at edit time — not committed as a revision that would
+// not build.
+func TestAddRelationshipRejectsGeneratedFieldCollision(t *testing.T) {
+	svc, projectID, customer, invoice := twoResourceProject(t)
+	ctx := context.Background()
+
+	// A scalar field on Invoice whose code symbol folds to CustomerID.
+	if _, err := svc.AddField(ctx, projectID, invoice, project.FieldInput{Label: "Customer ID", Type: spec.TypeString}, 7); err != nil {
+		t.Fatalf("add scalar: %v", err)
+	}
+	res, err := svc.AddRelationship(ctx, projectID, invoice, project.RelationshipInput{Label: "Customer", Target: customer}, 7)
+	if err != nil {
+		t.Fatalf("add relationship: %v", err)
+	}
+	if res.Outcome != project.OutcomeInvalidSpec {
+		t.Fatalf("a relationship colliding with a scalar's generated field must be rejected; got %s", res.Outcome)
+	}
+	if len(res.Diagnostics) == 0 {
+		t.Error("the rejection must carry diagnostics")
+	}
+	// Not committed: Invoice still has only the scalar.
+	if len(findResource(t, headSpec(t, svc, projectID), invoice).Fields) != 1 {
+		t.Error("the colliding relationship must not have committed")
+	}
+}
+
 func findResource(t *testing.T, s *spec.ProjectSpec, id spec.ID) *spec.Resource {
 	t.Helper()
 	r := s.FindResource(id)
