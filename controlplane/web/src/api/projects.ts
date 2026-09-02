@@ -103,6 +103,25 @@ export interface SpecTableConfig {
   page_size?: number;
 }
 
+// A resource_form page's configuration.
+export interface SpecFormConfig {
+  layout?: string;
+  fields?: string[]; // ordered field ids
+}
+
+// One dashboard card (count card or recent list) bound to a resource.
+export interface SpecDashboardCard {
+  label: string;
+  resource: string;
+  limit?: number;
+}
+
+// A dashboard page's configuration.
+export interface SpecDashboardConfig {
+  count_cards?: SpecDashboardCard[];
+  recent_lists?: SpecDashboardCard[];
+}
+
 // A page as it appears in a ProjectSpec.
 export interface SpecPage {
   id: string;
@@ -111,6 +130,8 @@ export interface SpecPage {
   type: PageType;
   resource?: string; // bound resource id; absent for dashboard
   table?: SpecTableConfig; // present only for a resource_table page that configures one
+  form?: SpecFormConfig; // present only for a resource_form page that configures one
+  dashboard?: SpecDashboardConfig; // present only for a dashboard page
 }
 
 // A navigation entry as it appears in a ProjectSpec (DESIGN.md §4.5).
