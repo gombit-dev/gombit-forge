@@ -1,0 +1,85 @@
+package project
+
+import (
+	"net/http"
+
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/gombit-dev/gombit/auth"
+	"github.com/gombit-dev/gombit/framework"
+
+	"github.com/gombit-dev/gombit-forge/controlplane/internal/org"
+)
+
+// cookieSecurityName is the OpenAPI security scheme the admin plane also uses;
+// naming it here documents that these routes are cookie-session protected.
+const cookieSecurityName = "cookieAuth"
+
+// Register mounts the project routes on the app. It is called explicitly from
+// main — Gombit does not discover feature packages by reflection.
+//
+// Every operation sits behind the cookie-session gate, so the API is only
+// reachable by an authenticated user; per-org authorization then happens inside
+// each handler against the caller's role. The gate is wired in one place and
+// pinned by a test, so removing it from any operation fails a test rather than
+// shipping.
+func Register(app *framework.App) error {
+	authSvc, err := auth.NewService(app.DB(), app.Config())
+	if err != nil {
+		return err
+	}
+	RegisterRoutes(app.API(), app.Config().API.Prefix,
+		huma.Middlewares{authSvc.RequireCookieSession()}, NewService(app.DB()), org.NewService(app.DB()))
+	return nil
+}
+
+// RegisterRoutes wires the project operations onto api behind gate, serving svc
+// and authorizing through authz. It is separated from Register so a test can
+// mount the real routes and gate on any huma.API without a full framework.App.
+func RegisterRoutes(api huma.API, prefix string, gate huma.Middlewares, svc *Service, authz *org.Service) {
+	h := &Handler{svc: svc, authz: authz}
+	security := []map[string][]string{{cookieSecurityName: {}}}
+	tags := []string{"Projects"}
+
+	huma.Register(api, huma.Operation{
+		OperationID:   "create-project",
+		Method:        http.MethodPost,
+		Path:          prefix + "/organizations/{orgID}/projects",
+		Summary:       "Create a project in an organization",
+		Tags:          tags,
+		Security:      security,
+		Middlewares:   gate,
+		DefaultStatus: http.StatusCreated,
+	}, h.createProject)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "list-projects",
+		Method:      http.MethodGet,
+		Path:        prefix + "/organizations/{orgID}/projects",
+		Summary:     "List an organization's projects",
+		Tags:        tags,
+		Security:    security,
+		Middlewares: gate,
+	}, h.listProjects)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "get-project",
+		Method:      http.MethodGet,
+		Path:        prefix + "/projects/{projectID}",
+		Summary:     "Get a project",
+		Tags:        tags,
+		Security:    security,
+		Middlewares: gate,
+	}, h.getProject)
+
+	huma.Register(api, huma.Operation{
+		OperationID:   "submit-project-candidate",
+		Method:        http.MethodPost,
+		Path:          prefix + "/projects/{projectID}/revisions",
+		Summary:       "Submit a candidate spec; on a compatible transition records a new revision",
+		Description:   "Validates the candidate and classifies the ABI transition against the current head. Never builds (D8): a breaking transition is returned as a 409 with its reasons rather than committed.",
+		Tags:          tags,
+		Security:      security,
+		Middlewares:   gate,
+		DefaultStatus: http.StatusCreated,
+	}, h.submitCandidate)
+}

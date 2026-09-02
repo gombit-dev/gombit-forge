@@ -46,6 +46,10 @@ type Capability string
 const (
 	CapMembersView   Capability = "org.members.view"   // read: listMembers
 	CapMembersInvite Capability = "org.members.invite" // write: InviteMember
+
+	CapProjectView   Capability = "project.view"   // read: list/get projects (#39)
+	CapProjectCreate Capability = "project.create" // write: create a project (#39)
+	CapProjectEdit   Capability = "project.edit"   // write: submit a candidate revision (#39)
 )
 
 // capabilities is the role → allowed-capability matrix. It is the single source
@@ -53,17 +57,31 @@ const (
 // *hierarchy* (owner > admin > member) is expressed separately, by rank, and is
 // what bounds role grants (see CanGrant) — capabilities alone do not distinguish
 // owner from admin here, rank does.
+// Authoring — viewing, creating and revising projects — is the core member
+// activity (DESIGN.md §22: a member "can see the org and create projects in
+// it"), so every role holds the project capabilities. Owner/admin are separated
+// from member by rank (org destruction, member management), not by project
+// access.
 var capabilities = map[Role]map[Capability]bool{
 	RoleOwner: {
 		CapMembersView:   true,
 		CapMembersInvite: true,
+		CapProjectView:   true,
+		CapProjectCreate: true,
+		CapProjectEdit:   true,
 	},
 	RoleAdmin: {
 		CapMembersView:   true,
 		CapMembersInvite: true,
+		CapProjectView:   true,
+		CapProjectCreate: true,
+		CapProjectEdit:   true,
 	},
 	RoleMember: {
-		CapMembersView: true,
+		CapMembersView:   true,
+		CapProjectView:   true,
+		CapProjectCreate: true,
+		CapProjectEdit:   true,
 	},
 }
 

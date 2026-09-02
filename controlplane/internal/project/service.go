@@ -11,6 +11,8 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/audit"
+	"github.com/gombit-dev/gombit-forge/internal/compiler"
+	"github.com/gombit-dev/gombit-forge/internal/compiler/gen"
 	"github.com/gombit-dev/gombit-forge/internal/spec"
 )
 
@@ -69,6 +71,145 @@ func (s *Service) CreateProject(ctx context.Context, orgID uint, name, slug stri
 	return p, nil
 }
 
+// ListProjects returns an organization's projects in creation order.
+func (s *Service) ListProjects(ctx context.Context, orgID uint) ([]Project, error) {
+	var projects []Project
+	if err := s.db.WithContext(ctx).
+		Where("organization_id = ?", orgID).Order("id").Find(&projects).Error; err != nil {
+		return nil, fmt.Errorf("list projects: %w", err)
+	}
+	return projects, nil
+}
+
+// GetProject returns one project by id, or ErrProjectNotFound.
+func (s *Service) GetProject(ctx context.Context, projectID uint) (Project, error) {
+	var p Project
+	err := s.db.WithContext(ctx).First(&p, projectID).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return Project{}, ErrProjectNotFound
+	}
+	if err != nil {
+		return Project{}, fmt.Errorf("load project: %w", err)
+	}
+	return p, nil
+}
+
+// CandidateOutcome is how a submitted candidate spec was resolved.
+type CandidateOutcome string
+
+const (
+	// OutcomeCommitted means the candidate was accepted and a new revision was
+	// recorded.
+	OutcomeCommitted CandidateOutcome = "committed"
+	// OutcomeInvalidSpec means the candidate failed semantic validation and was
+	// not committed; Diagnostics carries why.
+	OutcomeInvalidSpec CandidateOutcome = "invalid_spec"
+	// OutcomeBreaking means the candidate is an ABI-breaking transition. It cannot
+	// commit until user extension code is proven compatible (ADR-001 §41), which
+	// is a build the request path must not run (DESIGN.md §26, D8), so it is
+	// returned unresolved with its reasons rather than committed here.
+	OutcomeBreaking CandidateOutcome = "breaking"
+)
+
+// CandidateResult is the outcome of SubmitCandidate.
+type CandidateResult struct {
+	Outcome  CandidateOutcome
+	Revision *Revision // set when committed
+	// Diagnostics is set when the spec was invalid.
+	Diagnostics spec.Diagnostics
+	// Class is the ABI classification of the transition ("neutral", "additive" or
+	// "breaking"); empty for a project's first revision, which has no prior ABI.
+	Class string
+	// Reasons carries the concrete ABI reasons behind an additive or breaking
+	// verdict.
+	Reasons []string
+}
+
+// SubmitCandidate is the candidate-edit → revision flow (DESIGN.md §8, ADR-001
+// §37-41). It accepts a candidate spec, validates it and classifies the ABI
+// transition against the project's current head, and — when the transition is
+// compatible — records it as a new revision. Both steps are pure functions of
+// the specs: it never builds, so the control-plane request path stays
+// build-free (D8).
+//
+// Classification runs inside the same transaction that locks the project row and
+// (on acceptance) appends the revision, so the candidate is always classified
+// against the exact parent it commits onto — a concurrent revision cannot slip
+// between a stale classification and the commit.
+//
+// A breaking transition is not committed: proving user code still compiles is a
+// build, which belongs out of band (ADR-005 Cloud; the compiler's
+// ValidateCandidate). It is returned as OutcomeBreaking with its reasons so the
+// editor can surface the incompatibility and offer the compatibility path.
+func (s *Service) SubmitCandidate(ctx context.Context, projectID uint, candidate *spec.ProjectSpec, submittedBy uint) (CandidateResult, error) {
+	if d := spec.Validate(candidate); d != nil {
+		return CandidateResult{Outcome: OutcomeInvalidSpec, Diagnostics: d}, nil
+	}
+	canonical, err := spec.Marshal(candidate)
+	if err != nil {
+		return CandidateResult{}, fmt.Errorf("canonicalize spec: %w", err)
+	}
+	hash, err := spec.Hash(candidate)
+	if err != nil {
+		return CandidateResult{}, fmt.Errorf("hash spec: %w", err)
+	}
+
+	var result CandidateResult
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var p Project
+		lock := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&p, projectID)
+		if errors.Is(lock.Error, gorm.ErrRecordNotFound) {
+			return ErrProjectNotFound
+		}
+		if lock.Error != nil {
+			return lock.Error
+		}
+
+		var class string
+		var reasons []string
+		if p.HeadRevisionID != nil {
+			var head Revision
+			if err := tx.First(&head, *p.HeadRevisionID).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return fmt.Errorf("%w: project %d head %d", ErrCorruptLineage, projectID, *p.HeadRevisionID)
+				}
+				return err
+			}
+			current, err := spec.Unmarshal([]byte(head.SpecJSON))
+			if err != nil {
+				return fmt.Errorf("decode head spec: %w", err)
+			}
+			transition, err := compiler.ClassifyEdit(current, candidate)
+			if err != nil {
+				return fmt.Errorf("classify candidate: %w", err)
+			}
+			class = transition.Class.String()
+			reasons = transition.Reasons
+			if transition.Class == gen.ClassBreaking {
+				// Do not commit: a breaking transition needs a compatibility build
+				// the request path may not run. The transaction did only a locking
+				// read, so it commits as a no-op.
+				result = CandidateResult{Outcome: OutcomeBreaking, Class: class, Reasons: reasons}
+				return nil
+			}
+		}
+
+		rev, err := s.insertRevisionLocked(ctx, tx, p, candidate.SpecVersion, canonical, hash, submittedBy)
+		if err != nil {
+			return err
+		}
+		result = CandidateResult{Outcome: OutcomeCommitted, Revision: &rev, Class: class, Reasons: reasons}
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, ErrProjectNotFound) {
+			return CandidateResult{}, err
+		}
+		return CandidateResult{}, fmt.Errorf("submit candidate: %w", err)
+	}
+	return result, nil
+}
+
 // CreateRevision records an accepted candidate spec as a new immutable revision
 // of the project and advances the project's head to it.
 //
@@ -104,40 +245,54 @@ func (s *Service) CreateRevision(ctx context.Context, projectID uint, sp *spec.P
 		if lock.Error != nil {
 			return lock.Error
 		}
-
-		rev = Revision{
-			ProjectID:        projectID,
-			SpecVersion:      sp.SpecVersion,
-			SpecJSON:         string(canonical),
-			SpecHash:         hash,
-			ParentRevisionID: p.HeadRevisionID, // nil for the first revision
-			CreatedBy:        createdBy,
-			CreatedAt:        s.now(),
-		}
-		if err := tx.Create(&rev).Error; err != nil {
-			return err
-		}
-		// Advance head. Update the column explicitly rather than saving the
-		// struct so nothing else on the project row is touched.
-		if err := tx.Model(&Project{}).Where("id = ?", projectID).
-			Update("head_revision_id", rev.ID).Error; err != nil {
-			return err
-		}
-		// spec.revision.created, in the same transaction as the revision and the
-		// head move — the org comes from the locked project row.
-		return audit.Record(ctx, tx, audit.Event{
-			OrganizationID: &p.OrganizationID,
-			ActorUserID:    &createdBy,
-			Action:         audit.ActionSpecRevised,
-			TargetType:     "revision",
-			TargetID:       strconv.FormatUint(uint64(rev.ID), 10),
-		})
+		var insertErr error
+		rev, insertErr = s.insertRevisionLocked(ctx, tx, p, sp.SpecVersion, canonical, hash, createdBy)
+		return insertErr
 	})
 	if err != nil {
 		if errors.Is(err, ErrProjectNotFound) {
 			return Revision{}, err
 		}
 		return Revision{}, fmt.Errorf("create revision: %w", err)
+	}
+	return rev, nil
+}
+
+// insertRevisionLocked appends a revision to a project whose row is already
+// locked FOR UPDATE by the caller's transaction, advances the head to it, and
+// records the audit event — all on tx. Both CreateRevision and SubmitCandidate
+// share it so the append-and-advance is written once; the lock is the caller's
+// responsibility, and the shared lock is what serializes concurrent revisions
+// into a linear chain rather than a fork.
+func (s *Service) insertRevisionLocked(ctx context.Context, tx *gorm.DB, p Project, specVersion int, canonical []byte, hash string, createdBy uint) (Revision, error) {
+	rev := Revision{
+		ProjectID:        p.ID,
+		SpecVersion:      specVersion,
+		SpecJSON:         string(canonical),
+		SpecHash:         hash,
+		ParentRevisionID: p.HeadRevisionID, // nil for the first revision
+		CreatedBy:        createdBy,
+		CreatedAt:        s.now(),
+	}
+	if err := tx.Create(&rev).Error; err != nil {
+		return Revision{}, err
+	}
+	// Advance head. Update the column explicitly rather than saving the struct so
+	// nothing else on the project row is touched.
+	if err := tx.Model(&Project{}).Where("id = ?", p.ID).
+		Update("head_revision_id", rev.ID).Error; err != nil {
+		return Revision{}, err
+	}
+	// spec.revision.created, in the same transaction as the revision and the head
+	// move — the org comes from the locked project row.
+	if err := audit.Record(ctx, tx, audit.Event{
+		OrganizationID: &p.OrganizationID,
+		ActorUserID:    &createdBy,
+		Action:         audit.ActionSpecRevised,
+		TargetType:     "revision",
+		TargetID:       strconv.FormatUint(uint64(rev.ID), 10),
+	}); err != nil {
+		return Revision{}, err
 	}
 	return rev, nil
 }
