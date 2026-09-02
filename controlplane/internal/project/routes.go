@@ -162,6 +162,7 @@ func RegisterRoutes(api huma.API, prefix string, gate huma.Middlewares, svc *Ser
 		Method:        http.MethodPatch,
 		Path:          prefix + "/projects/{projectID}/resources/{resourceID}/behavior",
 		Summary:       "Set a resource's CRUD toggles, admin visibility and field selections",
+		Description:   "Replaces the resource's whole behavior: an omitted toggle or field list resets to its zero value (off / empty), so the client must send the complete behavior, not a delta.",
 		Tags:          tags,
 		Security:      security,
 		Middlewares:   gate,
