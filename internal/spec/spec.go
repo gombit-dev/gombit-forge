@@ -312,6 +312,18 @@ type Branding struct {
 	Appearance  string `json:"appearance,omitempty"`
 }
 
+// Clone returns a deep copy of the spec through its canonical encoding, so a
+// candidate mutation (a code-symbol refactor, §13) can change a copy and leave
+// the accepted spec untouched. The round-trip preserves every stable ID and the
+// authored order, so identity and ordering survive the clone.
+func (s *ProjectSpec) Clone() (*ProjectSpec, error) {
+	data, err := Marshal(s)
+	if err != nil {
+		return nil, err
+	}
+	return Unmarshal(data)
+}
+
 // FindResource returns the resource with the given ID, or nil.
 //
 // Nil entries are skipped rather than dereferenced: JSON such as
