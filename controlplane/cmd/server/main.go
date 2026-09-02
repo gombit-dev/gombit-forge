@@ -20,6 +20,7 @@ import (
 
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/org"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/platform"
+	"github.com/gombit-dev/gombit-forge/controlplane/internal/project"
 )
 
 func main() {
@@ -43,9 +44,12 @@ func main() {
 	}
 
 	// Feature packages register explicitly (Gombit does not discover them by
-	// reflection). Tenancy is the first; projects, environments and the rest
-	// follow with their issues.
+	// reflection). Tenancy is the first; the project API (#39) is the second.
 	if err := org.Register(app); err != nil {
+		_ = db.Close()
+		log.Fatal(err)
+	}
+	if err := project.Register(app); err != nil {
 		_ = db.Close()
 		log.Fatal(err)
 	}
