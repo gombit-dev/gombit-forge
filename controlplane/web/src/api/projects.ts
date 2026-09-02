@@ -32,7 +32,40 @@ export interface ProjectSpec {
   resources?: SpecResource[] | null;
 }
 
+// A revision reference returned by a committed edit.
+export interface RevisionRef {
+  id: number;
+  spec_hash: string;
+  abi_class?: string;
+}
+
+// One dependency that blocks a deletion.
+export interface DeletionBlocker {
+  kind: string;
+  message: string;
+}
+
+// The result of a delete: committed, or blocked with the concrete dependencies.
+export interface DeleteResult {
+  committed: boolean;
+  revision_id?: number;
+  had_extension: boolean;
+  blockers?: DeletionBlocker[];
+}
+
 export const listOrganizations = () => api.get<Organization[]>("/organizations");
+
+export const addResource = (projectID: number, label: string, labelPlural: string) =>
+  api.post<RevisionRef>(`/projects/${projectID}/resources`, { label, label_plural: labelPlural });
+
+export const renameResource = (projectID: number, resourceID: string, label: string, labelPlural: string) =>
+  api.patch<RevisionRef>(`/projects/${projectID}/resources/${encodeURIComponent(resourceID)}`, {
+    label,
+    label_plural: labelPlural,
+  });
+
+export const deleteResource = (projectID: number, resourceID: string) =>
+  api.delete<DeleteResult>(`/projects/${projectID}/resources/${encodeURIComponent(resourceID)}`);
 
 export const listProjects = (orgID: number) => api.get<Project[]>(`/organizations/${orgID}/projects`);
 

@@ -8,6 +8,7 @@ import {
   type Project,
   type ProjectSpec,
 } from "../api/projects";
+import { ResourceTree } from "./ResourceTree";
 
 // The Data area (DESIGN.md §17). This foundation wires organization → project
 // selection to the control plane and loads the selected project's spec; the
@@ -19,6 +20,7 @@ export function DataArea() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectID, setProjectID] = useState<number | null>(null);
   const [spec, setSpec] = useState<ProjectSpec | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const fail = (err: unknown) => setError(err instanceof ApiError ? err.message : "Something went wrong");
@@ -52,8 +54,16 @@ export function DataArea() {
     };
   }, [orgID]);
 
+  // Clear the spec on a project change (not on a reload) so switching projects
+  // never flashes the previous project's resources.
   useEffect(() => {
     setSpec(null);
+  }, [projectID]);
+
+  // Load (and reload) the selected project's spec. Reloads bump reloadKey without
+  // clearing, so an edit refreshes in place. The active flag ignores a stale
+  // response when the selection has moved on.
+  useEffect(() => {
     setError(null);
     if (projectID == null) return;
     let active = true;
@@ -63,7 +73,7 @@ export function DataArea() {
     return () => {
       active = false;
     };
-  }, [projectID]);
+  }, [projectID, reloadKey]);
 
   return (
     <section aria-labelledby="area-data">
@@ -110,32 +120,17 @@ export function DataArea() {
         </p>
       )}
 
-      <ResourceList projectSelected={projectID != null} spec={spec} />
+      {projectID == null ? (
+        <p className="muted">Select a project to edit its data model.</p>
+      ) : (
+        // An empty project (spec === null, no revisions) still renders the tree so
+        // the first AddResource can bootstrap it.
+        <ResourceTree
+          projectID={projectID}
+          resources={spec?.resources ?? []}
+          onChanged={() => setReloadKey((k) => k + 1)}
+        />
+      )}
     </section>
-  );
-}
-
-function ResourceList({ projectSelected, spec }: { projectSelected: boolean; spec: ProjectSpec | null }) {
-  if (!projectSelected) {
-    return <p className="muted">Select a project to edit its data model.</p>;
-  }
-  // spec === null means the project has no revisions yet — never saved — which is
-  // distinct from a saved spec that happens to have no resources.
-  if (spec === null) {
-    return <p className="muted">This project has no revisions yet.</p>;
-  }
-  const resources = spec.resources ?? [];
-  if (resources.length === 0) {
-    return <p className="muted">No resources yet.</p>;
-  }
-  return (
-    <ul className="resource-tree" aria-label="Resources">
-      {resources.map((r) => (
-        <li key={r.id}>
-          <span className="resource-label">{r.label}</span>
-          {r.label_plural && <span className="muted"> · {r.label_plural}</span>}
-        </li>
-      ))}
-    </ul>
   );
 }
