@@ -72,6 +72,12 @@ func (h *Handler) createProject(ctx context.Context, in *createProjectInput) (*c
 	if err != nil {
 		return nil, contract.WithContext(ctx, contract.NotFound("organization not found"))
 	}
+	// Org-scoped operations authorize by the explicit orgID and, for a
+	// non-member, surface 403 ("not permitted") via mapError — deliberately, to
+	// match the org package's own convention (listMembers does the same). Org
+	// existence is not hidden here: org IDs already circulate through invitations
+	// and membership. Project *existence* is what must not leak across a tenancy
+	// boundary, which the project-scoped ops enforce with 404 (see loadAuthorized).
 	if err := h.authz.Authorize(ctx, orgID, user.ID, org.CapProjectCreate); err != nil {
 		return nil, mapError(ctx, err, "create project")
 	}
@@ -182,6 +188,12 @@ func (h *Handler) submitCandidate(ctx context.Context, in *submitCandidateInput)
 		// ABI compatibility is a separate state from spec validity (§36): a
 		// breaking candidate is a 409, not a 422, and it names why. Committing it
 		// needs a compatibility build the request path does not run (D8).
+		//
+		// The reasons ride in the message rather than a structured field because
+		// the contract's structured `fields` slot is validation-only (422); reusing
+		// it for an ABI conflict would collapse the very spec-vs-ABI distinction
+		// §36 keeps separate. A future structured surface for the reasons belongs
+		// alongside the async compatibility-validation result, not on this 409.
 		return nil, contract.WithContext(ctx, contract.Conflict(
 			"candidate is ABI-breaking and requires compatibility validation: "+strings.Join(result.Reasons, "; ")))
 	default:
