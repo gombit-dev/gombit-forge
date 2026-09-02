@@ -93,11 +93,12 @@ describe("FieldEditor", () => {
     expect(onChanged).not.toHaveBeenCalled();
   });
 
-  it("renders a belongs_to field read-only (relationship editor's domain)", () => {
+  it("omits belongs_to fields from the field list (managed as relationships)", () => {
     const rel: SpecField = { id: "fld_r", label: "Customer", type: "belongs_to", code_name: "Customer", storage_name: "customer_id", target: "res_c" };
     render(<FieldEditor projectID={3} resourceID="res_1" fields={[rel]} onChanged={vi.fn()} />);
-    expect(screen.getByText(/edit in the relationship editor/i)).toBeInTheDocument();
-    // No scalar Edit/Delete that would submit type:"string" and fail.
+    // The only field is a belongs_to, so the scalar field list is empty and it
+    // gets no Edit/Delete here (the relationship editor owns it).
+    expect(screen.getByText(/no fields yet/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
   });
