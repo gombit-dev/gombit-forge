@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { ApiError } from "../api/client";
+import { describeError } from "../api/client";
 import {
   addResource,
   deleteResource,
@@ -34,7 +34,7 @@ export function ResourceTree({
       await op();
       return true;
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong");
+      setError(describeError(err));
       return false;
     }
   };
@@ -88,7 +88,7 @@ function ResourceRow({
   const [pending, setPending] = useState(false);
   const [blockers, setBlockers] = useState<DeletionBlocker[] | null>(null);
 
-  const fail = (err: unknown) => setError(err instanceof ApiError ? err.message : "Something went wrong");
+  const fail = (err: unknown) => setError(describeError(err));
 
   async function save(label: string, plural: string) {
     if (pending) return;

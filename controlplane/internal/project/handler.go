@@ -11,6 +11,7 @@ import (
 	"github.com/gombit-dev/gombit/contract"
 
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/org"
+	"github.com/gombit-dev/gombit-forge/internal/compiler"
 	"github.com/gombit-dev/gombit-forge/internal/spec"
 )
 
@@ -138,6 +139,93 @@ func (h *Handler) getProject(ctx context.Context, in *getProjectInput) (*getProj
 		return nil, err
 	}
 	return &getProjectOutput{Body: contract.Data[projectData]{Data: toProjectData(p)}}, nil
+}
+
+// --- project health --------------------------------------------------------
+
+type facetData struct {
+	Name    string `json:"name" doc:"Spec, Extension ABI or Runtime Build"`
+	Status  string `json:"status" doc:"ok, failed or unknown"`
+	Summary string `json:"summary" doc:"One-line human summary"`
+}
+
+type diagnosticData struct {
+	Path    string `json:"path" doc:"Where the problem is"`
+	Code    string `json:"code" doc:"Stable diagnostic code"`
+	Message string `json:"message" doc:"What is wrong"`
+	Entity  string `json:"entity,omitempty" doc:"Stable ID of the offending entity"`
+}
+
+type getProjectHealthInput struct {
+	ProjectID string `path:"projectID" doc:"Project identifier"`
+}
+
+type healthData struct {
+	// Facets are the three independent states in fixed §71 order.
+	Facets []facetData `json:"facets"`
+	// Diagnostics are the spec-validity problems, keyed to the offending entity
+	// so the editor can focus the right control.
+	Diagnostics []diagnosticData `json:"diagnostics,omitempty"`
+}
+
+type getProjectHealthOutput struct {
+	Body contract.Data[healthData]
+}
+
+// getProjectHealth reports the project's three-state health (ADR-001 §36, §71):
+// spec validity, ABI compatibility and runtime build. It evaluates the current
+// head spec with no candidate and no toolchain, so ABI reads compatible (no
+// pending edit) and Runtime Build reads unknown — the deployed build is Gombit
+// Cloud's, not the control plane's (ADR-005). The per-edit breaking/invalid
+// states surface on the candidate responses; this is the committed project's
+// standing health.
+func (h *Handler) getProjectHealth(ctx context.Context, in *getProjectHealthInput) (*getProjectHealthOutput, error) {
+	p, _, err := h.loadAuthorized(ctx, in.ProjectID, org.CapProjectView)
+	if err != nil {
+		return nil, err
+	}
+	head, ok, err := h.svc.Head(ctx, p.ID)
+	if err != nil {
+		return nil, mapError(ctx, err, "load project health")
+	}
+	if !ok {
+		// No revisions yet: nothing to evaluate.
+		return &getProjectHealthOutput{Body: contract.Data[healthData]{Data: healthData{
+			Facets: []facetData{
+				{Name: "Spec", Status: "unknown", Summary: "No revisions yet"},
+				{Name: "Extension ABI", Status: "unknown", Summary: "No revisions yet"},
+				{Name: "Runtime Build", Status: "unknown", Summary: "No revisions yet"},
+			},
+		}}}, nil
+	}
+	current, err := spec.Unmarshal([]byte(head.SpecJSON))
+	if err != nil {
+		return nil, contract.WithContext(ctx, contract.Internal("decode spec"))
+	}
+	health, err := compiler.Evaluate(ctx, compiler.HealthRequest{Current: current}, nil)
+	if err != nil {
+		return nil, contract.WithContext(ctx, contract.Internal("evaluate health"))
+	}
+
+	facets := make([]facetData, 0, 3)
+	for _, f := range health.Facets() {
+		facets = append(facets, facetData{Name: f.Name, Status: f.Status.String(), Summary: f.Summary})
+	}
+	return &getProjectHealthOutput{Body: contract.Data[healthData]{Data: healthData{
+		Facets:      facets,
+		Diagnostics: diagnosticsData(health.Spec.Diagnostics),
+	}}}, nil
+}
+
+func diagnosticsData(ds spec.Diagnostics) []diagnosticData {
+	if len(ds) == 0 {
+		return nil
+	}
+	out := make([]diagnosticData, 0, len(ds))
+	for _, d := range ds {
+		out = append(out, diagnosticData{Path: d.Path, Code: string(d.Code), Message: d.Message, Entity: string(d.Entity)})
+	}
+	return out
 }
 
 // --- get head spec ---------------------------------------------------------

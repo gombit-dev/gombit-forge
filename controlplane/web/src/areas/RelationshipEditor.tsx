@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { ApiError } from "../api/client";
+import { describeError } from "../api/client";
 import { addRelationship, deleteField, type SpecField, type SpecResource } from "../api/projects";
 
 // The per-resource relationship editor (DESIGN.md §4.2, ADR-001 §54). It creates
@@ -32,7 +32,7 @@ export function RelationshipEditor({
       await op();
       return true;
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong");
+      setError(describeError(err));
       return false;
     }
   };

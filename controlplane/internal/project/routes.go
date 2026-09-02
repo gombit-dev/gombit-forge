@@ -72,6 +72,16 @@ func RegisterRoutes(api huma.API, prefix string, gate huma.Middlewares, svc *Ser
 	}, h.getProject)
 
 	huma.Register(api, huma.Operation{
+		OperationID: "get-project-health",
+		Method:      http.MethodGet,
+		Path:        prefix + "/projects/{projectID}/health",
+		Summary:     "Get a project's three-state health (spec / ABI / build)",
+		Tags:        tags,
+		Security:    security,
+		Middlewares: gate,
+	}, h.getProjectHealth)
+
+	huma.Register(api, huma.Operation{
 		OperationID: "get-project-spec",
 		Method:      http.MethodGet,
 		Path:        prefix + "/projects/{projectID}/spec",

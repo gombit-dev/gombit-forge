@@ -27,6 +27,7 @@ function wire(specBody: unknown = { data: SPEC }) {
   mockApi((url) => {
     if (url.endsWith("/organizations")) return { status: 200, body: { data: [ORG] } };
     if (url.endsWith(`/organizations/${ORG.id}/projects`)) return { status: 200, body: { data: [PROJECT] } };
+    if (url.endsWith(`/projects/${PROJECT.id}/health`)) return { status: 200, body: { data: { facets: [] } } };
     if (url.endsWith(`/projects/${PROJECT.id}/spec`)) return { status: 200, body: specBody };
     return { status: 404 };
   });
@@ -85,6 +86,7 @@ describe("DataArea", () => {
       if (url.endsWith("/organizations")) reply = { status: 200, body: { data: [ORG] } };
       else if (url.endsWith(`/organizations/${ORG.id}/projects`))
         reply = { status: 200, body: { data: [PROJECT, { id: 4, organization_id: 7, name: "Blog", slug: "blog" }] } };
+      else if (url.endsWith("/health")) reply = { status: 200, body: { data: { facets: [] } } };
       else if (url.endsWith("/projects/3/spec")) reply = await spec3.promise;
       else if (url.endsWith("/projects/4/spec")) reply = await spec4.promise;
       else reply = { status: 404, body: {} };
