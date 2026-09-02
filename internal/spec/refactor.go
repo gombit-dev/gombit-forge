@@ -83,6 +83,13 @@ func RefactorCodeName(s *ProjectSpec, ledger *Ledger, entityID ID, newSymbol str
 // disambiguated against the evolving ledger, so two labels that fold to the same
 // base get distinct symbols deterministically. An entity whose label cannot be
 // normalized, or whose target cannot be freed, keeps its current symbol.
+//
+// "Toward the label" is best effort, bounded by §20: it cannot reach the exact
+// label-minted symbol when that symbol is tombstoned or held live by another
+// entity, so it settles on the first free disambiguated variant instead. Two
+// entities swapping symbols therefore degrade to numbered variants
+// (Customer2/Client2) rather than trading names, because neither retired symbol
+// may be reused. This is deterministic and order-dependent by construction.
 func NormalizeIdentifiers(s *ProjectSpec, ledger *Ledger) (RefactorResult, error) {
 	if s == nil {
 		return RefactorResult{}, fmt.Errorf("spec: NormalizeIdentifiers needs a spec")
@@ -141,7 +148,12 @@ func locateSymbol(s *ProjectSpec, entityID ID) (symbolLocation, error) {
 			return symbolLocation{}, fmt.Errorf("spec: no resource %s to refactor", entityID)
 		}
 		// Resource type names reserve nothing beyond being exported and unique;
-		// uniqueness is enforced through the ledger's free check.
+		// uniqueness is enforced through the ledger's free check. Legality beyond
+		// exported+free (e.g. a collision with a generator-owned package-level
+		// symbol) is validated downstream by ClassifyEdit/spec.Validate/
+		// ValidateCandidate on the returned candidate — so a nil error from
+		// RefactorCodeName means "accepted as a candidate", not "fully legal to
+		// commit".
 		return symbolLocation{namespace: NamespaceResource, current: r.CodeName}, nil
 	case KindField:
 		for _, r := range s.Resources {
