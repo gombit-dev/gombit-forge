@@ -34,11 +34,16 @@ var (
 	registryTemplate   = mustTemplate("registry", registrySrc)
 )
 
-// tablePageSrc renders a resource_table page: a table populated from the
-// collection GET, mirroring Gombit's own generated list page (openapi-fetch
+// tablePageSrc renders a resource_table page: a paginated table populated from
+// the collection GET, mirroring Gombit's own generated list page (openapi-fetch
 // client, unwrap, the paths/schema types). It is page-driven — the component,
-// title and columns come from the spec's resource_table page — while its row and
-// "New" links target the bound resource's canonical detail/form routes.
+// title, columns and page size come from the spec's resource_table page — while
+// its row and "New" links target the bound resource's canonical detail/form
+// routes. Pagination is honored at runtime: the generated list handler already
+// accepts page/per_page and returns a PageMeta total, so the table sends the
+// configured page size and pages through the result. Search, filtering and
+// sorting are deliberately not here — they need generic list-query support that
+// belongs in Gombit, not Forge.
 const tablePageSrc = `{{.Banner}}
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
@@ -51,21 +56,28 @@ type ListResponse =
   paths["{{.CollectionPath}}"]["get"]["responses"][200]["content"]["application/json"];
 type {{.Type}}Row = NonNullable<ListResponse["data"]>[number];
 
+const PAGE_SIZE = {{.PageSize}};
+
 export function {{.Component}}() {
   const client = useApiClient();
   const [rows, setRows] = useState<{{.Type}}Row[]>([]);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
   const [status, setStatus] = useState({{js (printf "Loading %s…" .Title)}});
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        const listed = await unwrap(await client.GET("{{.CollectionPath}}"));
+        const listed = await unwrap(
+          await client.GET("{{.CollectionPath}}", { params: { query: { page, per_page: PAGE_SIZE } } }),
+        );
         if (cancelled) {
           return;
         }
         const data = Array.isArray(listed.data) ? listed.data : [];
         setRows(data);
+        setTotal(listed.meta?.total ?? data.length);
         setStatus(data.length === 0 ? {{js (printf "No %s yet." .Title)}} : "");
       } catch (err: unknown) {
         if (cancelled) {
@@ -77,7 +89,9 @@ export function {{.Component}}() {
     return () => {
       cancelled = true;
     };
-  }, [client]);
+  }, [client, page]);
+
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
     <section>
@@ -109,6 +123,20 @@ export function {{.Component}}() {
           ))}
         </tbody>
       </table>
+      <nav aria-label="Pagination">
+        <button type="button" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+          Previous
+        </button>
+        <span>
+          {"Page "}
+          {page}
+          {" of "}
+          {pageCount}
+        </span>
+        <button type="button" disabled={page >= pageCount} onClick={() => setPage((p) => p + 1)}>
+          Next
+        </button>
+      </nav>
       {status ? <p>{status}</p> : null}
     </section>
   );

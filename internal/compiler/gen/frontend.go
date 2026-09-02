@@ -162,11 +162,20 @@ type tableView struct {
 	// Create mirrors the resource behavior so the table shows a "New" link only
 	// when the resource is writable.
 	Create bool
+	// PageSize is the rows-per-page the table requests, from TableConfig.PageSize
+	// or defaultPageSize when unconfigured. The generated list handler already
+	// paginates (query page/per_page, PageMeta), so the table honors it at
+	// runtime without any Gombit change.
+	PageSize int
 
 	// Columns are the resolved table columns in order (the graph applies the
 	// TableConfig.Columns → list fields → scalar fields default).
 	Columns []frontendField
 }
+
+// defaultPageSize is the rows-per-page a resource_table page requests when it
+// configures none, so every generated table paginates deterministically.
+const defaultPageSize = 25
 
 // frontendField is one field's projection into a table column and a form input.
 type frontendField struct {
@@ -231,8 +240,14 @@ func firstTableRoute(g *graph.Graph, resource *graph.Resource) string {
 func newTableView(page *graph.Page) tableView {
 	resource := page.Resource
 	title := page.Spec.Label
-	if page.Spec.Table != nil && strings.TrimSpace(page.Spec.Table.Title) != "" {
-		title = page.Spec.Table.Title
+	pageSize := defaultPageSize
+	if page.Spec.Table != nil {
+		if strings.TrimSpace(page.Spec.Table.Title) != "" {
+			title = page.Spec.Table.Title
+		}
+		if page.Spec.Table.PageSize > 0 {
+			pageSize = page.Spec.Table.PageSize
+		}
 	}
 	view := tableView{
 		Banner:         tsBanner,
@@ -244,6 +259,7 @@ func newTableView(page *graph.Page) tableView {
 		CollectionPath: "/api/v1/" + kebab(resource.Spec.StorageName),
 		RouteBase:      kebab(resource.Spec.StorageName),
 		Create:         resource.Spec.Behavior.CreateEnabled,
+		PageSize:       pageSize,
 	}
 	for _, field := range page.Columns {
 		view.Columns = append(view.Columns, frontendFieldFor(field))

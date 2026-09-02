@@ -67,7 +67,7 @@ func TestFrontendConsumesGeneratedClient(t *testing.T) {
 		`from "../../api/generated/client"`,
 		`from "../../api/generated/schema"`,
 		`paths["/api/v1/customers"]["get"]`,
-		`await client.GET("/api/v1/customers")`,
+		`await client.GET("/api/v1/customers", { params: { query: { page, per_page: PAGE_SIZE } } })`,
 	}
 	for _, w := range tableWants {
 		if !strings.Contains(table, w) {
@@ -198,7 +198,7 @@ func TestFrontendPathUsesStorageName(t *testing.T) {
 	// The API collection path comes from the resource storage name; the table's
 	// own route comes from the page slug (here the same kebab string).
 	table := frontendFiles(t, g)["frontend/src/forge_generated/orderline/OrderLinesTablePage.tsx"]
-	if !strings.Contains(table, `client.GET("/api/v1/order-lines")`) {
+	if !strings.Contains(table, `client.GET("/api/v1/order-lines", { params:`) {
 		t.Error("API path should be the kebab-cased storage name")
 	}
 	registry := frontendFiles(t, g)["frontend/src/forge_generated/resources.tsx"]
@@ -494,6 +494,66 @@ func TestFrontendTableHonorsConfiguredColumns(t *testing.T) {
 		if strings.Contains(table, unwanted) {
 			t.Errorf("unconfigured column leaked into the table: %q", unwanted)
 		}
+	}
+}
+
+// TestFrontendTablePaginates checks the runtime-pagination slice of #51: the
+// table sends the configured page size as per_page, pages through the result
+// using the handler's PageMeta total, and renders Prev/Next controls.
+func TestFrontendTablePaginates(t *testing.T) {
+	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
+	res := id(spec.KindResource)
+	build := func(pageSize int) *spec.ProjectSpec {
+		table := &spec.TableConfig{PageSize: pageSize}
+		if pageSize == 0 {
+			table = nil // unconfigured: the default page size applies
+		}
+		return &spec.ProjectSpec{
+			SpecVersion: spec.SpecVersion,
+			Project:     spec.Project{ID: id(spec.KindProject), Name: "Acme", Slug: "acme"},
+			Database:    spec.Database{Driver: spec.DriverPostgres},
+			Auth:        spec.Auth{Mode: spec.AuthCookie},
+			Resources: []*spec.Resource{
+				{ID: res, Label: "Customer", CodeName: "Customer", StorageName: "customers",
+					Fields: []*spec.Field{{ID: id(spec.KindField), Label: "Email", Type: spec.TypeString, CodeName: "Email", StorageName: "email"}}},
+			},
+			Pages: []*spec.Page{
+				{ID: id(spec.KindPage), Slug: "customers", Label: "Customers", Type: spec.PageResourceTable, Resource: res, Table: table},
+			},
+		}
+	}
+
+	tableFor := func(s *spec.ProjectSpec) string {
+		if d := spec.Validate(s); d != nil {
+			t.Fatalf("fixture invalid: %s", d.Error())
+		}
+		g, err := graph.Build(s)
+		if err != nil {
+			t.Fatalf("build: %v", err)
+		}
+		return frontendFiles(t, g)["frontend/src/forge_generated/customer/CustomersTablePage.tsx"]
+	}
+
+	// A configured page size is used verbatim.
+	configured := tableFor(build(10))
+	if !strings.Contains(configured, "const PAGE_SIZE = 10;") {
+		t.Error("configured page size must drive PAGE_SIZE")
+	}
+	for _, want := range []string{
+		`per_page: PAGE_SIZE`,
+		`listed.meta?.total`,
+		`aria-label="Pagination"`,
+		`disabled={page <= 1}`,
+		`disabled={page >= pageCount}`,
+	} {
+		if !strings.Contains(configured, want) {
+			t.Errorf("paginated table must contain %q", want)
+		}
+	}
+
+	// An unconfigured table falls back to the default page size (25).
+	if def := tableFor(build(0)); !strings.Contains(def, "const PAGE_SIZE = 25;") {
+		t.Error("an unconfigured table must default PAGE_SIZE to 25")
 	}
 }
 
