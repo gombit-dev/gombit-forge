@@ -56,15 +56,64 @@ describe("DataArea", () => {
     expect(list).toHaveTextContent("Customers");
   });
 
-  it("shows an empty state for a project with no revisions", async () => {
+  it("distinguishes a project with no revisions from a saved-but-empty spec", async () => {
     wire({ data: null });
     render(<DataArea />);
     const user = userEvent.setup();
-
     await screen.findByRole("option", { name: "Acme" });
     await user.selectOptions(screen.getByRole("combobox", { name: "Organization" }), "7");
     await user.selectOptions(await screen.findByRole("combobox", { name: "Project" }), "3");
+    expect(await screen.findByText(/no revisions yet/i)).toBeInTheDocument();
+  });
 
+  it("shows 'no resources yet' for a saved spec with zero resources", async () => {
+    wire({ data: { resources: [] } });
+    render(<DataArea />);
+    const user = userEvent.setup();
+    await screen.findByRole("option", { name: "Acme" });
+    await user.selectOptions(screen.getByRole("combobox", { name: "Organization" }), "7");
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Project" }), "3");
     expect(await screen.findByText(/no resources yet/i)).toBeInTheDocument();
+  });
+
+  // A stale response must not win: select project 3, then 4; resolve 4's spec
+  // first and 3's later. The UI must show 4's data, never 3's late arrival.
+  it("ignores a stale spec response when the selection has moved on", async () => {
+    const deferred = <T,>() => {
+      let resolve!: (v: T) => void;
+      const promise = new Promise<T>((r) => (resolve = r));
+      return { promise, resolve };
+    };
+    const spec3 = deferred<{ status: number; body: unknown }>();
+    const spec4 = deferred<{ status: number; body: unknown }>();
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      let reply: { status: number; body: unknown };
+      if (url.endsWith("/organizations")) reply = { status: 200, body: { data: [ORG] } };
+      else if (url.endsWith(`/organizations/${ORG.id}/projects`))
+        reply = { status: 200, body: { data: [PROJECT, { id: 4, organization_id: 7, name: "Blog", slug: "blog" }] } };
+      else if (url.endsWith("/projects/3/spec")) reply = await spec3.promise;
+      else if (url.endsWith("/projects/4/spec")) reply = await spec4.promise;
+      else reply = { status: 404, body: {} };
+      return { ok: reply.status >= 200 && reply.status < 300, status: reply.status, statusText: "", json: async () => reply.body } as Response;
+    }) as unknown as typeof fetch;
+
+    render(<DataArea />);
+    const user = userEvent.setup();
+    await screen.findByRole("option", { name: "Acme" });
+    await user.selectOptions(screen.getByRole("combobox", { name: "Organization" }), "7");
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Project" }), "3");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Project" }), "4");
+
+    // Resolve the later selection (4) first, then the stale earlier one (3).
+    spec4.resolve({ status: 200, body: { data: { resources: [{ id: "res_p", label: "Post", label_plural: "Posts", code_name: "Post", storage_name: "posts" }] } } });
+    expect(await screen.findByText("Post")).toBeInTheDocument();
+    spec3.resolve({ status: 200, body: { data: SPEC } });
+
+    // The stale project-3 spec (Customer) must never replace project 4's.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByText("Customer")).not.toBeInTheDocument();
+    expect(screen.getByText("Post")).toBeInTheDocument();
   });
 });
