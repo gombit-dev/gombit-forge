@@ -24,11 +24,18 @@ package compiler
 //   13 explicit source rename breaks    — TestExplicitCodeRenameBreaksAndBlocks
 //   14 extension-visible type change    — TestFieldTypeChangeBreaksAndBlocks
 //   15 discontinuity disables inference — TestIdentityDiscontinuityBlocksRenameInference
-//   16 app builds as ordinary Gombit    — covered by the e2e in this package (TestEndToEnd*)
-//   17 versioned Gombit boundary        — covered by internal/gombit (the CLI boundary)
+//   16 app builds as ordinary Gombit    — proven by TestM0EndToEnd in this package
+//   17 versioned Gombit boundary        — proven by internal/gombit (the CLI boundary tests)
 //
-// (16) and (17) are integration properties proven by the e2e harness and the
-// gombit boundary package, referenced here rather than duplicated.
+// TestABIAdditiveCompatibilityClassification is a supporting §40 proof, not one
+// of the 15 numbered non-integration gates — the additive class rounds out the
+// neutral/additive/breaking classification the gate points above rely on.
+//
+// (16) and (17) are integration properties proven by TestM0EndToEnd and the
+// gombit boundary package, referenced here rather than duplicated. Several of the
+// generated-surface proofs (§98.8-9) assert that the generated code carries the
+// right shape; that the shape behaves is proven end to end by TestM0EndToEnd,
+// which compiles, migrates, boots and serves a real generated app.
 
 import (
 	"context"
@@ -78,8 +85,10 @@ func TestSymbolMintIsUnique(t *testing.T) {
 	if first != "Email" {
 		t.Errorf("first mint = %q, want Email", first)
 	}
-	if second == first {
-		t.Fatalf("two entities must not share a frozen symbol; both got %q", first)
+	// Deterministic disambiguation (gate 2), not mere inequality: the second
+	// entity gets Email2.
+	if second != "Email2" {
+		t.Fatalf("second mint = %q, want the deterministic Email2", second)
 	}
 }
 
@@ -161,8 +170,11 @@ func TestReservedGeneratedNamesCannotCollide(t *testing.T) {
 // --- ABI classification (§98.6-7, §98.13-14) --------------------------------
 
 // TestNeutralEditAllowedWhileUserCodeBroken (§98.7, §86): a relabel classifies
-// neutral from the specs alone, so it can commit even while user code is broken —
-// the classifier never consults user code.
+// neutral. The reason it can commit even while user code is broken is structural
+// — ClassifyEdit takes only specs, never a workspace or toolchain, so neutrality
+// cannot depend on user code compiling. This asserts the neutral verdict; the
+// "while user code is broken" half is guaranteed by that signature (and pinned
+// directly in candidate_test's TestNeutralEditDecidedWithoutUserCode).
 func TestNeutralEditAllowedWhileUserCodeBroken(t *testing.T) {
 	base := sampleSpec(t)
 	cand := cloneSpec(t, base)
@@ -245,8 +257,10 @@ func TestBeforeCreateCanRejectField(t *testing.T) {
 }
 
 // TestBeforeUpdateDistinguishesAbsentFromZero (§98.9): the before-update change
-// set returns (value, changed) so an absent field is distinct from one set to
-// its zero value.
+// set exposes a presence-carrying accessor — Email() returns (value, changed) —
+// so an absent field stays distinct from one set to its zero value. This proves
+// the generated surface carries presence; that the surface behaves is proven end
+// to end by TestM0EndToEnd.
 func TestBeforeUpdateDistinguishesAbsentFromZero(t *testing.T) {
 	files, err := Compile(sampleSpec(t), testModule)
 	if err != nil {
@@ -256,19 +270,25 @@ func TestBeforeUpdateDistinguishesAbsentFromZero(t *testing.T) {
 	if !strings.Contains(mutation, "CustomerUpdateChanges") {
 		t.Fatal("missing CustomerUpdateChanges")
 	}
-	if !strings.Contains(mutation, "(string, bool)") {
+	// The full presence signature, not just the "(string, bool)" fragment.
+	if !strings.Contains(mutation, "func (c *CustomerUpdateChanges) Email() (string, bool)") {
 		t.Error("before-update accessor must return (value, changed) to carry presence")
 	}
 }
 
 // TestBeforeUpdateCanMutateChangedValue (§98.9): a before-update mutator sets the
-// value and marks the field changed.
+// value and marks the field changed. Asserts the generated mutator shape; the
+// runtime behavior rides on TestM0EndToEnd.
 func TestBeforeUpdateCanMutateChangedValue(t *testing.T) {
 	files, err := Compile(sampleSpec(t), testModule)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
 	mutation := fileWithSuffix(t, files, "forge_generated/customer/mutation.go")
+	// The mutator sets the value and flips the presence bit in one method.
+	if !strings.Contains(mutation, "func (c *CustomerUpdateChanges) SetEmail(v string)") {
+		t.Fatal("missing UpdateChanges mutator SetEmail")
+	}
 	if !strings.Contains(mutation, "Changed = true") {
 		t.Error("a before-update mutator must mark the field changed")
 	}
