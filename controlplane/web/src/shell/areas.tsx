@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { DataArea } from "../areas/DataArea";
+import { DesignPreview } from "../areas/DesignPreview";
 import { PagesArea } from "../areas/PagesArea";
 
 // The four editor areas (DESIGN.md §17). This is the single source of truth for
@@ -19,6 +20,7 @@ export interface EditorArea {
 export const AREAS: EditorArea[] = [
   { path: "data", label: "Data", summary: "Resource tree and field editor.", element: <DataArea /> },
   { path: "pages", label: "Pages", summary: "Page list and structured page properties.", element: <PagesArea /> },
+  { path: "preview", label: "Preview", summary: "Structural design preview rendered from the spec.", element: <DesignPreview /> },
   { path: "access", label: "Access", summary: "Users, groups and permission configuration." },
   { path: "deploy", label: "Deploy", summary: "Preview, build history, production deployment and logs." },
 ];
