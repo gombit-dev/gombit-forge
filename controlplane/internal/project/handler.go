@@ -200,7 +200,14 @@ func (h *Handler) submitCandidate(ctx context.Context, in *submitCandidateInput)
 	if err != nil {
 		return nil, mapError(ctx, err, "submit candidate")
 	}
+	return candidateResponse(ctx, result)
+}
 
+// candidateResponse maps a candidate outcome to the shared HTTP response,
+// keeping spec validity and ABI compatibility as separate states (ADR-001 §36):
+// committed → 201, invalid_spec → 422 with diagnostics, breaking → 409 with
+// reasons. It is shared by the raw candidate submit and the resource operations.
+func candidateResponse(ctx context.Context, result CandidateResult) (*submitCandidateOutput, error) {
 	switch result.Outcome {
 	case OutcomeCommitted:
 		return &submitCandidateOutput{Status: 201, Body: contract.Data[revisionData]{Data: revisionData{
@@ -211,24 +218,114 @@ func (h *Handler) submitCandidate(ctx context.Context, in *submitCandidateInput)
 			Class:            result.Class,
 		}}}, nil
 	case OutcomeInvalidSpec:
-		// Spec validity is its own state (ADR-001 §36): a 422 with the
-		// diagnostics, keyed by the offending path.
 		return nil, contract.WithContext(ctx, contract.Validation("candidate spec is invalid", diagnosticFields(result.Diagnostics)))
 	case OutcomeBreaking:
-		// ABI compatibility is a separate state from spec validity (§36): a
-		// breaking candidate is a 409, not a 422, and it names why. Committing it
-		// needs a compatibility build the request path does not run (D8).
-		//
 		// The reasons ride in the message rather than a structured field because
 		// the contract's structured `fields` slot is validation-only (422); reusing
-		// it for an ABI conflict would collapse the very spec-vs-ABI distinction
-		// §36 keeps separate. A future structured surface for the reasons belongs
-		// alongside the async compatibility-validation result, not on this 409.
+		// it for an ABI conflict would collapse the spec-vs-ABI distinction §36
+		// keeps separate.
 		return nil, contract.WithContext(ctx, contract.Conflict(
 			"candidate is ABI-breaking and requires compatibility validation: "+strings.Join(result.Reasons, "; ")))
 	default:
-		return nil, contract.WithContext(ctx, contract.Internal("submit candidate"))
+		return nil, contract.WithContext(ctx, contract.Internal("candidate"))
 	}
+}
+
+// --- resource operations ---------------------------------------------------
+
+type resourceBody struct {
+	Label       string `json:"label" minLength:"1" maxLength:"120" doc:"Human-readable singular label"`
+	LabelPlural string `json:"label_plural,omitempty" maxLength:"120" doc:"Human-readable plural label"`
+}
+
+type addResourceInput struct {
+	ProjectID string `path:"projectID" doc:"Project identifier"`
+	Body      resourceBody
+}
+
+func (h *Handler) addResource(ctx context.Context, in *addResourceInput) (*submitCandidateOutput, error) {
+	p, user, err := h.loadAuthorized(ctx, in.ProjectID, org.CapProjectEdit)
+	if err != nil {
+		return nil, err
+	}
+	result, err := h.svc.AddResource(ctx, p.ID, in.Body.Label, in.Body.LabelPlural, user.ID)
+	if err != nil {
+		return nil, mapError(ctx, err, "add resource")
+	}
+	return candidateResponse(ctx, result)
+}
+
+type renameResourceInput struct {
+	ProjectID  string `path:"projectID" doc:"Project identifier"`
+	ResourceID string `path:"resourceID" doc:"Resource stable ID"`
+	Body       resourceBody
+}
+
+func (h *Handler) renameResource(ctx context.Context, in *renameResourceInput) (*submitCandidateOutput, error) {
+	p, user, err := h.loadAuthorized(ctx, in.ProjectID, org.CapProjectEdit)
+	if err != nil {
+		return nil, err
+	}
+	result, err := h.svc.RenameResource(ctx, p.ID, spec.ID(in.ResourceID), in.Body.Label, in.Body.LabelPlural, user.ID)
+	if err != nil {
+		return nil, mapError(ctx, err, "rename resource")
+	}
+	return candidateResponse(ctx, result)
+}
+
+type deleteResourceInput struct {
+	ProjectID  string `path:"projectID" doc:"Project identifier"`
+	ResourceID string `path:"resourceID" doc:"Resource stable ID"`
+}
+
+type blockerData struct {
+	Kind    string `json:"kind" doc:"relationship, page or dashboard_card"`
+	Message string `json:"message" doc:"Why the delete is blocked"`
+}
+
+type deleteResourceResult struct {
+	Committed    bool          `json:"committed" doc:"Whether the deletion was applied"`
+	RevisionID   *uint         `json:"revision_id,omitempty" doc:"The revision recording the deletion, when committed"`
+	HadExtension bool          `json:"had_extension" doc:"Whether the resource carried custom code archived at build time"`
+	Blockers     []blockerData `json:"blockers,omitempty" doc:"Dependencies that must be resolved first"`
+}
+
+type deleteResourceOutput struct {
+	Status int
+	Body   contract.Data[deleteResourceResult]
+}
+
+func (h *Handler) deleteResource(ctx context.Context, in *deleteResourceInput) (*deleteResourceOutput, error) {
+	p, user, err := h.loadAuthorized(ctx, in.ProjectID, org.CapProjectEdit)
+	if err != nil {
+		return nil, err
+	}
+	del, err := h.svc.DeleteResource(ctx, p.ID, spec.ID(in.ResourceID), user.ID)
+	if err != nil {
+		return nil, mapError(ctx, err, "delete resource")
+	}
+
+	if del.Committed {
+		var revID *uint
+		if del.Revision != nil {
+			revID = &del.Revision.ID
+		}
+		return &deleteResourceOutput{Status: 200, Body: contract.Data[deleteResourceResult]{Data: deleteResourceResult{
+			Committed: true, RevisionID: revID, HadExtension: del.HadExtension,
+		}}}, nil
+	}
+	if len(del.Diagnostics) > 0 {
+		return nil, contract.WithContext(ctx, contract.Validation("deletion produced an invalid spec", diagnosticFields(del.Diagnostics)))
+	}
+	// Blocked by dependencies (§45): a 409 carrying the concrete blockers so the
+	// editor can tell the user what still references the resource.
+	blockers := make([]blockerData, 0, len(del.Blockers))
+	for _, b := range del.Blockers {
+		blockers = append(blockers, blockerData{Kind: b.Kind, Message: b.Message})
+	}
+	return &deleteResourceOutput{Status: 409, Body: contract.Data[deleteResourceResult]{Data: deleteResourceResult{
+		Committed: false, HadExtension: del.HadExtension, Blockers: blockers,
+	}}}, nil
 }
 
 // --- helpers ---------------------------------------------------------------
@@ -301,8 +398,16 @@ func mapError(ctx context.Context, err error, action string) error {
 	switch {
 	case errors.Is(err, ErrProjectNotFound):
 		return contract.WithContext(ctx, contract.NotFound("project not found"))
+	case errors.Is(err, ErrResourceNotFound):
+		return contract.WithContext(ctx, contract.NotFound("resource not found"))
 	case errors.Is(err, org.ErrNotMember), errors.Is(err, org.ErrForbidden):
 		return contract.WithContext(ctx, contract.Authorization("not permitted"))
+	case errors.Is(err, ErrInvalidResourceEdit):
+		return contract.WithContext(ctx, contract.Validation("invalid resource edit", map[string][]string{
+			"label": {"a resource label is required"},
+		}))
+	case errors.Is(err, ErrNoSpec):
+		return contract.WithContext(ctx, contract.Conflict("project has no revisions yet"))
 	case errors.Is(err, ErrInvalidSpec):
 		return contract.WithContext(ctx, contract.Validation("invalid spec", nil))
 	default:

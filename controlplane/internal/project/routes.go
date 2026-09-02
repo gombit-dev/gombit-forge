@@ -92,4 +92,36 @@ func RegisterRoutes(api huma.API, prefix string, gate huma.Middlewares, svc *Ser
 		Middlewares:   gate,
 		DefaultStatus: http.StatusCreated,
 	}, h.submitCandidate)
+
+	huma.Register(api, huma.Operation{
+		OperationID:   "add-resource",
+		Method:        http.MethodPost,
+		Path:          prefix + "/projects/{projectID}/resources",
+		Summary:       "Add a resource from a label; the backend mints its code symbol",
+		Tags:          tags,
+		Security:      security,
+		Middlewares:   gate,
+		DefaultStatus: http.StatusCreated,
+	}, h.addResource)
+
+	huma.Register(api, huma.Operation{
+		OperationID:   "rename-resource",
+		Method:        http.MethodPatch,
+		Path:          prefix + "/projects/{projectID}/resources/{resourceID}",
+		Summary:       "Rename a resource (labels only; ABI-neutral)",
+		Tags:          tags,
+		Security:      security,
+		Middlewares:   gate,
+		DefaultStatus: http.StatusCreated,
+	}, h.renameResource)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "delete-resource",
+		Method:      http.MethodDelete,
+		Path:        prefix + "/projects/{projectID}/resources/{resourceID}",
+		Summary:     "Delete a resource after dependency analysis",
+		Tags:        tags,
+		Security:    security,
+		Middlewares: gate,
+	}, h.deleteResource)
 }

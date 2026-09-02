@@ -202,6 +202,46 @@ func TestGetProjectSpec(t *testing.T) {
 	}
 }
 
+// TestAddResourceOverHTTP: adding a resource from a label over HTTP mints the
+// symbol server-side and lands it in the project's spec.
+func TestAddResourceOverHTTP(t *testing.T) {
+	f := newHTTPFixture(t)
+	ctx := context.Background()
+
+	ownerID := f.user(t, "res-owner@example.test")
+	o, err := f.orgSvc.CreateOrganization(ctx, "Acme", "acme", ownerID)
+	if err != nil {
+		t.Fatalf("create org: %v", err)
+	}
+	p, err := project.NewService(f.db).CreateProject(ctx, o.ID, "Acme CRM", "acme-crm", ownerID)
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	cookie := f.cookie(t, ownerID)
+	base := "/api/v1/projects/" + strconv.FormatUint(uint64(p.ID), 10)
+
+	resp := f.api.Post(base+"/resources", cookie, map[string]any{"label": "Order", "label_plural": "Orders"})
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("add resource = %d, want 201\n%s", resp.Code, resp.Body.String())
+	}
+
+	// The spec now carries the resource with a backend-minted symbol.
+	specResp := f.api.Get(base+"/spec", cookie)
+	var got struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(specResp.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode spec: %v", err)
+	}
+	s, err := spec.Unmarshal(got.Data)
+	if err != nil {
+		t.Fatalf("spec: %v", err)
+	}
+	if len(s.Resources) != 1 || s.Resources[0].Label != "Order" || s.Resources[0].CodeName == "" {
+		t.Errorf("spec resources = %+v, want one Order with a minted symbol", s.Resources)
+	}
+}
+
 // TestProjectAPIHidesOtherOrgProjects: a user who is not a member of a project's
 // org gets 404, so project ids cannot be probed across the tenancy boundary.
 func TestProjectAPIHidesOtherOrgProjects(t *testing.T) {
