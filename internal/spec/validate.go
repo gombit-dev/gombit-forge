@@ -13,32 +13,33 @@ import (
 type Code string
 
 const (
-	CodeSpecVersion     Code = "spec_version_unsupported"
-	CodeMissingID       Code = "missing_id"
-	CodeMalformedID     Code = "malformed_id"
-	CodeDuplicateID     Code = "duplicate_id"
-	CodeInvalidSlug     Code = "invalid_slug"
-	CodeDuplicateSlug   Code = "duplicate_slug"
-	CodeInvalidStorage  Code = "invalid_storage_name"
-	CodeDuplicateStore  Code = "duplicate_storage_name"
-	CodeInvalidCodeName Code = "invalid_code_name"
-	CodeDuplicateCode   Code = "duplicate_code_name"
-	CodeMissingLabel    Code = "missing_label"
-	CodeUnknownType     Code = "unsupported_field_type"
-	CodeDanglingRef     Code = "dangling_reference"
-	CodeInvalidEnum     Code = "invalid_enum"
-	CodeInvalidDriver   Code = "invalid_database_driver"
-	CodeInvalidAuth     Code = "invalid_auth_mode"
-	CodeInvalidPage     Code = "invalid_page"
-	CodeInvalidNav      Code = "invalid_navigation"
-	CodeEmptyProject    Code = "empty_project"
-	CodeInvalidDefault  Code = "invalid_default"
-	CodeReservedName    Code = "reserved_name"
-	CodePageMismatch    Code = "page_config_mismatch"
-	CodeInvalidHook     Code = "invalid_hook"
-	CodeDuplicateForm   Code = "duplicate_form_page"
-	CodeDuplicateDetail Code = "duplicate_detail_page"
-	CodeInvalidBranding Code = "invalid_branding"
+	CodeSpecVersion       Code = "spec_version_unsupported"
+	CodeMissingID         Code = "missing_id"
+	CodeMalformedID       Code = "malformed_id"
+	CodeDuplicateID       Code = "duplicate_id"
+	CodeInvalidSlug       Code = "invalid_slug"
+	CodeDuplicateSlug     Code = "duplicate_slug"
+	CodeInvalidStorage    Code = "invalid_storage_name"
+	CodeDuplicateStore    Code = "duplicate_storage_name"
+	CodeInvalidCodeName   Code = "invalid_code_name"
+	CodeDuplicateCode     Code = "duplicate_code_name"
+	CodeMissingLabel      Code = "missing_label"
+	CodeUnknownType       Code = "unsupported_field_type"
+	CodeDanglingRef       Code = "dangling_reference"
+	CodeInvalidEnum       Code = "invalid_enum"
+	CodeInvalidDriver     Code = "invalid_database_driver"
+	CodeInvalidAuth       Code = "invalid_auth_mode"
+	CodeInvalidPage       Code = "invalid_page"
+	CodeInvalidNav        Code = "invalid_navigation"
+	CodeEmptyProject      Code = "empty_project"
+	CodeInvalidDefault    Code = "invalid_default"
+	CodeReservedName      Code = "reserved_name"
+	CodePageMismatch      Code = "page_config_mismatch"
+	CodeInvalidHook       Code = "invalid_hook"
+	CodeDuplicateForm     Code = "duplicate_form_page"
+	CodeDuplicateDetail   Code = "duplicate_detail_page"
+	CodeInvalidBranding   Code = "invalid_branding"
+	CodeInvalidCapability Code = "invalid_query_capability"
 )
 
 // Diagnostic is one structured, machine-readable validation failure.
@@ -494,12 +495,53 @@ func (v *validator) validateBehavior(resource *Resource, resourcePath string) {
 	for _, list := range lists {
 		for index, fieldID := range list.ids {
 			path := fmt.Sprintf("%s.behavior.%s[%d]", resourcePath, list.name, index)
-			if resource.FindField(fieldID) == nil {
+			field := resource.FindField(fieldID)
+			if field == nil {
 				v.report(CodeDanglingRef, path, fieldID,
 					"%s references field %q which is not on this resource", list.name, fieldID)
+				continue
+			}
+			// The query capabilities constrain field type: the compiler
+			// translates these allowlists into Gombit's per-field
+			// filterable/sortable/searchable modifiers (gombit #260), which
+			// reject types they cannot express. Catch it here, against the
+			// resource, rather than as a downstream generate/build failure.
+			if allowed, ok := capabilityAllowedTypes[list.name]; ok && !allowed[field.Type] {
+				v.report(CodeInvalidCapability, path, fieldID,
+					"%s cannot include field %q of type %q; supported types are %s",
+					list.name, fieldID, field.Type, allowed.list())
 			}
 		}
 	}
+}
+
+// typeSet is a set of field types a query capability accepts.
+type typeSet map[FieldType]bool
+
+// list renders the accepted types in the canonical declaration order, for a
+// deterministic diagnostic message.
+func (s typeSet) list() string {
+	order := []FieldType{TypeString, TypeText, TypeInteger, TypeDecimal, TypeBoolean, TypeDatetime, TypeDate, TypeEnum, TypeBelongsTo}
+	var names []string
+	for _, t := range order {
+		if s[t] {
+			names = append(names, string(t))
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
+// capabilityAllowedTypes maps a behavior field-list name to the field types it
+// accepts, mirroring Gombit's #260 per-type rules (resourcegen typeAllowsFilter/
+// Search/Sort). list_fields and sortable_fields have no type restriction (every
+// scalar and the belongs_to FK is orderable and listable), so they are absent
+// and skip the check.
+var capabilityAllowedTypes = map[string]typeSet{
+	// Exact-match filter: text is for search not equality, and decimal/date/
+	// datetime coercion is deferred (ranges come later).
+	"filterable_fields": {TypeString: true, TypeInteger: true, TypeBoolean: true, TypeEnum: true, TypeBelongsTo: true},
+	// Case-insensitive LIKE across text-like columns.
+	"searchable_fields": {TypeString: true, TypeText: true, TypeEnum: true},
 }
 
 func (v *validator) validatePages() {
