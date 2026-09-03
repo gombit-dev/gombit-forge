@@ -179,6 +179,22 @@ func TestValidateRejects(t *testing.T) {
 			wantAny: CodeDanglingRef,
 		},
 		{
+			name: "searchable field is not text-like",
+			mutate: func(s *ProjectSpec) {
+				// Active is a boolean; ?search= is a text LIKE.
+				s.Resources[0].Behavior.SearchableFields = []ID{fixCustomerActive}
+			},
+			wantAny: CodeInvalidCapability,
+		},
+		{
+			name: "filterable field is a decimal",
+			mutate: func(s *ProjectSpec) {
+				// Total is a decimal; exact-match filter excludes decimal (ranges later).
+				s.Resources[1].Behavior.FilterableFields = []ID{fixInvoiceTotal}
+			},
+			wantAny: CodeInvalidCapability,
+		},
+		{
 			name: "navigation references missing page",
 			mutate: func(s *ProjectSpec) {
 				s.Navigation[0].Page = fixID(KindPage, "99")
@@ -589,6 +605,24 @@ func TestValidateAllowsSameCodeNameInDifferentResources(t *testing.T) {
 
 	if diagnostics := Validate(s); diagnostics != nil {
 		t.Fatalf("cross-resource symbol reuse should be legal, got:\n%s", diagnostics.Error())
+	}
+}
+
+// TestValidateAcceptsSupportedQueryCapabilityTypes pins the accepted side of
+// the per-type rules: filterable over string/enum/bool and a belongs_to FK,
+// searchable over string/enum, and sortable over any field type (decimal and
+// date included) all validate cleanly.
+func TestValidateAcceptsSupportedQueryCapabilityTypes(t *testing.T) {
+	s := validSpec()
+	s.Resources[0].Behavior.FilterableFields = []ID{fixCustomerName, fixCustomerActive, fixCustomerTier}
+	s.Resources[0].Behavior.SearchableFields = []ID{fixCustomerName, fixCustomerTier}
+	s.Resources[0].Behavior.SortableFields = []ID{fixCustomerName, fixCustomerActive, fixCustomerTier}
+	// belongs_to is filterable; every scalar including decimal/date is sortable.
+	s.Resources[1].Behavior.FilterableFields = []ID{fixInvoiceCustomer}
+	s.Resources[1].Behavior.SortableFields = []ID{fixInvoiceTotal, fixInvoiceDue}
+
+	if diagnostics := Validate(s); diagnostics.Has(CodeInvalidCapability) {
+		t.Fatalf("supported capability types should validate, got:\n%s", diagnostics.Error())
 	}
 }
 
