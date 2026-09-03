@@ -120,7 +120,8 @@ func TestMarkSucceededRecordsRepoURL(t *testing.T) {
 	svc := exportjob.NewService(db)
 	ctx := context.Background()
 
-	job, _ := svc.Enqueue(ctx, 1, 1, 1, "app", false)
+	svc.Enqueue(ctx, 1, 1, 1, "app", false)
+	job, _, _ := svc.Claim(ctx) // running is the only legal state to mark from
 	if err := svc.MarkSucceeded(ctx, job.ID, "https://github.com/octo/app"); err != nil {
 		t.Fatalf("mark succeeded: %v", err)
 	}
@@ -135,7 +136,8 @@ func TestMarkFailedRecordsError(t *testing.T) {
 	svc := exportjob.NewService(db)
 	ctx := context.Background()
 
-	job, _ := svc.Enqueue(ctx, 1, 1, 1, "app", false)
+	svc.Enqueue(ctx, 1, 1, 1, "app", false)
+	job, _, _ := svc.Claim(ctx)
 	if err := svc.MarkFailed(ctx, job.ID, "assemble source failed"); err != nil {
 		t.Fatalf("mark failed: %v", err)
 	}
@@ -150,5 +152,37 @@ func TestMarkMissingJobErrors(t *testing.T) {
 	svc := exportjob.NewService(db)
 	if err := svc.MarkSucceeded(context.Background(), 999999, "x"); err == nil {
 		t.Error("marking a missing job must error")
+	}
+}
+
+// TestMarkRejectsNonRunning pins the running → terminal invariant: a queued job
+// (never claimed) can't be marked terminal, and an already-terminal job can't be
+// re-marked — both must error and leave the recorded outcome untouched.
+func TestMarkRejectsNonRunning(t *testing.T) {
+	db := dbtest.DB(t)
+	svc := exportjob.NewService(db)
+	ctx := context.Background()
+
+	// queued → succeeded is rejected; the job stays queued.
+	queued, _ := svc.Enqueue(ctx, 1, 1, 1, "app", false)
+	if err := svc.MarkSucceeded(ctx, queued.ID, "https://github.com/octo/app"); err == nil {
+		t.Error("marking a queued (unclaimed) job must error")
+	}
+	if got, _, _ := svc.Get(ctx, queued.ID); got.Status != exportjob.StatusQueued || got.RepoURL != "" {
+		t.Errorf("queued job was mutated by a rejected mark: %+v", got)
+	}
+
+	// running → succeeded, then a second mark (now terminal) is rejected and does
+	// not clobber the recorded success.
+	job, _, _ := svc.Claim(ctx)
+	if err := svc.MarkSucceeded(ctx, job.ID, "https://github.com/octo/app"); err != nil {
+		t.Fatalf("mark running job: %v", err)
+	}
+	if err := svc.MarkFailed(ctx, job.ID, "late worker"); err == nil {
+		t.Error("re-marking an already-terminal job must error")
+	}
+	got, _, _ := svc.Get(ctx, job.ID)
+	if got.Status != exportjob.StatusSucceeded || got.Error != "" {
+		t.Errorf("terminal outcome clobbered by a late mark: %+v", got)
 	}
 }

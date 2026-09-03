@@ -83,7 +83,8 @@ func (s *Service) Claim(ctx context.Context) (ExportJob, bool, error) {
 	return job, true, nil
 }
 
-// MarkSucceeded records a completed export and its repository URL.
+// MarkSucceeded records a completed export and its repository URL. It is valid
+// only on a running job (see finish).
 func (s *Service) MarkSucceeded(ctx context.Context, jobID uint, repoURL string) error {
 	return s.finish(ctx, jobID, StatusSucceeded, map[string]any{
 		"status":   StatusSucceeded,
@@ -91,9 +92,9 @@ func (s *Service) MarkSucceeded(ctx context.Context, jobID uint, repoURL string)
 	})
 }
 
-// MarkFailed records a failed export with a sanitized reason. The caller is
-// responsible for sanitizing — a raw toolchain error can leak filesystem paths
-// or token material.
+// MarkFailed records a failed export with a sanitized reason. It is valid only
+// on a running job (see finish). The caller is responsible for sanitizing — a
+// raw toolchain error can leak filesystem paths or token material.
 func (s *Service) MarkFailed(ctx context.Context, jobID uint, sanitized string) error {
 	return s.finish(ctx, jobID, StatusFailed, map[string]any{
 		"status": StatusFailed,
@@ -101,14 +102,22 @@ func (s *Service) MarkFailed(ctx context.Context, jobID uint, sanitized string) 
 	})
 }
 
-// finish applies a terminal update and requires the row to exist.
+// finish applies a terminal update, enforcing the running → terminal transition
+// the package documents: the update matches only a row that is still running,
+// so a job that was never claimed (queued → terminal), an already-terminal job
+// re-marked, or a missing row all fall through as RowsAffected == 0 and error
+// rather than silently clobbering a terminal outcome. This is what keeps a late
+// or duplicate worker from overwriting a job's recorded result once a requeue or
+// stuck-job path exists.
 func (s *Service) finish(ctx context.Context, jobID uint, status Status, fields map[string]any) error {
-	res := s.db.WithContext(ctx).Model(&ExportJob{}).Where("id = ?", jobID).Updates(fields)
+	res := s.db.WithContext(ctx).Model(&ExportJob{}).
+		Where("id = ? AND status = ?", jobID, StatusRunning).
+		Updates(fields)
 	if res.Error != nil {
 		return res.Error
 	}
 	if res.RowsAffected == 0 {
-		return fmt.Errorf("exportjob: no job %d to mark %s", jobID, status)
+		return fmt.Errorf("exportjob: cannot mark job %d as %s: not running (missing or already terminal)", jobID, status)
 	}
 	return nil
 }
