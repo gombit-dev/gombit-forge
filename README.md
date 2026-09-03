@@ -26,8 +26,9 @@ add page       table · form · detail · dashboard
 an ordinary Gombit app you own — API · admin · React · migrations
 ```
 
-> **Status: pre-alpha.** The compiler is done and proven end to end; the visual
-> editor that drives it is under construction. See [Status](#status).
+> **Status: pre-alpha.** The compiler, the control plane, and the editor are
+> built (F0–M3, M7); the Cloud build/deploy integration (M4–M6) is not. See
+> [Status](#status).
 
 ## Why Forge
 
@@ -133,28 +134,31 @@ go test ./internal/compiler -run TestM0EndToEnd -v
 
 ## Status
 
-**Pre-alpha.** The pieces exist in this order of maturity:
+**Pre-alpha, but further along than "pre-alpha" suggests.** F0, M0, M1, M2, M3
+and M7 are complete; only the Cloud-runtime integration (M4–M6) is unbuilt.
 
 - **Compiler — done and proven.** The **M0 go/no-go gate is cleared**: from a
-  `ProjectSpec`, Forge generates a Gombit app that compiles, migrates on
-  Postgres, boots, serves CRUD over `/api/v1/…`, catalogs resources through the
-  admin API, and carries no Forge dependency — end to end in `TestM0EndToEnd`.
-  On top of it the structured page builder generates tables, forms, details, and
-  dashboards, with server-side search / filter / sort, FK-embedded related
-  records, recent-record lists, and numeric aggregate cards.
-- **Control plane — under construction.** `controlplane/` is Forge as an ordinary
-  Gombit application (dogfooding, locked decision D7): cookie/session auth, org
-  tenancy with per-org roles and an invitation flow, and immutable, append-only
-  project revisions that pin the exact canonical spec bytes and hash. The
-  authoring HTTP API and the editor SPA are in progress.
+  model, Forge generates a Gombit app that compiles, migrates on Postgres,
+  boots, serves CRUD over `/api/v1/…`, catalogs resources through the admin API,
+  and carries no Forge dependency — end to end in `TestM0EndToEnd`. The
+  structured page builder generates tables, forms, details, and dashboards, with
+  server-side search / filter / sort, FK-embedded related records, recent-record
+  lists, and numeric aggregate cards.
+- **Control plane — built and runnable.** `controlplane/` is Forge as an ordinary
+  Gombit application (dogfooding, D7): cookie/session auth, org tenancy with
+  per-org roles and an invitation flow, immutable append-only project revisions,
+  an audit service, and the full **authoring API** (create a project; add
+  resources, fields, relationships, behavior, and pages — each edit minting IDs
+  and committing a revision). A React **editor SPA** in `controlplane/web` drives
+  it, and its Postgres schema ships as committed Atlas migrations. GitHub source
+  export ships as an async job.
 - **Runtime (build / preview / deploy) — delegated, not yet integrated.** These
   belong to Gombit Cloud ([ADR-005](docs/ADR-005.md)); Forge compiles a revision
-  and hands off the source. GitHub source export already ships as an async job.
+  and hands off the source. Wiring Forge to Cloud's build/preview/deploy APIs is
+  M4–M6, and waits on those APIs.
 
-There is no hosted visual editor or one-click deploy yet — those are milestones
-M1 and M4–M6. [`docs/DESIGN.md`](docs/DESIGN.md) is authoritative for scope and
-the roadmap; [`AGENTS.md`](AGENTS.md) is the single source kept current for what
-has actually shipped.
+[`docs/DESIGN.md`](docs/DESIGN.md) is authoritative for scope and the roadmap;
+[`AGENTS.md`](AGENTS.md) is the single source kept current for what has shipped.
 
 ## Locked decisions
 

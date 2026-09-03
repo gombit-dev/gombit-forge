@@ -24,47 +24,64 @@ file tree. `compiler.MigrationModels` derives the model set for migration
 generation, which the `internal/gombit` boundary drives through
 `gombit db makemigrations` (Forge does not diff schemas itself).
 
-M0 (the go/no-go gate) is **cleared**: issues #2–#12 shipped (PRs #86–#94 plus
-the e2e harness). The end-to-end test in `internal/compiler` scaffolds a real
-Gombit app, compiles the spec, applies the migration on Postgres, builds, boots
-and serves customers/invoices/admin with no Forge runtime dependency.
+**F0, M0, M1, M2, M3 and M7 are complete** (every non-epic issue closed); only
+M4–M6 remain, and those are Cloud-integration client work blocked on concrete
+Gombit Cloud APIs (see below). Verify with `gh issue list` and `git log` before
+claiming otherwise — this paragraph is the thing most likely to drift.
 
-M1 (control plane) is **in progress**. `controlplane/` is a nested Go module
-holding the control plane as an ordinary Gombit application (Forge dogfoods
-Gombit, D7) — cookie/session auth, Postgres-backed, admin plane auto-mounted by
-`framework.New` in cookie mode (#35). Forge tenancy exists (#36): `internal/org`
-holds Organization, Member and Invitation with per-org Forge roles (owner/admin/
-member) and a capability matrix, plus the invitation flow (invite → hashed
-token → accept) over cookie-gated Huma routes; `internal/audit` is the minimal
-audit seam (§23) the invitation flow records to (the audit *service* is #40).
-Identity and RBAC are Gombit's (`auth.User`, cookie session) — the org role is
-tenancy Gombit can't express, not a second identity store (D12). Projects exist
-too (#37): `internal/project` holds Project and the immutable, append-only
-Revision chain — each revision pins the exact canonical `spec.Marshal` bytes and
-`spec.Hash`, with `parent_revision_id` lineage (DESIGN.md §8, ADR-001 §60). This
-is the first place the control plane imports the compiler: `internal/project`
-uses the root module's `internal/spec` for canonicalization and hashing (the
-single source of truth for spec bytes), so `controlplane/go.mod` now requires
-the root module with a `replace … => ../`. Project also carries a
-`CloudProjectID` linkage (ADR-005 D6) — the whole of Forge's knowledge of its
-Gombit Cloud counterpart. The runtime models (Environment, Build, Deployment,
-Domain) are **not** in the Forge control plane: they are owned by Gombit Cloud
-(ADR-005 D2). Forge compiles a revision to an ordinary Gombit application and
-hands it to Cloud, which owns build, deployment, environments, databases,
-secrets and domains. #38 was originally a set of `internal/deploy` models here;
-ADR-005 reduced PR #100 to the `CloudProjectID` linkage instead.
+The **compiler** (root module) is done and gated end to end. From a
+`ProjectSpec`, `compiler.Compile` builds the resolved graph and runs every
+generator stage — GORM models, the backend extension ABI (view/mutation/fields
++ the `extension` package, ADR-001 §23), Huma handlers, route and admin
+registration, and a **page-driven** React frontend — into one deterministic file
+tree. Pages generate tables, forms, details and dashboards; list handlers carry
+declared server-side search / filter / sort (gombit #260), detail pages embed
+FK-filtered related records, and dashboards carry count cards, recent-record
+lists and numeric aggregate cards (gombit #273). `TestM0EndToEnd` scaffolds a
+real Gombit app, compiles the spec, applies the migration on Postgres, builds,
+boots and serves CRUD + admin (and a live `?aggregate=` query) with **no Forge
+runtime dependency**. `compiler.MigrationModels` derives the model set;
+`internal/gombit` drives `gombit db makemigrations` (Forge does not diff schemas
+itself). GitHub source export ships as an async `ExportJob` (M7): freeze a
+revision → queue → a worker runs `BuildApplicationSource` and publishes the repo.
 
-`internal/platform.Models()` is the control plane's schema of record; tests
-AutoMigrate it, but **no Atlas migration is committed yet** — deployment can't
-create these tables until one is (§14 forbids AutoMigrate in the deployed app).
-The model set is the authoring loop only — org tenancy, Project/Revision, audit,
-plus the `CloudProjectID` linkage — and #101 authors its initial migration
-(org/project FKs, `head_revision_id` ON DELETE SET NULL, revision immutability).
-Still open for M1: that migration (#101, now scoped to the reduced set), the
-project/revision API (#39, which also adds the authorized project-create path),
-the audit service (#40), and — as Cloud-integration client work, not a Forge
-PaaS — the build/preview/deploy paths (M4–M6, re-scoped by ADR-005). Secrets
-(#41) moved to Gombit Cloud. Don't describe any of those as existing.
+The **control plane** (`controlplane/`, a nested Go module) is an ordinary Gombit
+application — Forge dogfoods Gombit (D7) — and is runnable: cookie/session auth
+with the admin plane auto-mounted (#35); org tenancy in `internal/org`
+(Organization, Member, Invitation with per-org roles owner/admin/member and a
+capability matrix, plus the invite → hashed-token → accept flow, #36); Project
+and the immutable, append-only Revision chain in `internal/project`, each
+revision pinning the exact canonical `spec.Marshal` bytes and `spec.Hash` with
+`parent_revision_id` lineage (#37); the `internal/audit` service (#40); and the
+full **authoring API** (#39) — create-project plus resource/field/relationship/
+behavior/page/navigation/branding edits, each minting stable IDs, validating,
+classifying the ABI transition and committing a new revision (a breaking
+transition is returned 409, never built, D8). A React editor SPA in
+`controlplane/web` (Vite + React + TS) drives that API. Identity and RBAC are
+Gombit's (`auth.User`, cookie session); the org role is tenancy Gombit can't
+express, not a second identity store (D12). `internal/project` imports the root
+module's `internal/spec` for canonicalization and hashing, so
+`controlplane/go.mod` requires the root module with a `replace … => ../`.
+
+The control plane's schema **is committed**: `internal/platform.Models()` is the
+model set (auth, org tenancy, Project/Revision, audit, plus the
+`Project.CloudProjectID` Cloud linkage) and `controlplane/database/migrations`
+holds the Atlas migrations that create it (`20260830074350_initial.sql` plus the
+github-connect and export-job follow-ups), authored via `gombit db makemigrations`
+per §14 — deployment migrates, never AutoMigrate (tests AutoMigrate only). #101
+(migration), #39 (project API), #40 (audit) and #41 are all **closed**; do not
+describe them as open.
+
+The **runtime** — build, deploy, environments, managed database, secrets,
+domains — is Gombit Cloud's, not Forge's (ADR-005 D2/D6). Forge compiles a
+revision to an ordinary Gombit application and hands the source to Cloud;
+`Project.CloudProjectID` (#38, PR #100) is the whole of Forge's knowledge of its
+Cloud counterpart. **M4–M6 are the not-yet-built Cloud-client integration**
+(submit source + track build, preview, deploy) and are blocked on those concrete
+Cloud APIs; don't describe them as existing, and don't invent or mock a Cloud
+API to start them. Secrets (#41) moved to Cloud. #182 (dashboard numeric
+aggregate cards, split from M3 #54) shipped once gombit v0.1.12 landed the
+aggregate contract.
 
 The repo is **two Go modules**. The root module
 (`github.com/gombit-dev/gombit-forge`) is the compiler and stays gombit-free —
@@ -275,8 +292,10 @@ they drift.
 
 ## Working agreement
 
-- Verify before asserting. This repo's design docs describe a system that
-  mostly doesn't exist yet; read the code.
+- Verify before asserting. The design docs describe intent, which has drifted
+  from the code in both directions — much of the intended system now exists
+  (F0–M3, M7), and some described pieces never will (superseded by ADRs). Read
+  the code and check `gh issue list`; don't trust a doc's tense.
 - Automated review findings are claims, not facts. Reproduce a reported defect
   against the current code before fixing it, and confirm the new test actually
   fails without the fix. A test that passes both ways proves nothing.

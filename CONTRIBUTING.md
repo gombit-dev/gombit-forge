@@ -57,8 +57,10 @@ versions and drags Gombit into the Gombit-free compiler.
 
 ## Read these first
 
-The design docs describe a system that mostly does not exist yet. **Read the
-code, not just the docs**, before asserting how something works.
+The design docs describe intent, which has drifted from the code in both
+directions — much of the intended system now exists (F0–M3, M7), and some pieces
+never will (superseded by ADRs). **Read the code and check `gh issue list`**,
+not just the docs, before asserting how something works.
 
 - [`AGENTS.md`](AGENTS.md) — the working agreement, current state, and the Gombit
   integration boundary. The single source kept current for what has shipped.

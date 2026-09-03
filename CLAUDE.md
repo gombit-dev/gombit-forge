@@ -12,8 +12,9 @@
   an Explore subagent. They are two files and the answer is usually a §
   reference you should cite.
 - The repo is small enough to read. Don't guess at `internal/spec` or
-  `internal/compiler/graph` behavior from the docs — the docs describe the
-  intended system, most of which isn't built.
+  `internal/compiler/graph` behavior from the docs — the docs describe intent,
+  which has drifted from the code (much of it now built, some of it superseded).
+  Read the code, and check `gh issue list` for what has actually shipped.
 - When creating or editing GitHub issues, keep the milestone and area labels
   from the existing set. Don't rename, re-bucket, or merge issues unasked.
 - Close issues with one keyword each (`Closes #2, closes #3`) — a bare

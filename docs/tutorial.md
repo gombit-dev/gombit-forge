@@ -12,19 +12,22 @@ edit — "add a resource", "add a field", "add a page" — and Forge mints the s
 IDs, validates the result, and records it as an immutable revision. This page
 walks that authoring loop.
 
-> **Where this stands.** The editor and the API below are the **control plane**
-> (milestone M1), still being finished — there is not yet a control plane you can
-> stand up and click through. The **compiler** it drives is done and proven end
-> to end today; to watch a model actually become a running, migrating,
-> CRUD-serving app right now, run the go/no-go test — it is the executable
-> version of this loop:
+> **Where this stands.** The control plane (`controlplane/`) is built and
+> runnable: it's a Gombit app whose Postgres schema ships as committed Atlas
+> migrations, and a React editor SPA (`controlplane/web`) drives the authoring
+> API below. The compiler it feeds is proven end to end by the go/no-go test —
+> the executable version of this whole loop:
 >
 > ```bash
 > go test ./internal/compiler -run TestM0EndToEnd -v
 > ```
+>
+> What's **not** built yet is the Cloud side — one-click build, preview, and
+> deploy (M4–M6), which wait on Gombit Cloud's APIs. Until then the loop ends at
+> a compiled, exportable app, not a hosted URL. This page shows the loop through
+> the HTTP API; the editor issues these same calls for you.
 
-We'll build a tiny CRM — customers and invoices — through the authoring API. The
-calls below are the ones the visual editor makes for you.
+We'll build a tiny CRM — customers and invoices.
 
 ## 1. A project
 
