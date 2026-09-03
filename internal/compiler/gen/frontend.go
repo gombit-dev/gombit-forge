@@ -306,6 +306,39 @@ type tableView struct {
 	// resource's SortableFields), gating the ?ordering= state and query param.
 	// The per-column frontendField.Sortable decides which headers become toggles.
 	Sortable bool
+
+	// Filters are the exact-match filter controls the page exposes (its
+	// TableConfig.Filters, resolved), each wiring a ?<storage_name>= query param
+	// (gombit #260). A non-empty list gates the filters state and query params.
+	Filters []filterField
+}
+
+// filterField is one exact-match table filter control. The widget is derived
+// from the field type: text (string), number (integer / belongs_to FK id), a
+// yes/no/any select (boolean), or an options select (enum).
+type filterField struct {
+	JSONName string           // storage_name — the query param key
+	Label    string           // human label for the control
+	Control  string           // "text" | "number" | "bool" | "enum"
+	Options  []spec.EnumValue // enum options, for Control == "enum"
+}
+
+// filterFieldFor derives a filter control from a field. Only the filterable
+// types reach here (validation guarantees TableConfig.Filters ⊆ the resource's
+// FilterableFields): string → text, integer/belongs_to → number, boolean →
+// bool, enum → enum. Anything else falls back to a text box.
+func filterFieldFor(field *graph.Field) filterField {
+	f := filterField{JSONName: field.Spec.StorageName, Label: field.Spec.Label, Control: "text"}
+	switch field.Spec.Type {
+	case spec.TypeInteger, spec.TypeBelongsTo:
+		f.Control = "number"
+	case spec.TypeBoolean:
+		f.Control = "bool"
+	case spec.TypeEnum:
+		f.Control = "enum"
+		f.Options = field.Spec.EnumValues
+	}
+	return f
 }
 
 // defaultPageSize is the rows-per-page a resource_table page requests when it
@@ -555,6 +588,12 @@ func newTableView(g *graph.Graph, page *graph.Page) tableView {
 			view.Sortable = true
 		}
 		view.Columns = append(view.Columns, col)
+	}
+	// Filter controls are the page's resolved TableConfig.Filters (a subset of
+	// the resource's filterable fields), in authored order — independent of
+	// which fields are columns.
+	for _, field := range page.Filters {
+		view.Filters = append(view.Filters, filterFieldFor(field))
 	}
 	return view
 }

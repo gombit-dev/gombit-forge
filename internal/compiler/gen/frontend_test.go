@@ -717,6 +717,88 @@ func TestFrontendTableSort(t *testing.T) {
 	}
 }
 
+// TestFrontendTableFilters: a table exposing filter controls renders a
+// type-derived widget per filter field (text/number/select) and wires each
+// ?<storage_name>= query param; a table with no filters is unchanged.
+func TestFrontendTableFilters(t *testing.T) {
+	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
+	res := id(spec.KindResource)
+	name := id(spec.KindField)
+	age := id(spec.KindField)
+	tier := id(spec.KindField)
+	active := id(spec.KindField)
+	build := func(filters []spec.ID) *spec.ProjectSpec {
+		return &spec.ProjectSpec{
+			SpecVersion: spec.SpecVersion,
+			Project:     spec.Project{ID: id(spec.KindProject), Name: "Acme", Slug: "acme"},
+			Database:    spec.Database{Driver: spec.DriverPostgres},
+			Auth:        spec.Auth{Mode: spec.AuthCookie},
+			Resources: []*spec.Resource{
+				{ID: res, Label: "Customer", CodeName: "Customer", StorageName: "customers",
+					Behavior: spec.ResourceBehavior{FilterableFields: []spec.ID{name, age, tier, active}},
+					Fields: []*spec.Field{
+						{ID: name, Label: "Name", Type: spec.TypeString, CodeName: "Name", StorageName: "name"},
+						{ID: age, Label: "Age", Type: spec.TypeInteger, CodeName: "Age", StorageName: "age"},
+						{ID: tier, Label: "Tier", Type: spec.TypeEnum, CodeName: "Tier", StorageName: "tier",
+							EnumValues: []spec.EnumValue{{Value: "free", Label: "Free"}, {Value: "pro"}}},
+						{ID: active, Label: "Active", Type: spec.TypeBoolean, CodeName: "Active", StorageName: "active"},
+					}},
+			},
+			Pages: []*spec.Page{
+				{ID: id(spec.KindPage), Slug: "customers", Label: "Customers", Type: spec.PageResourceTable, Resource: res,
+					Table: &spec.TableConfig{Filters: filters}},
+			},
+		}
+	}
+	tableFor := func(s *spec.ProjectSpec) string {
+		if d := spec.Validate(s); d != nil {
+			t.Fatalf("fixture invalid: %s", d.Error())
+		}
+		g, err := graph.Build(s)
+		if err != nil {
+			t.Fatalf("build: %v", err)
+		}
+		return frontendFiles(t, g)["frontend/src/forge_generated/customer/CustomersTablePage.tsx"]
+	}
+
+	filtered := tableFor(build([]spec.ID{name, age, tier, active}))
+	for _, want := range []string{
+		`const [filters, setFilters] = useState<Record<string, string>>({});`,
+		`const setFilter = (col: string, value: string) => {`,
+		// string → text, integer → number.
+		`type="text"`,
+		`onChange={(e) => setFilter("name", e.target.value)}`,
+		`type="number"`,
+		`onChange={(e) => setFilter("age", e.target.value)}`,
+		// enum → select with an "any" option and the enum options.
+		`onChange={(e) => setFilter("tier", e.target.value)}`,
+		`<option value="">{ "Tier: any" }</option>`,
+		`<option value="free">{ "Free" }</option>`,
+		// boolean → yes/no/any select.
+		`onChange={(e) => setFilter("active", e.target.value)}`,
+		`<option value="true">{ "Yes" }</option>`,
+		`<option value="false">{ "No" }</option>`,
+		// query params + deps.
+		`"name": filters["name"] || undefined`,
+		`"active": filters["active"] || undefined`,
+		`}, [client, page, filters]);`,
+	} {
+		if !strings.Contains(filtered, want) {
+			t.Errorf("filtered table must contain %q", want)
+		}
+	}
+
+	plain := tableFor(build(nil))
+	for _, absent := range []string{"filters", "setFilter"} {
+		if strings.Contains(plain, absent) {
+			t.Errorf("table with no filters must not contain %q", absent)
+		}
+	}
+	if !strings.Contains(plain, `query: { page, per_page: PAGE_SIZE } }`) {
+		t.Error("non-filter table must keep the plain paginated query")
+	}
+}
+
 // TestFrontendMultipleTablesPerResource is a #51 acceptance point: two
 // resource_table pages can target one resource and generate independent tables
 // with their own component, route and columns.
