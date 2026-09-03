@@ -6,20 +6,28 @@
 [![Built on Gombit](https://img.shields.io/badge/built%20on-Gombit-6f42c1)](https://github.com/gombit-dev/gombit)
 
 **Build visually. Ship normally. Own the code.** Forge is a visual application
-builder that compiles a declarative `ProjectSpec` into an ordinary
-[Gombit](https://github.com/gombit-dev/gombit) application — Go + GORM + Huma
+builder. You describe an app — resources, fields, relationships, and screens —
+and Forge compiles that description into an ordinary
+[Gombit](https://github.com/gombit-dev/gombit) application: a Go + GORM + Huma
 API, a React + TypeScript frontend, Atlas migrations, cookie/session auth, and a
-working admin. The output is a normal repository you build, run, and export; it
-has **no runtime dependency on Forge**.
+working admin. The output is a normal repository you build, run, and export — and
+it has **no runtime dependency on Forge**.
 
-```go
-files, err := compiler.Compile(spec, "example.com/acme")
-// → internal/forge_generated/**  +  frontend/src/forge_generated/**
-//    an ordinary Gombit app, byte-identical every time
+You never write code or hand-edit a model. Each change is a small edit, and Forge
+mints the IDs, validates the result, and versions it:
+
+```text
+add resource  "Customer"
+add field      Customer.Email  (string, unique)
+add resource  "Invoice"
+relate         Invoice ─belongs_to→ Customer
+add page       table · form · detail · dashboard
+        ▼
+an ordinary Gombit app you own — API · admin · React · migrations
 ```
 
-> **Status: pre-alpha.** The M0 compiler gate is cleared and proven end to end;
-> the control plane is under construction. See [Status](#status).
+> **Status: pre-alpha.** The compiler is done and proven end to end; the visual
+> editor that drives it is under construction. See [Status](#status).
 
 ## Why Forge
 
@@ -80,14 +88,31 @@ pass:
 > **Forge edits a declarative application model; Gombit turns that model into
 > ordinary software.**
 
-## Quick start
+## The authoring loop
 
-**Prerequisites:** Go 1.25+ (the toolchain auto-resolves via `GOTOOLCHAIN`).
-Generating and running a real application also needs the
+Building with Forge means editing the model, never the code. Each edit is a
+small, validated, versioned change; the [tutorial](docs/tutorial.md) walks the
+whole loop against the authoring API:
+
+| You do | Forge does |
+| --- | --- |
+| Add a resource `"Customer"` | mints its stable ID and Go symbol, records a revision |
+| Add a field `Email` (string, unique) | validates the type, extends the schema and API |
+| Relate `Invoice → Customer` | derives the reverse `has_many` |
+| Add a table / form / detail / dashboard | generates the React screen for it |
+| Mark a field searchable / filterable / aggregatable | wires the server-side list query |
+
+The result of every edit compiles to an ordinary Gombit app — models,
+migrations, a typed API, an admin, and a React frontend — that you own and can
+export. Identity is the stable ID Forge mints, never the label, so relabelling is
+free and never a code change (ADR-001).
+
+## Running the repo
+
+**Prerequisites:** Go 1.25+ (auto-resolves via `GOTOOLCHAIN`). Seeing a model
+become a real, migrating app also needs the
 [`gombit`](https://github.com/gombit-dev/gombit) CLI (**≥ v0.1.12**),
-[Atlas](https://atlasgo.io), and Docker (Atlas diffs migrations against a
-throwaway Postgres). The compiler library itself depends only on `gorm` and
-`shopspring/decimal`.
+[Atlas](https://atlasgo.io), and Docker.
 
 ```bash
 git clone https://github.com/gombit-dev/gombit-forge
@@ -97,77 +122,10 @@ go test ./... -short   # fast unit tests, no external toolchain
 make all               # the full CI gate: fmt, vet, tests, skill-tree check
 ```
 
-Forge is a library today — you drive the compiler from Go. This builds a
-two-resource spec and prints the file tree the compiler would write:
-
-```go
-package main
-
-import (
-	"fmt"
-	"log"
-
-	"github.com/gombit-dev/gombit-forge/internal/compiler"
-	"github.com/gombit-dev/gombit-forge/internal/spec"
-)
-
-func main() {
-	customer := spec.MustNewID(spec.KindResource)
-
-	s := &spec.ProjectSpec{
-		SpecVersion: spec.SpecVersion,
-		Project:     spec.Project{ID: spec.MustNewID(spec.KindProject), Name: "Acme CRM", Slug: "acme-crm"},
-		Database:    spec.Database{Driver: spec.DriverPostgres},
-		Auth:        spec.Auth{Mode: spec.AuthCookie},
-		Resources: []*spec.Resource{
-			{
-				ID: customer, Label: "Customer", LabelPlural: "Customers",
-				CodeName: "Customer", StorageName: "customers",
-				Behavior: spec.ResourceBehavior{CreateEnabled: true, UpdateEnabled: true, DeleteEnabled: true, AdminVisible: true},
-				Fields: []*spec.Field{
-					{ID: spec.MustNewID(spec.KindField), Label: "Email", Type: spec.TypeString,
-						CodeName: "Email", StorageName: "email", Required: true, Unique: true},
-					{ID: spec.MustNewID(spec.KindField), Label: "Active", Type: spec.TypeBoolean,
-						CodeName: "Active", StorageName: "active"},
-				},
-			},
-			{
-				ID: spec.MustNewID(spec.KindResource), Label: "Invoice", LabelPlural: "Invoices",
-				CodeName: "Invoice", StorageName: "invoices",
-				Behavior: spec.ResourceBehavior{CreateEnabled: true, AdminVisible: false},
-				Fields: []*spec.Field{
-					{ID: spec.MustNewID(spec.KindField), Label: "Customer", Type: spec.TypeBelongsTo,
-						CodeName: "Customer", StorageName: "customer_id", Required: true, Target: customer},
-					{ID: spec.MustNewID(spec.KindField), Label: "Total", Type: spec.TypeDecimal,
-						CodeName: "Total", StorageName: "total", Required: true},
-				},
-			},
-		},
-	}
-
-	files, err := compiler.Compile(s, "example.com/acme") // module = the generated app's Go module path
-	if err != nil {
-		log.Fatal(err)
-	}
-	for _, f := range files {
-		fmt.Println(f.Path)
-	}
-}
-```
-
-The `invoice` resource emits no `admin.go` (it is not admin-visible) — the only
-file its toggles drop. Generation is **page-driven**: this spec declares no
-pages, so it produces the backend plus an empty frontend registry; add pages
-(tables, forms, details, a dashboard) and the compiler emits the matching React
-components. The output is deterministic — the same compiler version and spec
-produce byte-identical files. The [tutorial](docs/tutorial.md) starts from a
-committed [`spec.json`](examples/acme-crm/spec.json) with pages and turns the
-tree into a running app — scaffold, migrate, build, boot, and use the generated
-frontend.
-
-To watch the whole loop against a real toolchain, run the go/no-go proof, which
-scaffolds a Gombit app, migrates on Postgres, builds, boots, and exercises CRUD
-plus admin (it skips automatically without `gombit`/`atlas`/Docker):
+The compiler is proven end to end by the go/no-go test, which scaffolds a Gombit
+app from a model, migrates it on Postgres, builds, boots, and exercises CRUD plus
+admin — the executable version of the loop above (it skips without
+`gombit`/`atlas`/Docker):
 
 ```bash
 go test ./internal/compiler -run TestM0EndToEnd -v
