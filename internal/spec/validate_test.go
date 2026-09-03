@@ -195,6 +195,15 @@ func TestValidateRejects(t *testing.T) {
 			wantAny: CodeInvalidCapability,
 		},
 		{
+			name: "table enables search without a searchable resource field",
+			mutate: func(s *ProjectSpec) {
+				// The invoices table (Invoice declares no searchable_fields) turns
+				// on the search box — a capability the resource doesn't offer.
+				s.Pages[2].Table.Search = true
+			},
+			wantAny: CodeInvalidCapability,
+		},
+		{
 			name: "navigation references missing page",
 			mutate: func(s *ProjectSpec) {
 				s.Navigation[0].Page = fixID(KindPage, "99")

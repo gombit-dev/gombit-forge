@@ -155,6 +155,15 @@ func TestUpdateTableConfigCommits(t *testing.T) {
 	fieldID, pageID := pageWithField(t, svc, projectID, resID)
 	ctx := context.Background()
 
+	// A table may enable search only if the resource declares a searchable
+	// field (spec validation), so declare the string field searchable first.
+	if _, err := svc.UpdateBehavior(ctx, projectID, resID, spec.ResourceBehavior{
+		CreateEnabled: true, UpdateEnabled: true, DeleteEnabled: true, AdminVisible: true,
+		SearchableFields: []spec.ID{fieldID},
+	}, 7); err != nil {
+		t.Fatalf("declare searchable field: %v", err)
+	}
+
 	res, err := svc.UpdateTableConfig(ctx, projectID, pageID, project.TableConfigInput{
 		Label: "All orders", Title: "Every order", Columns: []spec.ID{fieldID}, Search: true, PageSize: 25,
 	}, 7)

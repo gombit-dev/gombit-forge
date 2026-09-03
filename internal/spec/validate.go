@@ -669,6 +669,15 @@ func (v *validator) validateResourcePage(page *Page, path string) {
 			v.report(CodeInvalidPage, path+".table.page_size", page.ID,
 				"page_size must not be negative")
 		}
+		// A table exposes only capabilities the resource declared (the resource
+		// defines what queries are permitted; each table which permitted ones it
+		// surfaces). Enabling the search box requires the resource to declare at
+		// least one searchable field, or the generated ?search= control would
+		// have nothing to match.
+		if page.Table.Search && len(resource.Behavior.SearchableFields) == 0 {
+			v.report(CodeInvalidCapability, path+".table.search", page.ID,
+				"table enables search but resource %s declares no searchable_fields", resource.CodeName)
+		}
 	}
 	if page.Form != nil {
 		for index, fieldID := range page.Form.Fields {
