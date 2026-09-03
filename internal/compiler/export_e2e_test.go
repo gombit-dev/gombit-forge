@@ -50,51 +50,24 @@ func TestExportBuildsAndRunsOutsideForge(t *testing.T) {
 	defer cancel()
 
 	const module = "example.com/app"
-	dir := filepath.Join(t.TempDir(), "app")
-
-	// --- scaffold + generate the full app ----------------------------------
-	if err := cli.Scaffold(ctx, gombit.ScaffoldRequest{
-		Dir: dir, Name: "app", Module: module,
-		Database: gombit.DatabasePostgres, Auth: gombit.AuthCookie, UI: gombit.UIMinimal,
-		Tidy: true,
-	}); err != nil {
-		t.Fatalf("scaffold: %v", err)
-	}
 	s := sampleSpec(t)
-	files, err := Compile(s, module)
+
+	// --- assemble the full application source over the real toolchain --------
+	// BuildApplicationSource is the production Revision → ApplicationSource path:
+	// scaffold + Compile/Materialize + composition root + README/forge.json +
+	// tidy + migration, returned as the shared sanitized SourceFile collection.
+	sources, err := BuildApplicationSource(ctx, GombitToolchain{CLI: cli}, ApplicationSourceRequest{
+		Spec: s, Module: module, Name: "app",
+		Provenance: NewProvenance(version.String(), "e2e-revision"),
+	})
 	if err != nil {
-		t.Fatalf("compile: %v", err)
-	}
-	for _, f := range files {
-		writeAppFile(t, dir, f.Path, f.Content)
-	}
-	writeAppFile(t, dir, CompositionRootPath, mustCompositionRoot(t, module))
-	runCmd(t, ctx, dir, nil, "go", "mod", "tidy")
-
-	// The migration is generated into the tree before export, so it travels in
-	// the archive and the extracted app can apply it with no Forge involvement.
-	models, err := MigrationModelsForSpec(s, module)
-	if err != nil {
-		t.Fatalf("migration models: %v", err)
-	}
-	if err := cli.MakeMigrations(ctx, gombit.MakeMigrationsRequest{
-		Dir: dir, Name: "initial", Driver: gombit.DatabasePostgres, Models: models,
-	}); err != nil {
-		t.Fatalf("makemigrations: %v", err)
+		t.Fatalf("build application source: %v", err)
 	}
 
-	// The export's own artifacts (M7 #82/#83).
-	if err := WriteReadme(dir, s); err != nil {
-		t.Fatalf("write readme: %v", err)
-	}
-	if err := WriteProvenance(dir, NewProvenance(version.String(), "e2e-revision")); err != nil {
-		t.Fatalf("write provenance: %v", err)
-	}
-
-	// --- export, then extract into a fresh tree outside the Forge module -----
+	// --- export (ZIP the collection), then extract into a fresh tree ---------
 	var archive bytes.Buffer
-	if err := Export(dir, &archive); err != nil {
-		t.Fatalf("export: %v", err)
+	if err := WriteZip(sources, &archive); err != nil {
+		t.Fatalf("write zip: %v", err)
 	}
 	exportDir := filepath.Join(t.TempDir(), "exported")
 	extractZip(t, archive.Bytes(), exportDir)
