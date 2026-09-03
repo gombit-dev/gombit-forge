@@ -73,6 +73,7 @@ type fakePublisher struct {
 		files                        []compiler.SourceFile
 	}
 	deleted            string
+	deletedCtxErr      error // ctx.Err() observed inside DeleteRepository
 	createErr, pushErr error
 }
 
@@ -94,8 +95,9 @@ func (f *fakePublisher) PushFiles(_ context.Context, _, owner, repo, branch stri
 	return f.pushErr
 }
 
-func (f *fakePublisher) DeleteRepository(_ context.Context, _, _, repo string) error {
+func (f *fakePublisher) DeleteRepository(ctx context.Context, _, _, repo string) error {
 	f.deleted = repo
+	f.deletedCtxErr = ctx.Err()
 	return nil
 }
 
@@ -208,6 +210,28 @@ func TestExportRollsBackOnAssembleError(t *testing.T) {
 	}
 	if pub.deleted != "my-app" {
 		t.Errorf("orphaned repo must be rolled back after an assembly failure; deleted=%q", pub.deleted)
+	}
+}
+
+// TestExportRollsBackUnderCancelledContext pins the WithoutCancel fix: when the
+// export's own context is already cancelled (a timed-out push, the commonest
+// orphan cause), rollback must still run the delete on a live, non-cancelled
+// context — not inherit the cancellation and no-op.
+func TestExportRollsBackUnderCancelledContext(t *testing.T) {
+	pub := &fakePublisher{pushErr: errors.New("push boom")}
+	svc := NewService(fakeTokens{token: "t"}, fakeSpecs{spec: minimalSpec(), ref: "r"}, fakeToolchain{}, pub, "v")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // export runs under an already-dead context
+
+	if _, err := svc.Export(ctx, 7, 3, "my-app", false); err == nil {
+		t.Fatal("push failure must error")
+	}
+	if pub.deleted != "my-app" {
+		t.Fatalf("rollback must run even under a cancelled export context; deleted=%q", pub.deleted)
+	}
+	if pub.deletedCtxErr != nil {
+		t.Errorf("rollback must detach from the cancelled context; delete saw ctx.Err()=%v", pub.deletedCtxErr)
 	}
 }
 
