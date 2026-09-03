@@ -8,6 +8,7 @@ import (
 	"text/template"
 
 	"github.com/gombit-dev/gombit-forge/internal/compiler/graph"
+	"github.com/gombit-dev/gombit-forge/internal/spec"
 )
 
 // Handlers generates handlers.go and routes.go per resource under
@@ -79,6 +80,13 @@ type resourceView struct {
 	Update bool
 	Delete bool
 
+	// The declared list-query surface (gombit #260), translated from the
+	// resource's capability allowlists. Empty slices mean the list handler emits
+	// no search/ordering/filter params and keeps its plain paginated shape.
+	Filters       []filterView // one exact-match filter per filterable field + every belongs_to FK
+	SearchColumns []string     // DB columns ?search= LIKEs across; empty ⇒ no search param
+	SortColumns   []string     // DB columns ?ordering= may sort by; empty ⇒ no ordering param
+
 	NeedsTime    bool
 	NeedsDecimal bool
 
@@ -94,6 +102,31 @@ type fieldView struct {
 	GoType   string // string, int64, decimal.Decimal, uint, ...
 	JSONName string // storage_name, the stable API field name
 	Optional bool   // omitempty in the write body
+}
+
+// filterView is one exact-match list filter: a string query param the handler
+// coerces server-side to Kind and applies via database.FilterEq.
+type filterView struct {
+	GoName    string // list-input struct field, e.g. Email / CustomerID
+	QueryName string // query-param name = the field's storage/column name
+	Column    string // DB column the filter matches on
+	Kind      string // database.FilterKind constant name, e.g. "FilterString"
+}
+
+// filterKind maps a Forge field type to the database.FilterKind constant the
+// generated handler passes to database.FilterEq. Only filterable types reach
+// here (validated in spec.validateBehavior); string and enum share FilterString.
+func filterKind(t spec.FieldType) string {
+	switch t {
+	case spec.TypeInteger:
+		return "FilterInt64"
+	case spec.TypeBoolean:
+		return "FilterBool"
+	case spec.TypeBelongsTo:
+		return "FilterUint"
+	default: // string, enum
+		return "FilterString"
+	}
 }
 
 func newResourceView(resource *graph.Resource) resourceView {
@@ -124,6 +157,34 @@ func newResourceView(resource *graph.Resource) resourceView {
 			JSONName: field.Spec.StorageName,
 			Optional: !field.Spec.Required,
 		})
+	}
+
+	// Translate the resource's declared query capabilities into the list-query
+	// surface (gombit #260). A belongs_to FK is filterable by default — the same
+	// isFilterable rule Gombit applies — so a detail page's has_many list can
+	// fetch GET /children?<parent>_id=<id> with no extra declaration (#53); every
+	// other filter opts in via FilterableFields. Field order is the resource's
+	// authored field order for determinism, not the allowlist order.
+	filterable := map[spec.ID]bool{}
+	for _, f := range resource.Behavior.Filterable {
+		filterable[f.Spec.ID] = true
+	}
+	for _, field := range resource.Fields {
+		if !filterable[field.Spec.ID] && field.Spec.Type != spec.TypeBelongsTo {
+			continue
+		}
+		view.Filters = append(view.Filters, filterView{
+			GoName:    goFieldName(field),
+			QueryName: field.Spec.StorageName,
+			Column:    field.Spec.StorageName,
+			Kind:      filterKind(field.Spec.Type),
+		})
+	}
+	for _, f := range resource.Behavior.Searchable {
+		view.SearchColumns = append(view.SearchColumns, f.Spec.StorageName)
+	}
+	for _, f := range resource.Behavior.Sortable {
+		view.SortColumns = append(view.SortColumns, f.Spec.StorageName)
 	}
 
 	// Import order is fixed, not map-derived, so output stays deterministic.

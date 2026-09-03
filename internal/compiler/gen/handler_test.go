@@ -205,6 +205,113 @@ func TestPathsAndOperationIDsFromStorageName(t *testing.T) {
 	}
 }
 
+// TestListHandlerEmitsDeclaredQuerySurface: a resource that declares
+// searchable/sortable/filterable fields generates the #260 list-query wiring —
+// query params plus the database.FilterEq/Search/Ordering calls — and a
+// belongs_to FK is filtered by default (no declaration needed, for #53).
+func TestListHandlerEmitsDeclaredQuerySurface(t *testing.T) {
+	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
+	vendorID := id(spec.KindResource)
+	nameID, skuID, priceID := id(spec.KindField), id(spec.KindField), id(spec.KindField)
+	s := &spec.ProjectSpec{
+		SpecVersion: spec.SpecVersion,
+		Project:     spec.Project{ID: id(spec.KindProject), Name: "Acme", Slug: "acme"},
+		Database:    spec.Database{Driver: spec.DriverPostgres},
+		Auth:        spec.Auth{Mode: spec.AuthCookie},
+		Resources: []*spec.Resource{
+			{
+				ID: vendorID, Label: "Vendor", CodeName: "Vendor", StorageName: "vendors",
+				Fields: []*spec.Field{
+					{ID: id(spec.KindField), Label: "Name", Type: spec.TypeString, CodeName: "Name", StorageName: "name"},
+				},
+			},
+			{
+				ID: id(spec.KindResource), Label: "Product", CodeName: "Product", StorageName: "products",
+				Fields: []*spec.Field{
+					{ID: nameID, Label: "Name", Type: spec.TypeString, CodeName: "Name", StorageName: "name"},
+					{ID: skuID, Label: "SKU", Type: spec.TypeString, CodeName: "SKU", StorageName: "sku"},
+					{ID: priceID, Label: "Price", Type: spec.TypeInteger, CodeName: "Price", StorageName: "price"},
+					{ID: id(spec.KindField), Label: "Vendor", Type: spec.TypeBelongsTo, CodeName: "Vendor",
+						StorageName: "vendor_id", Target: vendorID, InverseLabel: "Products"},
+				},
+				Behavior: spec.ResourceBehavior{
+					SearchableFields: []spec.ID{nameID, skuID},
+					SortableFields:   []spec.ID{nameID, priceID},
+					FilterableFields: []spec.ID{priceID},
+				},
+			},
+		},
+	}
+	if d := spec.Validate(s); d != nil {
+		t.Fatalf("fixture invalid: %s", d.Error())
+	}
+	g, err := graph.Build(s)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	handlers, _ := handlerSources(t, g, "product")
+
+	// Query params on the list input.
+	for _, want := range []string{`query:"search"`, `query:"ordering"`, `query:"price"`, `query:"vendor_id"`} {
+		if !strings.Contains(handlers, want) {
+			t.Errorf("list input missing %s\n%s", want, handlers)
+		}
+	}
+	// name is searchable/sortable but not filterable, so it gets no filter param.
+	if strings.Contains(handlers, `query:"name"`) {
+		t.Error("name is not filterable and must not become a filter query param")
+	}
+	// The query is applied via the shared database primitives.
+	wants := []string{
+		`database.FilterEq(ctx, q, "price", database.FilterInt64, input.Price)`,
+		`database.FilterEq(ctx, q, "vendor_id", database.FilterUint, input.VendorID)`,
+		`database.Search(q, []string{"name", "sku"}, input.Search)`,
+		`database.Ordering(ctx, q, input.Ordering, []string{"name", "price"}, "id")`,
+	}
+	for _, want := range wants {
+		if !strings.Contains(handlers, want) {
+			t.Errorf("generated list handler missing:\n\t%s\ngot:\n%s", want, handlers)
+		}
+	}
+}
+
+// TestListHandlerWithoutCapabilitiesStaysPlain: a resource that declares no
+// query capabilities and has no belongs_to keeps the plain paginated list —
+// fixed id ordering, no search/ordering/filter params.
+func TestListHandlerWithoutCapabilitiesStaysPlain(t *testing.T) {
+	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
+	s := &spec.ProjectSpec{
+		SpecVersion: spec.SpecVersion,
+		Project:     spec.Project{ID: id(spec.KindProject), Name: "Acme", Slug: "acme"},
+		Database:    spec.Database{Driver: spec.DriverPostgres},
+		Auth:        spec.Auth{Mode: spec.AuthCookie},
+		Resources: []*spec.Resource{{
+			ID: id(spec.KindResource), Label: "Note", CodeName: "Note", StorageName: "notes",
+			Fields: []*spec.Field{
+				{ID: id(spec.KindField), Label: "Body", Type: spec.TypeText, CodeName: "Body", StorageName: "body"},
+			},
+		}},
+	}
+	if d := spec.Validate(s); d != nil {
+		t.Fatalf("fixture invalid: %s", d.Error())
+	}
+	g, err := graph.Build(s)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	handlers, _ := handlerSources(t, g, "note")
+
+	if strings.Contains(handlers, `query:"search"`) || strings.Contains(handlers, `query:"ordering"`) {
+		t.Error("a resource with no declared capabilities must not emit search/ordering params")
+	}
+	if strings.Contains(handlers, "database.FilterEq(") {
+		t.Error("a resource with no filters and no belongs_to must emit no FilterEq calls")
+	}
+	if !strings.Contains(handlers, `q.Order("id")`) {
+		t.Error("without a sortable set the list must keep the fixed id ordering")
+	}
+}
+
 // TestDTOUsesStorageNameForJSON confirms the API field name is the stable
 // storage_name, and the Go field the frozen code symbol (the same D2 split the
 // model enforces).
