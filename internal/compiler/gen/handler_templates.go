@@ -25,6 +25,15 @@ type {{.Data}} struct {
 type list{{.Type}}Input struct {
 	Page    int ` + "`" + `query:"page" doc:"1-based page"` + "`" + `
 	PerPage int ` + "`" + `query:"per_page" doc:"Page size"` + "`" + `
+{{- if .SearchColumns}}
+	Search string ` + "`" + `query:"search" doc:"Case-insensitive search across searchable fields"` + "`" + `
+{{- end}}
+{{- if .SortColumns}}
+	Ordering string ` + "`" + `query:"ordering" doc:"Sort field; prefix with - for descending"` + "`" + `
+{{- end}}
+{{- range .Filters}}
+	{{.GoName}} string ` + "`" + `query:"{{.QueryName}}" doc:"Filter by {{.QueryName}}"` + "`" + `
+{{- end}}
 }
 
 type list{{.Type}}Output struct {
@@ -81,14 +90,34 @@ type Handler struct {
 func (h *Handler) list(ctx context.Context, input *list{{.Type}}Input) (*list{{.Type}}Output, error) {
 	page, perPage := contract.ClampPage(input.Page, input.PerPage)
 	q := h.DB.WithContext(ctx).Model(&{{.Type}}{})
+{{- if or .Filters .SortColumns}}
+	var err error
+{{- end}}
+{{- range .Filters}}
+	if q, err = database.FilterEq(ctx, q, "{{.Column}}", database.{{.Kind}}, input.{{.GoName}}); err != nil {
+		return nil, err
+	}
+{{- end}}
+{{- if .SearchColumns}}
+	q = database.Search(q, []string{ {{range .SearchColumns}}"{{.}}", {{end}}}, input.Search)
+{{- end}}
 
+	// Filters and search are applied before COUNT so the total reflects the
+	// filtered set and pagination stays correct.
 	var total int64
 	if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
 		return nil, contract.WithContext(ctx, contract.Internal("list {{.PluralID}}"))
 	}
+{{- if .SortColumns}}
+	if q, err = database.Ordering(ctx, q, input.Ordering, []string{ {{range .SortColumns}}"{{.}}", {{end}}}, "id"); err != nil {
+		return nil, err
+	}
+{{- else}}
+	q = q.Order("id")
+{{- end}}
 
 	var rows []{{.Type}}
-	if err := q.Order("id").Offset(contract.PageOffset(page, perPage)).Limit(perPage).Find(&rows).Error; err != nil {
+	if err := q.Offset(contract.PageOffset(page, perPage)).Limit(perPage).Find(&rows).Error; err != nil {
 		return nil, contract.WithContext(ctx, contract.Internal("list {{.PluralID}}"))
 	}
 

@@ -63,6 +63,14 @@ func buildGraph(t *testing.T) (*graph.Graph, map[string]spec.ID) {
 						CodeName: "Joined", StorageName: "joined_at",
 					},
 				},
+				// Declared query capabilities, so the generated customer list
+				// handler — and the compile test that builds it against real
+				// Gombit — exercise the #260 search/sort/filter wiring.
+				Behavior: spec.ResourceBehavior{
+					SearchableFields: []spec.ID{ids["email"], ids["tier"]},
+					SortableFields:   []spec.ID{ids["email"], ids["joined"]},
+					FilterableFields: []spec.ID{ids["tier"]},
+				},
 			},
 			{
 				ID: ids["invoice"], Label: "Invoice",
