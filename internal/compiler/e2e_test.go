@@ -78,7 +78,7 @@ func TestM0EndToEnd(t *testing.T) {
 	// RegisterAll and applies migrations out of band, never AutoMigrate (§14).
 	// The server no longer registers the scaffold's demo resource; its package
 	// stays in the tree (the management CLI still imports it) but is not mounted.
-	writeAppFile(t, dir, "cmd/server/main.go", []byte(forgeMainGo))
+	writeAppFile(t, dir, CompositionRootPath, mustCompositionRoot(t, module))
 
 	runCmd(t, ctx, dir, nil, "go", "mod", "tidy")
 
@@ -177,50 +177,17 @@ func TestM0EndToEnd(t *testing.T) {
 	t.Logf("M0 gate cleared: created customer %s + invoice %s, admin catalog=%v", customerID, invoiceID, keysOf(slugs))
 }
 
-// forgeMainGo is the composition root Forge owns: it boots the framework and
-// wires every generated resource with one RegisterAll call. It deliberately
-// does not AutoMigrate — migrations are applied out of band (DESIGN.md §14).
-const forgeMainGo = `package main
-
-import (
-	"context"
-	"log"
-
-	"github.com/gombit-dev/gombit/config"
-	"github.com/gombit-dev/gombit/framework"
-
-	forge "example.com/app/internal/forge_generated"
-	"example.com/app/internal/platform"
-	"example.com/app/internal/web"
-)
-
-func main() {
-	cfg, err := config.Load()
+// mustCompositionRoot generates the production composition root for the module,
+// so the end-to-end tests build and boot exactly what Forge ships rather than a
+// hand-maintained copy.
+func mustCompositionRoot(t *testing.T, module string) []byte {
+	t.Helper()
+	src, err := CompositionRoot(module)
 	if err != nil {
-		log.Fatal(err)
+		t.Fatalf("composition root: %v", err)
 	}
-	db, err := platform.OpenDatabase(cfg.Database)
-	if err != nil {
-		log.Fatal(err)
-	}
-	app, err := framework.New(
-		framework.WithConfig(cfg),
-		framework.WithDatabase(db),
-		framework.WithEmbeddedFrontend(web.FS()),
-	)
-	if err != nil {
-		_ = db.Close()
-		log.Fatal(err)
-	}
-	if err := forge.RegisterAll(app); err != nil {
-		log.Fatal(err)
-	}
-	app.OnStop(func(context.Context) error { return db.Close() })
-	if err := framework.Run(app); err != nil {
-		log.Fatal(err)
-	}
+	return src
 }
-`
 
 func writeAppFile(t *testing.T, dir, rel string, content []byte) {
 	t.Helper()
