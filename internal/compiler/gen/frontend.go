@@ -301,6 +301,11 @@ type tableView struct {
 	// declares searchable_fields, so the generated list handler exposes the
 	// param (gombit #260) and there is something to match.
 	Search bool
+
+	// Sortable is true when at least one column is sortable (Columns ∩ the
+	// resource's SortableFields), gating the ?ordering= state and query param.
+	// The per-column frontendField.Sortable decides which headers become toggles.
+	Sortable bool
 }
 
 // defaultPageSize is the rows-per-page a resource_table page requests when it
@@ -309,8 +314,12 @@ const defaultPageSize = 25
 
 // frontendField is one field's projection into a table column and a form input.
 type frontendField struct {
-	JSONName    string // storage_name — the API/JSON key
-	Label       string // human label for headings
+	JSONName string // storage_name — the API/JSON key
+	Label    string // human label for headings
+	// Sortable marks a table column the resource declares sortable, so its header
+	// renders as an ?ordering= toggle. Only set for table columns (newTableView);
+	// unused by detail/form fields.
+	Sortable    bool
 	TSType      string // string | number | boolean
 	Input       string // text | number | checkbox | select
 	Placeholder string // format hint for text inputs (dates), or ""
@@ -533,8 +542,19 @@ func newTableView(g *graph.Graph, page *graph.Page) tableView {
 		PageSize:       pageSize,
 		Search:         page.Spec.Table != nil && page.Spec.Table.Search,
 	}
+	// A column is sortable when it is in the resource's declared sortable set;
+	// the table renders those headers as ?ordering= toggles (gombit #260).
+	sortable := make(map[spec.ID]bool, len(resource.Spec.Behavior.SortableFields))
+	for _, fieldID := range resource.Spec.Behavior.SortableFields {
+		sortable[fieldID] = true
+	}
 	for _, field := range page.Columns {
-		view.Columns = append(view.Columns, frontendFieldFor(field))
+		col := frontendFieldFor(field)
+		if sortable[field.Spec.ID] {
+			col.Sortable = true
+			view.Sortable = true
+		}
+		view.Columns = append(view.Columns, col)
 	}
 	return view
 }

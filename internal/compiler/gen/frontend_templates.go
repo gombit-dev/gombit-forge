@@ -135,6 +135,9 @@ export function {{.Component}}() {
 {{- if .Search}}
   const [search, setSearch] = useState("");
 {{- end}}
+{{- if .Sortable}}
+  const [ordering, setOrdering] = useState("");
+{{- end}}
   const [status, setStatus] = useState({{js (printf "Loading %s…" .Title)}});
 
   useEffect(() => {
@@ -142,7 +145,7 @@ export function {{.Component}}() {
     void (async () => {
       try {
         const listed = await unwrap(
-          await client.GET("{{.CollectionPath}}", { params: { query: { page, per_page: PAGE_SIZE{{if .Search}}, search: search || undefined{{end}} } } }),
+          await client.GET("{{.CollectionPath}}", { params: { query: { page, per_page: PAGE_SIZE{{if .Search}}, search: search || undefined{{end}}{{if .Sortable}}, ordering: ordering || undefined{{end}} } } }),
         );
         if (cancelled) {
           return;
@@ -161,9 +164,19 @@ export function {{.Component}}() {
     return () => {
       cancelled = true;
     };
-  }, [client, page{{if .Search}}, search{{end}}]);
+  }, [client, page{{if .Search}}, search{{end}}{{if .Sortable}}, ordering{{end}}]);
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+{{- if .Sortable}}
+
+  // Cycle a sortable column: unsorted → ascending → descending → unsorted. The
+  // ?ordering= value is the storage-name column, "-" prefixed for descending
+  // (gombit #260); id is the server default when ordering is cleared.
+  const toggleSort = (col: string) => {
+    setOrdering((cur) => (cur === col ? "-" + col : cur === "-" + col ? "" : col));
+    setPage(1);
+  };
+{{- end}}
 
   return (
     <section>
@@ -192,7 +205,16 @@ export function {{.Component}}() {
           <tr>
             <th>id</th>
 {{- range .Columns}}
+{{- if .Sortable}}
+            <th aria-sort={ordering === "{{.JSONName}}" ? "ascending" : ordering === "-{{.JSONName}}" ? "descending" : "none"}>
+              <button type="button" onClick={() => toggleSort("{{.JSONName}}")}>
+                { {{js .Label}} }
+                {ordering === "{{.JSONName}}" ? " ▲" : ordering === "-{{.JSONName}}" ? " ▼" : ""}
+              </button>
+            </th>
+{{- else}}
             <th>{ {{js .Label}} }</th>
+{{- end}}
 {{- end}}
           </tr>
         </thead>

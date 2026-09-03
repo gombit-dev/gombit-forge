@@ -67,7 +67,9 @@ func TestFrontendConsumesGeneratedClient(t *testing.T) {
 		`from "../../api/generated/client"`,
 		`from "../../api/generated/schema"`,
 		`paths["/api/v1/customers"]["get"]`,
-		`await client.GET("/api/v1/customers", { params: { query: { page, per_page: PAGE_SIZE } } })`,
+		// The customer resource declares sortable fields, so the table always
+		// wires the ?ordering= param (search stays off until a page opts in).
+		`await client.GET("/api/v1/customers", { params: { query: { page, per_page: PAGE_SIZE, ordering: ordering || undefined } } })`,
 	}
 	for _, w := range tableWants {
 		if !strings.Contains(table, w) {
@@ -498,7 +500,14 @@ func TestFrontendIsDeterministic(t *testing.T) {
 func TestFrontendTableHonorsConfiguredColumns(t *testing.T) {
 	table := frontendFiles(t, buildGraph2(t))["frontend/src/forge_generated/customer/CustomersTablePage.tsx"]
 
-	for _, want := range []string{`<th>{ "Email" }</th>`, `<th>{ "Active" }</th>`} {
+	// Email is sortable (a toggle button carrying its label); Active is a plain
+	// header. Both configured columns appear; the assertion tracks each one's
+	// rendering rather than assuming a plain <th> for the sortable one.
+	for _, want := range []string{
+		`onClick={() => toggleSort("contact_email")}`,
+		`{ "Email" }`,
+		`<th>{ "Active" }</th>`,
+	} {
 		if !strings.Contains(table, want) {
 			t.Errorf("configured column header missing: %q", want)
 		}
@@ -635,6 +644,76 @@ func TestFrontendTableSearch(t *testing.T) {
 	}
 	if !strings.Contains(plain, `}, [client, page]);`) {
 		t.Error("non-search table must keep the plain effect deps")
+	}
+}
+
+// TestFrontendTableSort: a table whose columns include sortable fields renders
+// those headers as ?ordering= toggles and wires the param; a table with no
+// sortable column keeps plain headers and the paginated query unchanged.
+func TestFrontendTableSort(t *testing.T) {
+	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
+	res := id(spec.KindResource)
+	name := id(spec.KindField)
+	active := id(spec.KindField)
+	build := func(sortable bool) *spec.ProjectSpec {
+		behavior := spec.ResourceBehavior{}
+		if sortable {
+			behavior.SortableFields = []spec.ID{name}
+		}
+		return &spec.ProjectSpec{
+			SpecVersion: spec.SpecVersion,
+			Project:     spec.Project{ID: id(spec.KindProject), Name: "Acme", Slug: "acme"},
+			Database:    spec.Database{Driver: spec.DriverPostgres},
+			Auth:        spec.Auth{Mode: spec.AuthCookie},
+			Resources: []*spec.Resource{
+				{ID: res, Label: "Customer", CodeName: "Customer", StorageName: "customers",
+					Behavior: behavior,
+					Fields: []*spec.Field{
+						{ID: name, Label: "Name", Type: spec.TypeString, CodeName: "Name", StorageName: "name"},
+						{ID: active, Label: "Active", Type: spec.TypeBoolean, CodeName: "Active", StorageName: "active"},
+					}},
+			},
+			Pages: []*spec.Page{
+				{ID: id(spec.KindPage), Slug: "customers", Label: "Customers", Type: spec.PageResourceTable, Resource: res},
+			},
+		}
+	}
+	tableFor := func(s *spec.ProjectSpec) string {
+		if d := spec.Validate(s); d != nil {
+			t.Fatalf("fixture invalid: %s", d.Error())
+		}
+		g, err := graph.Build(s)
+		if err != nil {
+			t.Fatalf("build: %v", err)
+		}
+		return frontendFiles(t, g)["frontend/src/forge_generated/customer/CustomersTablePage.tsx"]
+	}
+
+	sorted := tableFor(build(true))
+	for _, want := range []string{
+		`const [ordering, setOrdering] = useState("");`,
+		`const toggleSort = (col: string) => {`,
+		`onClick={() => toggleSort("name")}`,
+		`aria-sort={ordering === "name" ? "ascending" : ordering === "-name" ? "descending" : "none"}`,
+		`ordering === "name" ? " ▲" : ordering === "-name" ? " ▼" : ""`,
+		`ordering: ordering || undefined`,
+		`}, [client, page, ordering]);`,
+		// A non-sortable column in the same table stays a plain header.
+		`<th>{ "Active" }</th>`,
+	} {
+		if !strings.Contains(sorted, want) {
+			t.Errorf("sortable table must contain %q", want)
+		}
+	}
+
+	plain := tableFor(build(false))
+	for _, absent := range []string{"ordering", "toggleSort", "<button type=\"button\" onClick={() => toggleSort"} {
+		if strings.Contains(plain, absent) {
+			t.Errorf("table with no sortable column must not contain %q", absent)
+		}
+	}
+	if !strings.Contains(plain, `query: { page, per_page: PAGE_SIZE } }`) {
+		t.Error("non-sortable table must keep the plain paginated query")
 	}
 }
 
