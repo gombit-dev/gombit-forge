@@ -215,17 +215,34 @@ type detailView struct {
 	Update bool
 
 	Fields []frontendField
-	// Related is one section per has_many relationship (#53). Actual embedded
-	// records await server-side list filtering in Gombit; for now each section
-	// links to the related resource's table page when it has one.
+	// Related is one section per has_many relationship (#53); each embeds the
+	// related records filtered by the back-reference FK.
 	Related []relatedSection
 }
 
-// relatedSection describes one has_many relationship on a detail page.
+// relatedSection describes one has_many relationship on a detail page: the
+// related records are fetched from the related resource's collection filtered by
+// the back-reference foreign key (?<fk>=<record id>, gombit #260 — a belongs_to
+// is filterable by default), and rendered as a small table.
 type relatedSection struct {
+	// Index disambiguates the per-section state/type names in the generated
+	// component (related0, Related0Row, …), since it carries one fetch each. The
+	// index-based row type also avoids a collision when a resource has two
+	// has_many relationships to the same target.
+	Index int
 	// Label names the related side — the belongs_to's inverse label, else the
 	// related resource's plural label.
 	Label string
+	// CollectionPath is the related resource's API collection path.
+	CollectionPath string
+	// FKParam is the back-reference foreign key's storage name — the query param
+	// that filters the related collection to this record.
+	FKParam string
+	// DetailRoute is the related resource's detail route for row links, or "".
+	DetailRoute string
+	// Columns are a few display columns of the related resource (its list fields,
+	// else scalar fields).
+	Columns []frontendField
 	// ViewAllRoute is the related resource's first table page route, or "" when
 	// it has none (then the section shows no "View all" link).
 	ViewAllRoute string
@@ -417,13 +434,14 @@ func newDetailView(g *graph.Graph, page *graph.Page) detailView {
 }
 
 // relatedSections is one section per has_many relationship on the resource
-// (#53), in the graph's deterministic relationship order. Each names the related
-// side (the belongs_to's inverse label, else the related resource's plural
-// label) and links to that resource's table page when it has one. Actual
-// embedded records await server-side list filtering in Gombit.
+// (#53), in the graph's deterministic relationship order. Each embeds the
+// related records — the related resource's collection filtered by the
+// back-reference FK (?<fk>=<id>, which the generated list handler serves as a
+// belongs_to default, gombit #260) — as a small table, and links to that
+// resource's table page when it has one.
 func relatedSections(g *graph.Graph, resource *graph.Resource) []relatedSection {
 	sections := make([]relatedSection, 0, len(resource.HasMany))
-	for _, rel := range resource.HasMany {
+	for index, rel := range resource.HasMany {
 		label := strings.TrimSpace(rel.Field.Spec.InverseLabel)
 		if label == "" {
 			label = rel.From.Spec.LabelPlural
@@ -431,10 +449,24 @@ func relatedSections(g *graph.Graph, resource *graph.Resource) []relatedSection 
 		if strings.TrimSpace(label) == "" {
 			label = rel.From.Spec.Label
 		}
-		sections = append(sections, relatedSection{
-			Label:        label,
-			ViewAllRoute: firstTableRoute(g, rel.From),
-		})
+		// Display columns: the related resource's configured list fields, else its
+		// scalar fields (the same default a table uses).
+		cols := rel.From.Behavior.List
+		if len(cols) == 0 {
+			cols = rel.From.ScalarFields()
+		}
+		section := relatedSection{
+			Index:          index,
+			Label:          label,
+			CollectionPath: "/api/v1/" + kebab(rel.From.Spec.StorageName),
+			FKParam:        rel.Field.Spec.StorageName,
+			DetailRoute:    detailRoute(g, rel.From),
+			ViewAllRoute:   firstTableRoute(g, rel.From),
+		}
+		for _, field := range cols {
+			section.Columns = append(section.Columns, frontendFieldFor(field))
+		}
+		sections = append(sections, section)
 	}
 	return sections
 }
