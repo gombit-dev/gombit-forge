@@ -14,10 +14,13 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 
 	"github.com/gombit-dev/gombit/config"
 	"github.com/gombit-dev/gombit/framework"
 
+	"github.com/gombit-dev/gombit-forge/controlplane/internal/githubconnect"
+	"github.com/gombit-dev/gombit-forge/controlplane/internal/githubexport"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/org"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/platform"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/project"
@@ -53,10 +56,60 @@ func main() {
 		_ = db.Close()
 		log.Fatal(err)
 	}
+	// GitHub repository export (#85) is optional: it registers only when the
+	// OAuth app credentials are configured, so the control plane runs fine
+	// without them. GitHub OAuth is not part of Gombit's typed config, so its
+	// settings are read from the environment here at the composition root, not
+	// inside a runtime package.
+	if ghCfg, successRedirect, ok := githubOAuthConfig(); ok {
+		if err := githubconnect.Register(app, ghCfg, successRedirect); err != nil {
+			_ = db.Close()
+			log.Fatal(err)
+		}
+	}
 
 	app.OnStop(func(context.Context) error { return db.Close() })
 
 	if err := framework.Run(app); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// githubOAuthConfig reads the GitHub OAuth app settings from the environment.
+// It reports ok=false (and the feature stays unregistered) unless the client
+// id, secret and redirect URL are all set — the three the OAuth handshake
+// cannot run without. The success redirect defaults to the app root.
+func githubOAuthConfig() (cfg githubexport.Config, successRedirect string, ok bool) {
+	clientID := os.Getenv("GITHUB_OAUTH_CLIENT_ID")
+	clientSecret := os.Getenv("GITHUB_OAUTH_CLIENT_SECRET")
+	redirectURL := os.Getenv("GITHUB_OAUTH_REDIRECT_URL")
+	set := 0
+	for _, v := range []string{clientID, clientSecret, redirectURL} {
+		if v != "" {
+			set++
+		}
+	}
+	if set < 3 {
+		// All-empty is the intentional "feature off" path and stays silent; a
+		// partial config is almost always a typo (a wrong var name, a missing
+		// secret) that would otherwise fail as a mystery 404 on the connect
+		// route, so surface it.
+		if set > 0 {
+			log.Printf("github oauth: partially configured (%d/3 of CLIENT_ID/CLIENT_SECRET/REDIRECT_URL set); connect flow disabled", set)
+		}
+		return githubexport.Config{}, "", false
+	}
+	successRedirect = os.Getenv("GITHUB_OAUTH_SUCCESS_REDIRECT")
+	if successRedirect == "" {
+		successRedirect = "/"
+	}
+	return githubexport.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		RedirectURL:  redirectURL,
+		// OAuthBaseURL and APIBaseURL default to public GitHub; override via
+		// GITHUB_OAUTH_BASE_URL / GITHUB_API_BASE_URL for GitHub Enterprise.
+		OAuthBaseURL: os.Getenv("GITHUB_OAUTH_BASE_URL"),
+		APIBaseURL:   os.Getenv("GITHUB_API_BASE_URL"),
+	}, successRedirect, true
 }
