@@ -304,12 +304,10 @@ export function {{.Component}}() {
 `
 
 // detailPageSrc renders a single record fetched by id (page-driven, #53). It
-// shows the record's own fields and, per has_many relationship, a section that
-// embeds the related records — the related collection filtered by the
-// back-reference foreign key (?<fk>=<id>, a belongs_to default the generated
-// list handler serves, gombit #260) — as a small table, with a "View all" link
-// to the related table page for the rest. Its "back to list" link targets the
-// resource's first table page and is omitted when it has none.
+// shows the record's own fields and a section per has_many relationship, each
+// linking to the related resource's table page when it has one. Its "back to
+// list" link targets the resource's first table page and is omitted when it has
+// none. Embedded related records await server-side list filtering in Gombit.
 const detailPageSrc = `{{.Banner}}
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
@@ -321,24 +319,12 @@ import type { paths } from "../../api/generated/schema";
 type GetResponse =
   paths["{{.CollectionPath}}/{id}"]["get"]["responses"][200]["content"]["application/json"];
 type {{.Type}}Record = NonNullable<GetResponse["data"]>;
-{{- range .Related}}
-type Related{{.Index}}Row = NonNullable<
-  paths["{{.CollectionPath}}"]["get"]["responses"][200]["content"]["application/json"]["data"]
->[number];
-{{- end}}
-{{if .Related}}
-// Embedded related lists show the first RELATED_PAGE_SIZE records back-referencing
-// this record; the section links to the full table for the rest.
-const RELATED_PAGE_SIZE = 10;
-{{end}}
+
 export function {{.Component}}() {
   const client = useApiClient();
   const { id = "" } = useParams();
   const [record, setRecord] = useState<{{.Type}}Record | null>(null);
   const [status, setStatus] = useState("Loading…");
-{{- range .Related}}
-  const [related{{.Index}}, setRelated{{.Index}}] = useState<Related{{.Index}}Row[]>([]);
-{{- end}}
 
   useEffect(() => {
     let cancelled = false;
@@ -363,30 +349,6 @@ export function {{.Component}}() {
       cancelled = true;
     };
   }, [client, id]);
-{{- range .Related}}
-
-  useEffect(() => {
-    if (!id) {
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      try {
-        const listed = await unwrap(
-          await client.GET("{{.CollectionPath}}", { params: { query: { "{{.FKParam}}": id, per_page: RELATED_PAGE_SIZE } } }),
-        );
-        if (!cancelled) {
-          setRelated{{.Index}}(Array.isArray(listed.data) ? listed.data : []);
-        }
-      } catch {
-        // A failed related fetch leaves the section empty; the record still shows.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [client, id]);
-{{- end}}
 
   return (
     <section>
@@ -416,36 +378,10 @@ export function {{.Component}}() {
       ) : null}
 {{- if .Related}}
       <section aria-label="Related records">
+        <h2>Related</h2>
 {{- range .Related}}
         <div aria-label={ {{js .Label}} }>
-          <h2>{ {{js .Label}} }</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>id</th>
-{{- range .Columns}}
-                <th>{ {{js .Label}} }</th>
-{{- end}}
-              </tr>
-            </thead>
-            <tbody>
-              {related{{.Index}}.map((row) => (
-                <tr key={String(row.id)}>
-                  <td>
-{{- if .DetailRoute}}
-                    <Link to={` + "`/{{.DetailRoute}}/${row.id}`" + `}>{String(row.id)}</Link>
-{{- else}}
-                    {String(row.id)}
-{{- end}}
-                  </td>
-{{- range .Columns}}
-                  <td>{String(row["{{.JSONName}}"] ?? "")}</td>
-{{- end}}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {related{{.Index}}.length === 0 ? <p>{ {{js (printf "No %s yet." .Label)}} }</p> : null}
+          <h3>{ {{js .Label}} }</h3>
 {{- if .ViewAllRoute}}
           <p>
             <Link to="/{{.ViewAllRoute}}">View all { {{js .Label}} }</Link>
