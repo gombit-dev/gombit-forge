@@ -12,7 +12,9 @@ package ghexport
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/githubexport"
 	"github.com/gombit-dev/gombit-forge/internal/compiler"
@@ -37,6 +39,9 @@ type SpecSource interface {
 type Publisher interface {
 	CreateRepository(ctx context.Context, token, name string, private bool) (githubexport.Repo, error)
 	PushFiles(ctx context.Context, token, owner, repo, branch string, files []compiler.SourceFile, message string) error
+	// DeleteRepository rolls back a created-but-unpopulated repo when a later
+	// export step fails (best-effort).
+	DeleteRepository(ctx context.Context, token, owner, repo string) error
 }
 
 // Service orchestrates the export.
@@ -89,6 +94,9 @@ func (s *Service) Export(ctx context.Context, userID, projectID uint, repoName s
 		return Result{}, fmt.Errorf("ghexport: create repository: %w", err)
 	}
 
+	// From here the repo exists but is empty; on any failure roll it back so a
+	// retry with the same name isn't blocked by a leftover empty repo.
+	owner := repo.Owner.Login
 	module := "github.com/" + repo.FullName
 	files, err := compiler.BuildApplicationSource(ctx, s.tc, compiler.ApplicationSourceRequest{
 		Spec:       projectSpec,
@@ -97,6 +105,7 @@ func (s *Service) Export(ctx context.Context, userID, projectID uint, repoName s
 		Provenance: compiler.NewProvenance(s.gombitVersion, revisionRef),
 	})
 	if err != nil {
+		s.rollback(ctx, token, owner, repoName)
 		return Result{}, fmt.Errorf("ghexport: assemble source: %w", err)
 	}
 
@@ -104,10 +113,31 @@ func (s *Service) Export(ctx context.Context, userID, projectID uint, repoName s
 	if branch == "" {
 		branch = "main"
 	}
-	owner := repo.Owner.Login
 	if err := s.pub.PushFiles(ctx, token, owner, repoName, branch, files, "Initial export from Gombit Forge"); err != nil {
+		s.rollback(ctx, token, owner, repoName)
 		return Result{}, fmt.Errorf("ghexport: push source: %w", err)
 	}
 
 	return Result{RepoURL: repo.HTMLURL, FullName: repo.FullName}, nil
+}
+
+// rollback best-effort deletes a repo created earlier in a now-failed export, so
+// the user isn't left with an empty repo that also blocks a same-name retry.
+//
+// The cleanup must not inherit the cancellation that triggered it: a push that
+// died because ctx hit its deadline (a network timeout — the commonest way a
+// push dies mid-flight) would otherwise hand the delete an already-dead context,
+// the delete would no-op, and the orphan this exists to remove would survive. So
+// we detach from ctx's cancellation and give the delete its own short budget.
+//
+// A rollback failure can't fail the export — the caller returns the original
+// error, which is what actually went wrong — but it means a genuinely orphaned
+// repo, so it is logged rather than silently swallowed.
+func (s *Service) rollback(ctx context.Context, token, owner, repo string) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	defer cancel()
+	if err := s.pub.DeleteRepository(ctx, token, owner, repo); err != nil {
+		slog.Error("ghexport: failed to roll back orphaned repository",
+			"owner", owner, "repo", repo, "error", err)
+	}
 }

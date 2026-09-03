@@ -133,6 +133,19 @@ func CreateRepository(ctx context.Context, client *http.Client, cfg Config, toke
 	return repo, nil
 }
 
+// DeleteRepository deletes owner/repo (GitHub returns 204). It rolls back a
+// repository that was created but never populated when a later export step
+// fails, so a retry isn't blocked by a leftover empty repo. Callers use it
+// best-effort — a non-204 (e.g. the repo is already gone) surfaces as an error
+// for the caller to log rather than fail the original operation on.
+func DeleteRepository(ctx context.Context, client *http.Client, cfg Config, token, owner, repo string) error {
+	req, err := jsonRequest(ctx, http.MethodDelete, cfg.apiBase()+"/repos/"+owner+"/"+repo, token, nil)
+	if err != nil {
+		return err
+	}
+	return do(client, req, http.StatusNoContent, nil)
+}
+
 // PushFiles pushes files to owner/repo as a single commit on branch via the Git
 // Data API: a blob per file, one tree, one commit with no parent, then the
 // branch ref pointed at it. Pushing to an empty repository is the expected path
@@ -210,17 +223,25 @@ func PushFiles(ctx context.Context, client *http.Client, cfg Config, token, owne
 	return nil
 }
 
-// jsonRequest builds a JSON POST/PATCH request with the GitHub auth headers.
+// jsonRequest builds a request with the GitHub auth headers. A nil payload sends
+// no body and no Content-Type (for a bodyless DELETE); otherwise the payload is
+// JSON-encoded.
 func jsonRequest(ctx context.Context, method, u, token string, payload any) (*http.Request, error) {
-	body, err := json.Marshal(payload)
+	var body io.Reader
+	if payload != nil {
+		b, err := json.Marshal(payload)
+		if err != nil {
+			return nil, err
+		}
+		body = bytes.NewReader(b)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, method, u, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
-	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	return req, nil

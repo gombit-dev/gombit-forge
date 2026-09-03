@@ -99,6 +99,47 @@ func TestCreateRepository(t *testing.T) {
 	}
 }
 
+// TestDeleteRepository: DELETE /repos/{owner}/{repo} with a 204 succeeds.
+func TestDeleteRepository(t *testing.T) {
+	var gotMethod, gotPath, gotAuth, gotCType string
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath, gotAuth = r.Method, r.URL.Path, r.Header.Get("Authorization")
+		gotCType = r.Header.Get("Content-Type")
+		gotBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	cfg := Config{APIBaseURL: srv.URL}
+	if err := DeleteRepository(context.Background(), srv.Client(), cfg, "tok", "octo", "my-app"); err != nil {
+		t.Fatalf("delete repo: %v", err)
+	}
+	if gotMethod != http.MethodDelete || gotPath != "/repos/octo/my-app" {
+		t.Errorf("delete request = %s %s, want DELETE /repos/octo/my-app", gotMethod, gotPath)
+	}
+	if gotAuth != "Bearer tok" {
+		t.Errorf("missing bearer token: %q", gotAuth)
+	}
+	// A DELETE carries no body: no JSON null, no Content-Type.
+	if len(gotBody) != 0 || gotCType != "" {
+		t.Errorf("DELETE should be bodyless; body=%q content-type=%q", gotBody, gotCType)
+	}
+}
+
+// TestDeleteRepositoryError: a non-204 surfaces as an error the caller can log.
+func TestDeleteRepositoryError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(w, `{"message":"Not Found"}`)
+	}))
+	defer srv.Close()
+	cfg := Config{APIBaseURL: srv.URL}
+	if err := DeleteRepository(context.Background(), srv.Client(), cfg, "tok", "octo", "gone"); err == nil {
+		t.Error("DeleteRepository must error on a non-204 status")
+	}
+}
+
 // TestPushFiles drives the whole Git Data API sequence against a fake GitHub and
 // asserts blobs → tree → commit → ref, with the tree referencing the pushed
 // files and the ref pointed at the created commit.

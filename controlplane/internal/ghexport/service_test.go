@@ -72,6 +72,8 @@ type fakePublisher struct {
 		owner, repo, branch, message string
 		files                        []compiler.SourceFile
 	}
+	deleted            string
+	deletedCtxErr      error // ctx.Err() observed inside DeleteRepository
 	createErr, pushErr error
 }
 
@@ -92,6 +94,22 @@ func (f *fakePublisher) PushFiles(_ context.Context, _, owner, repo, branch stri
 	f.pushed.owner, f.pushed.repo, f.pushed.branch, f.pushed.message, f.pushed.files = owner, repo, branch, message, files
 	return f.pushErr
 }
+
+func (f *fakePublisher) DeleteRepository(ctx context.Context, _, _, repo string) error {
+	f.deleted = repo
+	f.deletedCtxErr = ctx.Err()
+	return nil
+}
+
+// errToolchain fails at scaffold, so BuildApplicationSource errors after the repo
+// is created — exercising rollback on an assembly failure.
+type errToolchain struct{}
+
+func (errToolchain) Scaffold(context.Context, gombit.ScaffoldRequest) error {
+	return errors.New("scaffold boom")
+}
+func (errToolchain) Tidy(context.Context, string) error                                 { return nil }
+func (errToolchain) MakeMigrations(context.Context, gombit.MakeMigrationsRequest) error { return nil }
 
 // minimalSpec is a valid one-resource spec the compiler accepts.
 func minimalSpec() *spec.ProjectSpec {
@@ -134,6 +152,11 @@ func TestExport(t *testing.T) {
 	if pub.createdName != "my-app" || !pub.private {
 		t.Errorf("create repo name=%q private=%v", pub.createdName, pub.private)
 	}
+	// A successful export must never roll back — rollback is strictly a
+	// failure-path action.
+	if pub.deleted != "" {
+		t.Errorf("successful export must not roll back; deleted=%q", pub.deleted)
+	}
 	// The push targeted the created repo's owner/branch with a commit message.
 	if pub.pushed.owner != "octo" || pub.pushed.repo != "my-app" || pub.pushed.branch != "main" {
 		t.Errorf("push target = %+v", pub.pushed)
@@ -158,6 +181,57 @@ func TestExport(t *testing.T) {
 	}
 	if !strings.Contains(byPath["cmd/server/main.go"], "github.com/octo/my-app/internal/forge_generated") {
 		t.Error("composition root must import the repo-matched module")
+	}
+}
+
+// TestExportRollsBackOnPushError: a push failure after the repo is created must
+// delete the orphaned empty repo and return the error.
+func TestExportRollsBackOnPushError(t *testing.T) {
+	pub := &fakePublisher{pushErr: errors.New("push boom")}
+	svc := NewService(fakeTokens{token: "t"}, fakeSpecs{spec: minimalSpec(), ref: "r"}, fakeToolchain{}, pub, "v")
+	if _, err := svc.Export(context.Background(), 7, 3, "my-app", false); err == nil {
+		t.Fatal("push failure must error")
+	}
+	if pub.createdName != "my-app" {
+		t.Error("repo should have been created")
+	}
+	if pub.deleted != "my-app" {
+		t.Errorf("orphaned repo must be rolled back; deleted=%q", pub.deleted)
+	}
+}
+
+// TestExportRollsBackOnAssembleError: an assembly failure after repo creation
+// must also roll the repo back.
+func TestExportRollsBackOnAssembleError(t *testing.T) {
+	pub := &fakePublisher{}
+	svc := NewService(fakeTokens{token: "t"}, fakeSpecs{spec: minimalSpec(), ref: "r"}, errToolchain{}, pub, "v")
+	if _, err := svc.Export(context.Background(), 7, 3, "my-app", false); err == nil {
+		t.Fatal("assembly failure must error")
+	}
+	if pub.deleted != "my-app" {
+		t.Errorf("orphaned repo must be rolled back after an assembly failure; deleted=%q", pub.deleted)
+	}
+}
+
+// TestExportRollsBackUnderCancelledContext pins the WithoutCancel fix: when the
+// export's own context is already cancelled (a timed-out push, the commonest
+// orphan cause), rollback must still run the delete on a live, non-cancelled
+// context — not inherit the cancellation and no-op.
+func TestExportRollsBackUnderCancelledContext(t *testing.T) {
+	pub := &fakePublisher{pushErr: errors.New("push boom")}
+	svc := NewService(fakeTokens{token: "t"}, fakeSpecs{spec: minimalSpec(), ref: "r"}, fakeToolchain{}, pub, "v")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // export runs under an already-dead context
+
+	if _, err := svc.Export(ctx, 7, 3, "my-app", false); err == nil {
+		t.Fatal("push failure must error")
+	}
+	if pub.deleted != "my-app" {
+		t.Fatalf("rollback must run even under a cancelled export context; deleted=%q", pub.deleted)
+	}
+	if pub.deletedCtxErr != nil {
+		t.Errorf("rollback must detach from the cancelled context; delete saw ctx.Err()=%v", pub.deletedCtxErr)
 	}
 }
 
