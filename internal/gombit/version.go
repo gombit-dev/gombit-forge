@@ -19,9 +19,12 @@ import (
 // MinimumVersion is the oldest Gombit that Forge supports.
 //
 // v0.1.2 renamed the module from github.com/LAA-Software-Engineering/gombit
-// to github.com/gombit-dev/gombit. Generated applications import the latter,
-// so anything older produces a tree that cannot resolve (ADR-004 D5).
-var MinimumVersion = Version{Major: 0, Minor: 1, Patch: 2}
+// to github.com/gombit-dev/gombit; generated applications import the latter, so
+// anything older cannot resolve. The floor advanced to v0.1.11, which added the
+// declared server-side list filtering/sort/search the generated list handlers
+// consume (gombit #260); an older toolchain builds a tree whose list pages
+// cannot honor the spec's search/filter/sort (ADR-004 D5).
+var MinimumVersion = Version{Major: 0, Minor: 1, Patch: 11}
 
 // ModulePath is the Go module generated applications depend on.
 const ModulePath = "github.com/gombit-dev/gombit"
@@ -93,8 +96,9 @@ func CheckSupported(detected Version) error {
 	if !detected.AtLeast(MinimumVersion) {
 		return fmt.Errorf(
 			"gombit: toolchain %s is older than the required %s; "+
-				"the module path was renamed in %s and generated applications import %s",
-			detected, MinimumVersion, MinimumVersion, ModulePath)
+				"generated applications import %s and rely on features added by %s "+
+				"(declared server-side list filtering, #260)",
+			detected, MinimumVersion, ModulePath, MinimumVersion)
 	}
 	return nil
 }

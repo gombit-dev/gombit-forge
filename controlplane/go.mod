@@ -4,8 +4,13 @@ go 1.25.7
 
 require (
 	github.com/danielgtaylor/huma/v2 v2.39.1
-	github.com/gombit-dev/gombit v0.1.7
+	github.com/gombit-dev/gombit v0.1.11
 	gorm.io/gorm v1.31.2
+)
+
+require (
+	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
+	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 )
 
 require (

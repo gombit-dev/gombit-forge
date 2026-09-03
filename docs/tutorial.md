@@ -34,7 +34,7 @@ settings are what make this a real exercise rather than a hello-world.
 ## Prerequisites
 
 - **Go 1.25.7** (auto-resolves via `GOTOOLCHAIN`).
-- The [`gombit`](https://github.com/gombit-dev/gombit) CLI, **≥ v0.1.2**. Check
+- The [`gombit`](https://github.com/gombit-dev/gombit) CLI, **≥ v0.1.11**. Check
   with `gombit version`.
 - [`atlas`](https://atlasgo.io) and **Docker** — Gombit's migration diffing uses
   a throwaway Postgres, and we'll run the app's database in a container too.
