@@ -619,7 +619,8 @@ type updateTableConfigInput struct {
 		Label    string   `json:"label" minLength:"1" maxLength:"120" doc:"Human-readable page label"`
 		Title    string   `json:"title,omitempty" maxLength:"120" doc:"Table heading; defaults to the label when empty"`
 		Columns  []string `json:"columns,omitempty" doc:"Ordered column field IDs; must belong to the bound resource"`
-		Search   bool     `json:"search,omitempty" doc:"Whether the table offers search (honored at runtime in a later change)"`
+		Search   bool     `json:"search,omitempty" doc:"Whether the table offers search; requires the resource to declare searchable_fields"`
+		Filters  []string `json:"filters,omitempty" doc:"Exact-match filter field IDs; each must be one the resource declares filterable"`
 		PageSize int      `json:"page_size,omitempty" minimum:"0" doc:"Rows per page; 0 uses the default"`
 	}
 }
@@ -634,6 +635,7 @@ func (h *Handler) updateTableConfig(ctx context.Context, in *updateTableConfigIn
 		Title:    in.Body.Title,
 		Columns:  toIDs(in.Body.Columns),
 		Search:   in.Body.Search,
+		Filters:  toIDs(in.Body.Filters),
 		PageSize: in.Body.PageSize,
 	}, user.ID)
 	if err != nil {

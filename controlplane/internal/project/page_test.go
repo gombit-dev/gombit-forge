@@ -185,6 +185,47 @@ func TestUpdateTableConfigCommits(t *testing.T) {
 	}
 }
 
+// TestUpdateTableConfigFilters: the editor can configure exact-match filter
+// fields, but only ones the resource declares filterable — the subset rule.
+func TestUpdateTableConfigFilters(t *testing.T) {
+	svc, projectID, resID := projectWithResource(t)
+	fieldID, pageID := pageWithField(t, svc, projectID, resID)
+	ctx := context.Background()
+
+	// A filter over a field the resource hasn't declared filterable is rejected
+	// as an invalid spec, not committed.
+	bad, err := svc.UpdateTableConfig(ctx, projectID, pageID, project.TableConfigInput{
+		Label: "Orders", Filters: []spec.ID{fieldID},
+	}, 7)
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if bad.Outcome != project.OutcomeInvalidSpec {
+		t.Fatalf("filter over a non-filterable field must be invalid_spec, got %s", bad.Outcome)
+	}
+
+	// Declare the field filterable, then the same filter commits and persists.
+	if _, err := svc.UpdateBehavior(ctx, projectID, resID, spec.ResourceBehavior{
+		CreateEnabled: true, UpdateEnabled: true, DeleteEnabled: true, AdminVisible: true,
+		FilterableFields: []spec.ID{fieldID},
+	}, 7); err != nil {
+		t.Fatalf("declare filterable: %v", err)
+	}
+	res, err := svc.UpdateTableConfig(ctx, projectID, pageID, project.TableConfigInput{
+		Label: "Orders", Filters: []spec.ID{fieldID},
+	}, 7)
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if res.Outcome != project.OutcomeCommitted {
+		t.Fatalf("outcome=%s, want committed", res.Outcome)
+	}
+	page := headSpec(t, svc, projectID).Pages[0]
+	if page.Table == nil || len(page.Table.Filters) != 1 || page.Table.Filters[0] != fieldID {
+		t.Errorf("filters not persisted: %+v", page.Table)
+	}
+}
+
 // TestUpdateTableConfigEmptyDropsBlock: a save that configures nothing leaves no
 // table block, so the page stays on the graph's column defaults.
 func TestUpdateTableConfigEmptyDropsBlock(t *testing.T) {

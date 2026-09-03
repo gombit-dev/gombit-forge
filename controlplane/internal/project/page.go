@@ -80,14 +80,16 @@ func (s *Service) AddPage(ctx context.Context, projectID uint, in PageInput, by 
 
 // TableConfigInput is the human-facing configuration of a resource_table page
 // the editor supplies: the page's display label, plus the table's heading,
-// ordered columns, search toggle and page size. Column IDs must belong to the
-// page's bound resource — spec.Validate enforces that and surfaces a dangling
-// column as invalid_spec.
+// ordered columns, search toggle, exact-match filter fields and page size.
+// Column IDs must belong to the page's bound resource, and each filter field
+// must additionally be one the resource declares filterable — spec.Validate
+// enforces both and surfaces a violation as invalid_spec.
 type TableConfigInput struct {
 	Label    string
 	Title    string
 	Columns  []spec.ID
 	Search   bool
+	Filters  []spec.ID
 	PageSize int
 }
 
@@ -133,13 +135,14 @@ func (s *Service) UpdateTableConfig(ctx context.Context, projectID uint, pageID 
 // configures nothing (so the page falls back to the graph's column defaults
 // rather than serializing an empty block).
 func tableConfigOrNil(in TableConfigInput) *spec.TableConfig {
-	if strings.TrimSpace(in.Title) == "" && len(in.Columns) == 0 && !in.Search && in.PageSize == 0 {
+	if strings.TrimSpace(in.Title) == "" && len(in.Columns) == 0 && !in.Search && len(in.Filters) == 0 && in.PageSize == 0 {
 		return nil
 	}
 	return &spec.TableConfig{
 		Title:    strings.TrimSpace(in.Title),
 		Columns:  in.Columns,
 		Search:   in.Search,
+		Filters:  in.Filters,
 		PageSize: in.PageSize,
 	}
 }
