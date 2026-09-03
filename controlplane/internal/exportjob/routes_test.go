@@ -151,6 +151,23 @@ func TestCreateEnqueuesFrozenHead(t *testing.T) {
 	}
 }
 
+// TestCreateBlankNameIsUnprocessable: an empty repo name (which huma's required
+// permits) is the enqueue validation error mapped to 422, not a 500.
+func TestCreateBlankNameIsUnprocessable(t *testing.T) {
+	projects := fakeProjects{
+		proj: project.Project{ID: 3, OrganizationID: 8},
+		head: project.Revision{ID: 77}, headOK: true,
+	}
+	f := newRoutesFixture(t, projects, fakeAuthz{})
+	userID := seedUser(t, f.db, "blank@example.test")
+
+	resp := f.api.Post("/api/v1/projects/3/export/github", f.cookie(t, userID),
+		map[string]any{"name": "  ", "private": false})
+	if resp.Code != http.StatusUnprocessableEntity {
+		t.Errorf("blank name create = %d, want 422", resp.Code)
+	}
+}
+
 func TestCreateNoRevisionIsUnprocessable(t *testing.T) {
 	projects := fakeProjects{proj: project.Project{ID: 3, OrganizationID: 8}, headOK: false}
 	f := newRoutesFixture(t, projects, fakeAuthz{})

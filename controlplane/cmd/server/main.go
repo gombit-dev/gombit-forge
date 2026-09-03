@@ -15,6 +15,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"time"
 
 	"github.com/gombit-dev/gombit/config"
 	"github.com/gombit-dev/gombit/framework"
@@ -165,7 +166,19 @@ func registerGitHubExport(app *framework.App, ghCfg githubexport.Config, stopWor
 
 	worker := exportworker.New(jobs, src, exporter, 0, nil)
 	ctx, cancel := context.WithCancel(context.Background())
-	*stopWorker = cancel
-	go worker.Run(ctx)
+	done := make(chan struct{})
+	go func() { worker.Run(ctx); close(done) }()
+	// stopWorker signals cancellation and then waits (bounded) for Run to return,
+	// so shutdown actually joins the worker before the DB it writes to is closed,
+	// rather than racing it. A worker mid-export past the deadline is abandoned —
+	// a full in-flight assembly can run for minutes and shutdown can't block on it.
+	*stopWorker = func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			log.Printf("github export: worker did not stop within 10s; proceeding with shutdown")
+		}
+	}
 	return nil
 }

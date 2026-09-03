@@ -92,7 +92,7 @@ func toJobData(j ExportJob) jobData {
 
 type createInput struct {
 	ProjectID string `path:"projectID" doc:"Project identifier"`
-	Body struct {
+	Body      struct {
 		Name string `json:"name" doc:"Name of the GitHub repository to create"`
 		// Private is deliberately required, not defaulted: the caller must make an
 		// explicit visibility choice so a project's source is never published to a
@@ -107,9 +107,13 @@ type createOutput struct {
 }
 
 func (h *handler) create(ctx context.Context, in *createInput) (*createOutput, error) {
-	// Authorize against the project's org before revealing anything about it; a
-	// non-member gets NotFound so cross-org project ids can't be probed.
-	p, user, err := h.loadAuthorized(ctx, in.ProjectID, org.CapProjectView)
+	// Export copies the entire project source to a repository under the initiating
+	// user's own GitHub account — an egress of the source, not a read within the
+	// platform. Gate it on the edit capability, not view, so a future read-only
+	// viewer role can't export (exfiltrate) source it may only look at. Today all
+	// roles that hold View also hold Edit, so this changes no current outcome.
+	// A non-member gets NotFound so cross-org project ids can't be probed.
+	p, user, err := h.loadAuthorized(ctx, in.ProjectID, org.CapProjectEdit)
 	if err != nil {
 		return nil, err
 	}
@@ -126,10 +130,14 @@ func (h *handler) create(ctx context.Context, in *createInput) (*createOutput, e
 
 	job, err := h.jobs.Enqueue(ctx, p.ID, head.ID, user.ID, in.Body.Name, in.Body.Private)
 	if err != nil {
-		// The only enqueue error today is a blank repository name.
-		return nil, contract.WithContext(ctx, contract.Validation("a repository name is required", map[string][]string{
-			"name": {"a repository name is required"},
-		}))
+		// A blank name is a client validation error (422); anything else is a
+		// storage fault (500) and must not masquerade as "name required".
+		if errors.Is(err, ErrBlankRepoName) {
+			return nil, contract.WithContext(ctx, contract.Validation("a repository name is required", map[string][]string{
+				"name": {"a repository name is required"},
+			}))
+		}
+		return nil, contract.WithContext(ctx, contract.Internal("could not enqueue the export"))
 	}
 	return &createOutput{Status: http.StatusAccepted, Body: contract.Data[jobData]{Data: toJobData(job)}}, nil
 }
