@@ -30,6 +30,10 @@ func (p gitHubPublisher) CreateRepository(ctx context.Context, token, name strin
 	return githubexport.CreateRepository(ctx, p.client, p.cfg, token, name, private)
 }
 
+func (p gitHubPublisher) DeleteRepository(ctx context.Context, token, owner, repo string) error {
+	return githubexport.DeleteRepository(ctx, p.client, p.cfg, token, owner, repo)
+}
+
 func (p gitHubPublisher) PushFiles(ctx context.Context, token, owner, repo, branch string, files []compiler.SourceFile, message string) error {
 	ghFiles := make([]githubexport.File, len(files))
 	for i, f := range files {

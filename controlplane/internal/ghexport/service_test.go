@@ -72,6 +72,7 @@ type fakePublisher struct {
 		owner, repo, branch, message string
 		files                        []compiler.SourceFile
 	}
+	deleted            string
 	createErr, pushErr error
 }
 
@@ -92,6 +93,21 @@ func (f *fakePublisher) PushFiles(_ context.Context, _, owner, repo, branch stri
 	f.pushed.owner, f.pushed.repo, f.pushed.branch, f.pushed.message, f.pushed.files = owner, repo, branch, message, files
 	return f.pushErr
 }
+
+func (f *fakePublisher) DeleteRepository(_ context.Context, _, _, repo string) error {
+	f.deleted = repo
+	return nil
+}
+
+// errToolchain fails at scaffold, so BuildApplicationSource errors after the repo
+// is created — exercising rollback on an assembly failure.
+type errToolchain struct{}
+
+func (errToolchain) Scaffold(context.Context, gombit.ScaffoldRequest) error {
+	return errors.New("scaffold boom")
+}
+func (errToolchain) Tidy(context.Context, string) error                                 { return nil }
+func (errToolchain) MakeMigrations(context.Context, gombit.MakeMigrationsRequest) error { return nil }
 
 // minimalSpec is a valid one-resource spec the compiler accepts.
 func minimalSpec() *spec.ProjectSpec {
@@ -158,6 +174,35 @@ func TestExport(t *testing.T) {
 	}
 	if !strings.Contains(byPath["cmd/server/main.go"], "github.com/octo/my-app/internal/forge_generated") {
 		t.Error("composition root must import the repo-matched module")
+	}
+}
+
+// TestExportRollsBackOnPushError: a push failure after the repo is created must
+// delete the orphaned empty repo and return the error.
+func TestExportRollsBackOnPushError(t *testing.T) {
+	pub := &fakePublisher{pushErr: errors.New("push boom")}
+	svc := NewService(fakeTokens{token: "t"}, fakeSpecs{spec: minimalSpec(), ref: "r"}, fakeToolchain{}, pub, "v")
+	if _, err := svc.Export(context.Background(), 7, 3, "my-app", false); err == nil {
+		t.Fatal("push failure must error")
+	}
+	if pub.createdName != "my-app" {
+		t.Error("repo should have been created")
+	}
+	if pub.deleted != "my-app" {
+		t.Errorf("orphaned repo must be rolled back; deleted=%q", pub.deleted)
+	}
+}
+
+// TestExportRollsBackOnAssembleError: an assembly failure after repo creation
+// must also roll the repo back.
+func TestExportRollsBackOnAssembleError(t *testing.T) {
+	pub := &fakePublisher{}
+	svc := NewService(fakeTokens{token: "t"}, fakeSpecs{spec: minimalSpec(), ref: "r"}, errToolchain{}, pub, "v")
+	if _, err := svc.Export(context.Background(), 7, 3, "my-app", false); err == nil {
+		t.Fatal("assembly failure must error")
+	}
+	if pub.deleted != "my-app" {
+		t.Errorf("orphaned repo must be rolled back after an assembly failure; deleted=%q", pub.deleted)
 	}
 }
 
