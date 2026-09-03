@@ -226,13 +226,13 @@ type detailView struct {
 // is filterable by default), and rendered as a small table.
 type relatedSection struct {
 	// Index disambiguates the per-section state/type names in the generated
-	// component (related0, Related0Row, …), since it carries one fetch each.
+	// component (related0, Related0Row, …), since it carries one fetch each. The
+	// index-based row type also avoids a collision when a resource has two
+	// has_many relationships to the same target.
 	Index int
 	// Label names the related side — the belongs_to's inverse label, else the
 	// related resource's plural label.
 	Label string
-	// Type is the related resource's code name, for the row type name.
-	Type string
 	// CollectionPath is the related resource's API collection path.
 	CollectionPath string
 	// FKParam is the back-reference foreign key's storage name — the query param
@@ -458,7 +458,6 @@ func relatedSections(g *graph.Graph, resource *graph.Resource) []relatedSection 
 		section := relatedSection{
 			Index:          index,
 			Label:          label,
-			Type:           rel.From.CodeName(),
 			CollectionPath: "/api/v1/" + kebab(rel.From.Spec.StorageName),
 			FKParam:        rel.Field.Spec.StorageName,
 			DetailRoute:    detailRoute(g, rel.From),
