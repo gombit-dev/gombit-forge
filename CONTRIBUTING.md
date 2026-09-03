@@ -45,7 +45,7 @@ go test ./... -short
 The root module's unit tests need no external toolchain. Two suites do:
 
 - The **M0 end-to-end gate** scaffolds and runs a real application, so it wants
-  the [`gombit`](https://github.com/gombit-dev/gombit) CLI (**≥ v0.1.11**),
+  the [`gombit`](https://github.com/gombit-dev/gombit) CLI (**≥ v0.1.12**),
   [`atlas`](https://atlasgo.io), and Docker on PATH. It skips automatically if
   any is missing or if run with `-short`:
 

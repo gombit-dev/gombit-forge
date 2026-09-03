@@ -72,19 +72,20 @@ func TestVersionCompare(t *testing.T) {
 	}
 }
 
-// TestCheckSupported pins the v0.1.11 floor: older toolchains lack the declared
-// server-side list filtering (#260) the generated list handlers consume, so a
-// tree they scaffold cannot honor the spec's search/filter/sort.
+// TestCheckSupported pins the v0.1.12 floor: older toolchains lack the declared
+// server-side numeric aggregate contract (#273) the generated dashboard
+// aggregate cards consume (v0.1.11 added only list filtering/sort/search, #260),
+// so a tree they scaffold cannot reduce a numeric field server-side.
 func TestCheckSupported(t *testing.T) {
-	supported := []Version{{0, 1, 11}, {0, 1, 12}, {0, 2, 0}, {1, 0, 0}}
+	supported := []Version{{0, 1, 12}, {0, 2, 0}, {1, 0, 0}}
 	for _, version := range supported {
 		if err := CheckSupported(version); err != nil {
 			t.Errorf("%s should be supported: %v", version, err)
 		}
 	}
 
-	// Everything below the floor, including the previously-supported v0.1.2–v0.1.10.
-	unsupported := []Version{{0, 1, 10}, {0, 1, 2}, {0, 1, 1}, {0, 0, 9}}
+	// Everything below the floor, including the previously-supported v0.1.2–v0.1.11.
+	unsupported := []Version{{0, 1, 11}, {0, 1, 10}, {0, 1, 2}, {0, 1, 1}, {0, 0, 9}}
 	for _, version := range unsupported {
 		if err := CheckSupported(version); err == nil {
 			t.Errorf("%s should be rejected", version)

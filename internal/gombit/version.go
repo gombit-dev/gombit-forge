@@ -20,11 +20,13 @@ import (
 //
 // v0.1.2 renamed the module from github.com/LAA-Software-Engineering/gombit
 // to github.com/gombit-dev/gombit; generated applications import the latter, so
-// anything older cannot resolve. The floor advanced to v0.1.11, which added the
-// declared server-side list filtering/sort/search the generated list handlers
-// consume (gombit #260); an older toolchain builds a tree whose list pages
-// cannot honor the spec's search/filter/sort (ADR-004 D5).
-var MinimumVersion = Version{Major: 0, Minor: 1, Patch: 11}
+// anything older cannot resolve. The floor advanced to v0.1.11 for the declared
+// server-side list filtering/sort/search the generated list handlers consume
+// (gombit #260), then to v0.1.12, which added the declared server-side numeric
+// aggregate contract (gombit #273) the generated dashboard aggregate cards
+// consume; an older toolchain builds a tree whose list pages cannot honor the
+// spec's search/filter/sort or reduce a numeric field server-side (ADR-004 D5).
+var MinimumVersion = Version{Major: 0, Minor: 1, Patch: 12}
 
 // ModulePath is the Go module generated applications depend on.
 const ModulePath = "github.com/gombit-dev/gombit"
@@ -97,7 +99,7 @@ func CheckSupported(detected Version) error {
 		return fmt.Errorf(
 			"gombit: toolchain %s is older than the required %s; "+
 				"generated applications import %s and rely on features added by %s "+
-				"(declared server-side list filtering, #260)",
+				"(declared server-side list filtering #260, numeric aggregates #273)",
 			detected, MinimumVersion, ModulePath, MinimumVersion)
 	}
 	return nil
