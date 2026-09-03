@@ -110,9 +110,10 @@ export function {{.Component}}() {
 // its row and "New" links target the bound resource's canonical detail/form
 // routes. Pagination is honored at runtime: the generated list handler already
 // accepts page/per_page and returns a PageMeta total, so the table sends the
-// configured page size and pages through the result. Search is wired when the
-// page enables it (TableConfig.Search) — the ?search= query param the generated
-// list handler exposes (gombit #260); filtering and sorting controls follow.
+// configured page size and pages through the result. Search (TableConfig.Search),
+// sortable column headers (Columns ∩ SortableFields) and exact-match filter
+// controls (TableConfig.Filters) each wire the ?search= / ?ordering= /
+// ?<field>= query params the generated list handler exposes (gombit #260).
 const tablePageSrc = `{{.Banner}}
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
@@ -138,6 +139,9 @@ export function {{.Component}}() {
 {{- if .Sortable}}
   const [ordering, setOrdering] = useState("");
 {{- end}}
+{{- if .Filters}}
+  const [filters, setFilters] = useState<Record<string, string>>({});
+{{- end}}
   const [status, setStatus] = useState({{js (printf "Loading %s…" .Title)}});
 
   useEffect(() => {
@@ -145,7 +149,7 @@ export function {{.Component}}() {
     void (async () => {
       try {
         const listed = await unwrap(
-          await client.GET("{{.CollectionPath}}", { params: { query: { page, per_page: PAGE_SIZE{{if .Search}}, search: search || undefined{{end}}{{if .Sortable}}, ordering: ordering || undefined{{end}} } } }),
+          await client.GET("{{.CollectionPath}}", { params: { query: { page, per_page: PAGE_SIZE{{if .Search}}, search: search || undefined{{end}}{{if .Sortable}}, ordering: ordering || undefined{{end}}{{range .Filters}}, "{{.JSONName}}": filters["{{.JSONName}}"] || undefined{{end}} } } }),
         );
         if (cancelled) {
           return;
@@ -164,9 +168,17 @@ export function {{.Component}}() {
     return () => {
       cancelled = true;
     };
-  }, [client, page{{if .Search}}, search{{end}}{{if .Sortable}}, ordering{{end}}]);
+  }, [client, page{{if .Search}}, search{{end}}{{if .Sortable}}, ordering{{end}}{{if .Filters}}, filters{{end}}]);
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+{{- if .Filters}}
+
+  // Set one exact-match filter (empty clears it) and return to the first page.
+  const setFilter = (col: string, value: string) => {
+    setFilters((prev) => ({ ...prev, [col]: value }));
+    setPage(1);
+  };
+{{- end}}
 {{- if .Sortable}}
 
   // Cycle a sortable column: unsorted → ascending → descending → unsorted. The
@@ -199,6 +211,42 @@ export function {{.Component}}() {
           }}
         />
       </p>
+{{- end}}
+{{- if .Filters}}
+      <div>
+{{- range .Filters}}
+{{- if eq .Control "bool"}}
+        <select
+          value={filters["{{.JSONName}}"] ?? ""}
+          aria-label={{js (printf "Filter by %s" .Label)}}
+          onChange={(e) => setFilter("{{.JSONName}}", e.target.value)}
+        >
+          <option value="">{ {{js (printf "%s: any" .Label)}} }</option>
+          <option value="true">{ {{js "Yes"}} }</option>
+          <option value="false">{ {{js "No"}} }</option>
+        </select>
+{{- else if eq .Control "enum"}}
+        <select
+          value={filters["{{.JSONName}}"] ?? ""}
+          aria-label={{js (printf "Filter by %s" .Label)}}
+          onChange={(e) => setFilter("{{.JSONName}}", e.target.value)}
+        >
+          <option value="">{ {{js (printf "%s: any" .Label)}} }</option>
+{{- range .Options}}
+          <option value={{js .Value}}>{ {{if .Label}}{{js .Label}}{{else}}{{js .Value}}{{end}} }</option>
+{{- end}}
+        </select>
+{{- else}}
+        <input
+          type="{{.Control}}"
+          value={filters["{{.JSONName}}"] ?? ""}
+          placeholder={{js .Label}}
+          aria-label={{js (printf "Filter by %s" .Label)}}
+          onChange={(e) => setFilter("{{.JSONName}}", e.target.value)}
+        />
+{{- end}}
+{{- end}}
+      </div>
 {{- end}}
       <table>
         <thead>
