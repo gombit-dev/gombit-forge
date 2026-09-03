@@ -976,8 +976,10 @@ func TestFrontendNavigation(t *testing.T) {
 
 // TestFrontendDashboard is the #54 acceptance point: a dashboard page renders
 // count cards with a real total (from the list PageMeta) and recent-list
-// sections with a "View all" link — no fabricated records (those await
-// gombit#260 descending ordering) and no chart designer.
+// sections. buildGraph2's recent list declares no OrderBy, so it stays a labeled
+// section with a "View all" link and fetches no records — the fallback when a
+// card names no temporal field (records are exercised in
+// TestFrontendDashboardRecentRecords). No chart designer.
 func TestFrontendDashboard(t *testing.T) {
 	files := frontendFiles(t, buildGraph2(t))
 	dash := files["frontend/src/forge_generated/dashboard/HomeDashboardPage.tsx"]
@@ -998,8 +1000,8 @@ func TestFrontendDashboard(t *testing.T) {
 		}
 	}
 
-	// Recent list: a labeled section linking to the invoices table, with NO
-	// fabricated records (no client-side fetch of invoice rows for the list).
+	// Recent list without an OrderBy: a labeled section linking to the invoices
+	// table, with NO record fetch (a fetch needs a temporal OrderBy).
 	if !strings.Contains(dash, `{ "Recent invoices" }`) {
 		t.Error("dashboard must render the recent-list section label")
 	}
@@ -1007,7 +1009,7 @@ func TestFrontendDashboard(t *testing.T) {
 		t.Error("recent list must link to the related table page")
 	}
 	if strings.Contains(dash, "/api/v1/invoices") {
-		t.Error("recent list must not fetch records (ascending order isn't 'recent'; awaits gombit#260)")
+		t.Error("a recent list with no OrderBy must not fetch records")
 	}
 
 	// The dashboard is registered as a route and as nav metadata.
@@ -1017,6 +1019,74 @@ func TestFrontendDashboard(t *testing.T) {
 	}
 	if !strings.Contains(registry, `{ slug: "home", title: "Home", listPath: "/home" }`) {
 		t.Error("dashboard must appear in generatedResources (nav)")
+	}
+}
+
+// TestFrontendDashboardRecentRecords (#54): a recent list that declares an
+// OrderBy (a sortable date/datetime field) fetches the newest records
+// (?ordering=-<field>&per_page=<limit>) and renders them; a list with no OrderBy
+// keeps the section + View-all with no fetch.
+func TestFrontendDashboardRecentRecords(t *testing.T) {
+	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
+	res := id(spec.KindResource)
+	due := id(spec.KindField)
+	amount := id(spec.KindField)
+	build := func(order spec.ID, limit int) *spec.ProjectSpec {
+		return &spec.ProjectSpec{
+			SpecVersion: spec.SpecVersion,
+			Project:     spec.Project{ID: id(spec.KindProject), Name: "Acme", Slug: "acme"},
+			Database:    spec.Database{Driver: spec.DriverPostgres},
+			Auth:        spec.Auth{Mode: spec.AuthCookie},
+			Resources: []*spec.Resource{
+				{ID: res, Label: "Invoice", LabelPlural: "Invoices", CodeName: "Invoice", StorageName: "invoices",
+					Behavior: spec.ResourceBehavior{SortableFields: []spec.ID{due}},
+					Fields: []*spec.Field{
+						{ID: due, Label: "Due", Type: spec.TypeDate, CodeName: "Due", StorageName: "due"},
+						{ID: amount, Label: "Amount", Type: spec.TypeDecimal, CodeName: "Amount", StorageName: "amount"},
+					}},
+			},
+			Pages: []*spec.Page{
+				{ID: id(spec.KindPage), Slug: "home", Label: "Home", Type: spec.PageDashboard,
+					Dashboard: &spec.DashboardConfig{RecentLists: []spec.DashboardCard{
+						{Label: "Recent invoices", Resource: res, Limit: limit, OrderBy: order}}}},
+			},
+		}
+	}
+	dashFor := func(s *spec.ProjectSpec) string {
+		if d := spec.Validate(s); d != nil {
+			t.Fatalf("fixture invalid: %s", d.Error())
+		}
+		g, err := graph.Build(s)
+		if err != nil {
+			t.Fatalf("build: %v", err)
+		}
+		return frontendFiles(t, g)["frontend/src/forge_generated/dashboard/HomeDashboardPage.tsx"]
+	}
+
+	withRecords := dashFor(build(due, 7))
+	for _, want := range []string{
+		`type Recent0Row = NonNullable<`,
+		`const [recent0, setRecent0] = useState<Recent0Row[]>([]);`,
+		`await client.GET("/api/v1/invoices", { params: { query: { ordering: "-due", per_page: 7 } } })`,
+		`{recent0.map((row) => (`,
+		`<th>{ "Due" }</th>`,
+		`{recent0.length === 0 ? <p>{ "No Recent invoices yet." }</p> : null}`,
+	} {
+		if !strings.Contains(withRecords, want) {
+			t.Errorf("recent list with OrderBy must contain %q", want)
+		}
+	}
+	// Unconfigured limit falls back to the default (5).
+	if def := dashFor(build(due, 0)); !strings.Contains(def, `per_page: 5 }`) {
+		t.Error("a recent list with no limit must default per_page to 5")
+	}
+
+	// No OrderBy: section + View-all only, no fetch, no records state.
+	plain := dashFor(build("", 5))
+	for _, absent := range []string{"/api/v1/invoices", "recent0", "Recent0Row"} {
+		if strings.Contains(plain, absent) {
+			t.Errorf("a recent list without OrderBy must not fetch records: found %q", absent)
+		}
 	}
 }
 
