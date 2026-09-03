@@ -148,7 +148,7 @@ func TestScaffoldChecksVersionBeforeWriting(t *testing.T) {
 	})
 
 	t.Run("accepts a supported toolchain", func(t *testing.T) {
-		rec := &recorder{outputs: map[string]string{"version": "gombit:   v0.1.5\n"}}
+		rec := &recorder{outputs: map[string]string{"version": "gombit:   v0.1.11\n"}}
 		cli := &CLI{Binary: "gombit", Run: rec.run}
 
 		if err := cli.Scaffold(context.Background(), validRequest("/tmp/work/acme")); err != nil {

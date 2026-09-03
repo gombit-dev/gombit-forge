@@ -203,11 +203,15 @@ to `resourcegen` upstream is still worth doing on its own merits.
 
 ### Version pinning
 
-Pin **≥ v0.1.2** (ADR-004 D5): the module path was renamed there from
-`github.com/LAA-Software-Engineering/gombit` to `github.com/gombit-dev/gombit`,
-and current scaffolding emits the latter. Earlier notes in this repo described
-the two paths as an unresolved question — that was an artifact of a stale
-v0.1.0 binary, not an open decision.
+Pin **≥ v0.1.11** (ADR-004 D5), tracked in `internal/gombit.MinimumVersion`.
+The module path was renamed at v0.1.2 from
+`github.com/LAA-Software-Engineering/gombit` to `github.com/gombit-dev/gombit`
+(the original floor), and current scaffolding emits the latter. The floor
+advanced to v0.1.11, which added the declared server-side list
+filtering/sort/search (gombit #260) the generated list handlers consume; the
+`controlplane` module requires v0.1.11 to match. Earlier notes describing the
+two module paths as an unresolved question were an artifact of a stale v0.1.0
+binary, not an open decision.
 
 `internal/gombit` is the boundary. It exposes project-level operations only;
 migrations, OpenAPI and TypeScript client generation join it with #11 and #9.
