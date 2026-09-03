@@ -5,6 +5,10 @@
       "type_name": "Event"
     },
     {
+      "import_path": "github.com/gombit-dev/gombit-forge/controlplane/internal/exportjob",
+      "type_name": "ExportJob"
+    },
+    {
       "import_path": "github.com/gombit-dev/gombit-forge/controlplane/internal/githubconnect",
       "type_name": "Connection"
     },
