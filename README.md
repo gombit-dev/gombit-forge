@@ -60,7 +60,7 @@ APIs — it never reimplements them ([`docs/ADR-004.md`](docs/ADR-004.md)).
 
 - **Go 1.25.7** (the toolchain auto-resolves via `GOTOOLCHAIN`).
 - To generate and run a real application: the [`gombit`](https://github.com/gombit-dev/gombit)
-  CLI (**≥ v0.1.11**), [`atlas`](https://atlasgo.io), and Docker (Atlas uses a
+  CLI (**≥ v0.1.12**), [`atlas`](https://atlasgo.io), and Docker (Atlas uses a
   throwaway Postgres for migration diffs). Forge drives these; it does not
   vendor them, and the library itself depends only on `gorm` and
   `shopspring/decimal`.
