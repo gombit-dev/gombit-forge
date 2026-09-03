@@ -59,11 +59,12 @@ type File struct {
 type Repo struct {
 	FullName      string `json:"full_name"`
 	HTMLURL       string `json:"html_url"`
-	Owner         owner  `json:"owner"`
+	Owner         Owner  `json:"owner"`
 	DefaultBranch string `json:"default_branch"`
 }
 
-type owner struct {
+// Owner is a repository owner (the authenticated user), as much as callers need.
+type Owner struct {
 	Login string `json:"login"`
 }
 
