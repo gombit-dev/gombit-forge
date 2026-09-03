@@ -257,10 +257,16 @@ type Page struct {
 
 // TableConfig configures a resource_table page (DESIGN.md §18).
 type TableConfig struct {
-	Title    string `json:"title,omitempty"`
-	Columns  []ID   `json:"columns,omitempty"`
-	Search   bool   `json:"search,omitempty"`
-	PageSize int    `json:"page_size,omitempty"`
+	Title   string `json:"title,omitempty"`
+	Columns []ID   `json:"columns,omitempty"`
+	Search  bool   `json:"search,omitempty"`
+	// Filters are the field IDs this table exposes as exact-match filter
+	// controls (#51). Each must reference a field on the page's resource that is
+	// in ResourceBehavior.FilterableFields — a table exposes a subset of the
+	// filter capability the resource declares. A filter field need not also be a
+	// visible column.
+	Filters  []ID `json:"filters,omitempty"`
+	PageSize int  `json:"page_size,omitempty"`
 }
 
 // FormConfig configures a resource_form page (DESIGN.md §18).

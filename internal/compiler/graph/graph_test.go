@@ -514,3 +514,58 @@ func TestBehaviorFieldListsAreResolved(t *testing.T) {
 		t.Error("behavior spec pointer not carried through")
 	}
 }
+
+// TestTableFiltersResolve: a table's TableConfig.Filters resolve to the named
+// fields on the page, in authored order, and a table without filters resolves
+// to none.
+func TestTableFiltersResolve(t *testing.T) {
+	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
+	res := id(spec.KindResource)
+	name := id(spec.KindField)
+	tier := id(spec.KindField)
+	build := func(filters []spec.ID) *spec.ProjectSpec {
+		return &spec.ProjectSpec{
+			SpecVersion: spec.SpecVersion,
+			Project:     spec.Project{ID: id(spec.KindProject), Name: "Acme", Slug: "acme"},
+			Database:    spec.Database{Driver: spec.DriverPostgres},
+			Auth:        spec.Auth{Mode: spec.AuthCookie},
+			Resources: []*spec.Resource{
+				{ID: res, Label: "Customer", CodeName: "Customer", StorageName: "customers",
+					Behavior: spec.ResourceBehavior{FilterableFields: []spec.ID{name, tier}},
+					Fields: []*spec.Field{
+						{ID: name, Label: "Name", Type: spec.TypeString, CodeName: "Name", StorageName: "name"},
+						{ID: tier, Label: "Tier", Type: spec.TypeEnum, CodeName: "Tier", StorageName: "tier",
+							EnumValues: []spec.EnumValue{{Value: "free"}, {Value: "pro"}}},
+					}},
+			},
+			Pages: []*spec.Page{
+				{ID: id(spec.KindPage), Slug: "customers", Label: "Customers", Type: spec.PageResourceTable, Resource: res,
+					Table: &spec.TableConfig{Filters: filters}},
+			},
+		}
+	}
+
+	g, err := graph.Build(build([]spec.ID{tier, name}))
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	page := g.Pages[0]
+	want := []spec.ID{tier, name} // authored order preserved
+	if len(page.Filters) != len(want) {
+		t.Fatalf("filters: got %d want %d", len(page.Filters), len(want))
+	}
+	for i, id := range want {
+		if page.Filters[i].Spec.ID != id {
+			t.Errorf("filter %d: got %s want %s", i, page.Filters[i].Spec.ID, id)
+		}
+	}
+
+	// No filters declared -> none resolved.
+	g2, err := graph.Build(build(nil))
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if len(g2.Pages[0].Filters) != 0 {
+		t.Errorf("a table without filters must resolve none, got %d", len(g2.Pages[0].Filters))
+	}
+}
