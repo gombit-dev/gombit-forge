@@ -96,7 +96,9 @@ func (w *Worker) process(ctx context.Context, job exportjob.ExportJob) {
 		w.fail(ctx, job, failExport, "export", err)
 		return
 	}
-	if err := w.jobs.MarkSucceeded(ctx, job.ID, res.RepoURL); err != nil {
+	rc, cancel := w.recordCtx(ctx)
+	defer cancel()
+	if err := w.jobs.MarkSucceeded(rc, job.ID, res.RepoURL); err != nil {
 		w.log.Error("exportworker: export succeeded but recording it failed",
 			"job", job.ID, "repo", res.RepoURL, "error", err)
 	}
@@ -105,9 +107,20 @@ func (w *Worker) process(ctx context.Context, job exportjob.ExportJob) {
 // fail logs the detailed error and records the sanitized category on the job.
 func (w *Worker) fail(ctx context.Context, job exportjob.ExportJob, stored, stage string, err error) {
 	w.log.Error("exportworker: export job failed", "job", job.ID, "stage", stage, "error", err)
-	if e := w.jobs.MarkFailed(ctx, job.ID, stored); e != nil {
+	rc, cancel := w.recordCtx(ctx)
+	defer cancel()
+	if e := w.jobs.MarkFailed(rc, job.ID, stored); e != nil {
 		w.log.Error("exportworker: recording a failed job failed", "job", job.ID, "error", e)
 	}
+}
+
+// recordCtx detaches the terminal-outcome write from the job's context. If the
+// worker is shutting down and ctx is cancelled mid-job, the export aborts on
+// that cancellation — but the Mark* write must still land, or the job is stuck
+// running with no terminal state a poller can see. Same durability fix as the
+// ghexport rollback: drop the cancellation, keep a short budget of our own.
+func (w *Worker) recordCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 }
 
 // Run drains and then polls the queue until ctx is cancelled. On each tick it
