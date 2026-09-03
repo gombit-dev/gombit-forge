@@ -1,92 +1,104 @@
 # Gombit Forge
 
-![status: pre-alpha](https://img.shields.io/badge/status-pre--alpha-orange)
-![Go 1.25.7](https://img.shields.io/badge/go-1.25.7-00ADD8)
-![license: AGPL--3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)
+[![CI](https://github.com/gombit-dev/gombit-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/gombit-dev/gombit-forge/actions/workflows/ci.yml)
+[![Go 1.25+](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go)](https://go.dev/dl/)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
+[![Built on Gombit](https://img.shields.io/badge/built%20on-Gombit-6f42c1)](https://github.com/gombit-dev/gombit)
 
-**Build visually. Ship normally. Own the code.**
+**Build visually. Ship normally. Own the code.** Forge is a visual application
+builder that compiles a declarative `ProjectSpec` into an ordinary
+[Gombit](https://github.com/gombit-dev/gombit) application — Go + GORM + Huma
+API, a React + TypeScript frontend, Atlas migrations, cookie/session auth, and a
+working admin. The output is a normal repository you build, run, and export; it
+has **no runtime dependency on Forge**.
 
-Gombit Forge is a visual application builder that compiles a declarative
-`ProjectSpec` into an ordinary [Gombit](https://github.com/gombit-dev/gombit)
-application — Go + GORM + Huma on the backend, React + TypeScript on the
-frontend, Atlas migrations, cookie/session auth, and admin. The generated
-project is a normal repository you can build, run, and export; it has **no
-runtime dependency on Forge**.
+```go
+files, err := compiler.Compile(spec, "example.com/acme")
+// → internal/forge_generated/**  +  frontend/src/forge_generated/**
+//    an ordinary Gombit app, byte-identical every time
+```
 
-> The whole product fits in one sentence, and it is the test every feature must
-> pass:
->
-> **Forge edits a declarative application model; Gombit turns that model into
-> ordinary software.**
+> **Status: pre-alpha.** The M0 compiler gate is cleared and proven end to end;
+> the control plane is under construction. See [Status](#status).
 
-## Status
+## Why Forge
 
-**Pre-alpha.** The **M0 compiler spike — the go/no-go gate — is cleared.** From
-a `ProjectSpec`, Forge generates a Gombit application that compiles, migrates on
-Postgres, boots, serves CRUD over its JSON API (`/api/v1/...`), catalogs
-resources through the admin API (`/api/v1/admin/meta`), and carries no Forge
-dependency. This is proven end to end by `TestM0EndToEnd`.
+Low-code builders get you to a running screen fast and then trap you: the app
+lives inside a proprietary runtime, the generated code is either hidden or a
+one-way export you can't feed back, and the day you outgrow the tool you start
+over. Forge's position is that a visual builder should be a **compiler**, not a
+runtime:
 
-What exists today is the **compiler**, as a Go library:
+- **The spec is the source of truth, not the code.** You edit a declarative
+  `ProjectSpec` — resources, fields, relationships, pages. Forge compiles it;
+  the generated source is an artifact, never a round-trip you hand-edit.
+- **The output is an ordinary app you own.** No Forge SDK, no callback to a
+  Forge service, no vendor lock. Delete Forge and a deployed app keeps running.
+  Export to GitHub is a first-class, mandatory feature — not a locked door.
+- **Forge builds nothing Gombit already owns.** Routing, ORM, migrations, auth,
+  admin, OpenAPI, and the TypeScript client are Gombit's. Forge only synthesizes
+  the resource-specific code that consumes them — and Forge itself is a Gombit
+  application, so it dogfoods the framework it targets.
 
-| Package | Role |
-|---|---|
-| `internal/spec` | `ProjectSpec`, stable IDs, canonical JSON, the semantic validator |
-| `internal/compiler/graph` | the resolved domain graph (`belongs_to` → derived `has_many`) |
-| `internal/compiler/gen` | code generators — models, handlers, routes, admin, the React frontend, and the `RegisterAll` composition root |
-| `internal/compiler` | `Compile(spec, module)` — the pipeline that runs every stage into one deterministic file tree |
-| `internal/gombit` | the coarse, versioned boundary to the Gombit toolchain (scaffold, migrations) |
+## What's in the box
 
-There is **no** control plane, visual editor, build pipeline, or deploy path
-yet — those are milestones M1–M7. See [`docs/DESIGN.md`](docs/DESIGN.md) §32 for
-the roadmap.
+| | |
+| --- | --- |
+| **Spec** | `ProjectSpec` with stable IDs, canonical JSON, a hash, and an accumulating semantic validator (`internal/spec`) |
+| **Graph** | the resolved domain model — `belongs_to` edges with derived `has_many` inverses, resolved query capabilities (`internal/compiler/graph`) |
+| **Generators** | GORM models, Huma handlers, route + admin registration, and a React CRUD frontend, all under `forge_generated/**` (`internal/compiler/gen`) |
+| **Pipeline** | `Compile(spec, module)` runs every stage into one **deterministic** file tree (`internal/compiler`) |
+| **Pages** | structured tables, forms, details, and dashboards — with server-side search, filter, sort, FK-embedded related records, recent lists, and numeric aggregate cards |
+| **Toolchain boundary** | a coarse, versioned seam to the Gombit CLI for scaffolding and migrations — never a per-entity subprocess (`internal/gombit`) |
+| **Control plane** | Forge-as-a-Gombit-app: cookie auth, org tenancy with roles, and immutable append-only project revisions (`controlplane/`) |
 
 ## How it works
 
-```text
-ProjectSpec ──► Forge compiler ──► internal/forge_generated/**   (compiler-owned)
-                                    frontend/src/forge_generated/**
-                                        │
-                                        ▼
-                        an ordinary Gombit app  ──►  build ──► deploy
+```mermaid
+flowchart LR
+  Spec[ProjectSpec] --> Graph[resolved graph]
+  Graph --> Gen[generators]
+  Gen --> BE["internal/forge_generated/**<br/>models · handlers · routes · admin"]
+  Gen --> FE["frontend/src/forge_generated/**<br/>React CRUD pages"]
+  BE --> App[an ordinary Gombit app]
+  FE --> App
+  App --> Build[build]
+  Build --> Deploy[deploy / export]
 ```
 
 Forge owns **application synthesis** (the resource-specific code); Gombit owns
 **framework primitives** (routing, ORM, migrations, auth, admin, the OpenAPI
-and TypeScript client). Generated code only ever *consumes* Gombit's public
-APIs — it never reimplements them ([`docs/ADR-004.md`](docs/ADR-004.md)).
+document and TypeScript client). Generated code only ever *consumes* Gombit's
+public APIs — it never reimplements or vendors them
+([ADR-004](docs/ADR-004.md)). The runtime primitives beyond the source itself —
+build, preview, deploy, managed database, secrets, domains — belong to Gombit
+Cloud, not Forge ([ADR-005](docs/ADR-005.md)).
 
-## Requirements
+The whole product fits in one sentence, and it is the test every feature must
+pass:
 
-- **Go 1.25.7** (the toolchain auto-resolves via `GOTOOLCHAIN`).
-- To generate and run a real application: the [`gombit`](https://github.com/gombit-dev/gombit)
-  CLI (**≥ v0.1.12**), [`atlas`](https://atlasgo.io), and Docker (Atlas uses a
-  throwaway Postgres for migration diffs). Forge drives these; it does not
-  vendor them, and the library itself depends only on `gorm` and
-  `shopspring/decimal`.
+> **Forge edits a declarative application model; Gombit turns that model into
+> ordinary software.**
 
-## Quickstart
+## Quick start
+
+**Prerequisites:** Go 1.25+ (the toolchain auto-resolves via `GOTOOLCHAIN`).
+Generating and running a real application also needs the
+[`gombit`](https://github.com/gombit-dev/gombit) CLI (**≥ v0.1.12**),
+[Atlas](https://atlasgo.io), and Docker (Atlas diffs migrations against a
+throwaway Postgres). The compiler library itself depends only on `gorm` and
+`shopspring/decimal`.
 
 ```bash
 git clone https://github.com/gombit-dev/gombit-forge
 cd gombit-forge
 
-# Fast unit tests (no external toolchain needed).
-go test ./... -short
-
-# The full gate: fmt-check, vet, tests, and the skill-tree check.
-make all
-
-# The go/no-go proof: scaffolds a real app, migrates on Postgres, builds,
-# boots, and exercises CRUD + admin. Needs gombit, atlas, and docker; it
-# skips automatically if any is missing.
-go test ./internal/compiler -run TestM0EndToEnd -v
+go test ./... -short   # fast unit tests, no external toolchain
+make all               # the full CI gate: fmt, vet, tests, skill-tree check
 ```
 
-## Quick example
-
-Forge compiles a `ProjectSpec` into a file tree. This program builds a
-two-resource spec in memory and prints what the compiler would write:
+Forge is a library today — you drive the compiler from Go. This builds a
+two-resource spec and prints the file tree the compiler would write:
 
 ```go
 package main
@@ -111,9 +123,7 @@ func main() {
 			{
 				ID: customer, Label: "Customer", LabelPlural: "Customers",
 				CodeName: "Customer", StorageName: "customers",
-				Behavior: spec.ResourceBehavior{
-					CreateEnabled: true, UpdateEnabled: true, DeleteEnabled: true, AdminVisible: true,
-				},
+				Behavior: spec.ResourceBehavior{CreateEnabled: true, UpdateEnabled: true, DeleteEnabled: true, AdminVisible: true},
 				Fields: []*spec.Field{
 					{ID: spec.MustNewID(spec.KindField), Label: "Email", Type: spec.TypeString,
 						CodeName: "Email", StorageName: "email", Required: true, Unique: true},
@@ -135,8 +145,7 @@ func main() {
 		},
 	}
 
-	// module is the generated application's Go module path.
-	files, err := compiler.Compile(s, "example.com/acme")
+	files, err := compiler.Compile(s, "example.com/acme") // module = the generated app's Go module path
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -146,57 +155,80 @@ func main() {
 }
 ```
 
-Output — the compiler-owned tree, emitted stage by stage (models, handlers,
-admin, frontend, then the composition root), ready to drop into a scaffolded
-Gombit app:
+The `invoice` resource emits no `admin.go` (it is not admin-visible) — the only
+file its toggles drop. The output is deterministic: the same compiler version
+and spec produce byte-identical files. The
+[tutorial](docs/tutorial.md) turns this tree into a running app —
+scaffold, migrate, build, boot.
 
-```text
-internal/forge_generated/customer/model.go
-internal/forge_generated/invoice/model.go
-internal/forge_generated/customer/handlers.go
-internal/forge_generated/customer/routes.go
-internal/forge_generated/invoice/handlers.go
-internal/forge_generated/invoice/routes.go
-internal/forge_generated/customer/admin.go
-frontend/src/forge_generated/customer/CustomerListPage.tsx
-frontend/src/forge_generated/customer/CustomerDetailPage.tsx
-frontend/src/forge_generated/customer/CustomerFormPage.tsx
-frontend/src/forge_generated/invoice/InvoiceListPage.tsx
-frontend/src/forge_generated/invoice/InvoiceDetailPage.tsx
-frontend/src/forge_generated/invoice/InvoiceFormPage.tsx
-frontend/src/forge_generated/resources.tsx
-internal/forge_generated/register.go
+To watch the whole loop against a real toolchain, run the go/no-go proof, which
+scaffolds a Gombit app, migrates on Postgres, builds, boots, and exercises CRUD
+plus admin (it skips automatically without `gombit`/`atlas`/Docker):
+
+```bash
+go test ./internal/compiler -run TestM0EndToEnd -v
 ```
 
-`invoice` has no `admin.go` because it is not admin-visible — that is the only
-file its toggles drop. It still gets all three pages: a create-only resource
-needs a form page to create, so the form is emitted whenever create *or* update
-is enabled; only a fully read-only resource drops it. The output is
-**deterministic**: the same compiler version and spec produce byte-identical
-files.
+## Status
 
-To turn this into a running application — scaffold, migrate, build, and run —
-follow the [tutorial](docs/tutorial.md).
+**Pre-alpha.** The pieces exist in this order of maturity:
+
+- **Compiler — done and proven.** The **M0 go/no-go gate is cleared**: from a
+  `ProjectSpec`, Forge generates a Gombit app that compiles, migrates on
+  Postgres, boots, serves CRUD over `/api/v1/…`, catalogs resources through the
+  admin API, and carries no Forge dependency — end to end in `TestM0EndToEnd`.
+  On top of it the structured page builder generates tables, forms, details, and
+  dashboards, with server-side search / filter / sort, FK-embedded related
+  records, recent-record lists, and numeric aggregate cards.
+- **Control plane — under construction.** `controlplane/` is Forge as an ordinary
+  Gombit application (dogfooding, locked decision D7): cookie/session auth, org
+  tenancy with per-org roles and an invitation flow, and immutable, append-only
+  project revisions that pin the exact canonical spec bytes and hash. The
+  authoring HTTP API and the editor SPA are in progress.
+- **Runtime (build / preview / deploy) — delegated, not yet integrated.** These
+  belong to Gombit Cloud ([ADR-005](docs/ADR-005.md)); Forge compiles a revision
+  and hands off the source. GitHub source export already ships as an async job.
+
+There is no hosted visual editor or one-click deploy yet — those are milestones
+M1 and M4–M6. [`docs/DESIGN.md`](docs/DESIGN.md) is authoritative for scope and
+the roadmap; [`AGENTS.md`](AGENTS.md) is the single source kept current for what
+has actually shipped.
+
+## Locked decisions
+
+Settled in [DESIGN.md §33](docs/DESIGN.md) and [ADR-001](docs/ADR-001.md); a
+change that reopens one needs an ADR, not a pull request:
+
+- **spec-first** — `ProjectSpec` is the source of truth; generated source is not
+  an editable round-trip (D1).
+- **compiler, not runtime** — generated apps are ordinary Gombit apps with no
+  Forge runtime; a deployed app keeps working if Forge vanishes (D2).
+- **structured pages** — tables, forms, details, dashboard; no freeform canvas (D6).
+- **export is mandatory and one-way** (D10/D11).
+- **use Gombit's contracts** — never build a Forge-specific auth, migration, API,
+  admin, or ORM (D12).
+- **identity is the stable ID, never the name** — a relabel is never a source-symbol
+  change; symbols are minted once and frozen ([ADR-001](docs/ADR-001.md)).
 
 ## Documentation
 
 - [**Tutorial**](docs/tutorial.md) — build and run a two-resource app end to end.
 - [**Design**](docs/DESIGN.md) — product scope, milestones, and the locked MVP decisions.
-- [**ADR-001**](docs/ADR-001.md) — identity, symbol allocation, file ownership, and the extension ABI.
+- [**ADR-001**](docs/ADR-001.md) — identity, symbol allocation, file ownership, the extension ABI.
 - [**ADR-004**](docs/ADR-004.md) — generation ownership: framework primitives vs application synthesis.
-- [**Contributing**](CONTRIBUTING.md) — how to build, test, and land a change.
-- [**Code of Conduct**](CODE_OF_CONDUCT.md).
+- [**ADR-005**](docs/ADR-005.md) — the Forge / Gombit Cloud boundary.
+- [**AGENTS.md**](AGENTS.md) — the working agreement and the current, up-to-date state.
 
-## Locked decisions
+## Contributing
 
-These are settled (DESIGN.md §33) and should not be re-litigated without an ADR:
-the `ProjectSpec` is the source of truth (D1); generated apps are ordinary
-Gombit apps with no Forge runtime (D2); managed hosting is PostgreSQL-only (D4)
-with cookie/session auth (D5); pages are structured, not a freeform canvas (D6);
-export is mandatory and one-way (D10/D11); and Forge uses Gombit's contracts
-rather than building its own auth, migration, API, admin, or ORM (D12).
+Issues and pull requests are welcome — start with
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+- [Open an issue](https://github.com/gombit-dev/gombit-forge/issues/new)
+- [Security policy](SECURITY.md) — report vulnerabilities privately, not as issues
+- [Code of conduct](CODE_OF_CONDUCT.md)
 
 ## License
 
-Gombit Forge is licensed under the **GNU Affero General Public License v3.0**.
-See [LICENSE](LICENSE).
+[AGPL-3.0](LICENSE) © Gombit Forge. By contributing, you agree your contributions
+are licensed under the same terms.
