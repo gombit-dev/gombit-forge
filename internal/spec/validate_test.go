@@ -219,6 +219,38 @@ func TestValidateRejects(t *testing.T) {
 			wantAny: CodeDanglingRef,
 		},
 		{
+			name: "recent list order_by references a foreign field",
+			mutate: func(s *ProjectSpec) {
+				// The recent invoices card orders by a Customer field.
+				s.Pages[0].Dashboard.RecentLists[0].OrderBy = fixCustomerName
+			},
+			wantAny: CodeDanglingRef,
+		},
+		{
+			name: "recent list order_by is not declared sortable",
+			mutate: func(s *ProjectSpec) {
+				// Due is a date on Invoice, but Invoice declares no sortable_fields.
+				s.Pages[0].Dashboard.RecentLists[0].OrderBy = fixInvoiceDue
+			},
+			wantAny: CodeInvalidCapability,
+		},
+		{
+			name: "recent list order_by is not a date/datetime",
+			mutate: func(s *ProjectSpec) {
+				// Paid (boolean) is sortable but not temporal.
+				s.Resources[1].Behavior.SortableFields = []ID{fixInvoicePaid}
+				s.Pages[0].Dashboard.RecentLists[0].OrderBy = fixInvoicePaid
+			},
+			wantAny: CodeInvalidCapability,
+		},
+		{
+			name: "count card must not set order_by",
+			mutate: func(s *ProjectSpec) {
+				s.Pages[0].Dashboard.CountCards[0].OrderBy = fixCustomerName
+			},
+			wantAny: CodeInvalidPage,
+		},
+		{
 			name: "navigation references missing page",
 			mutate: func(s *ProjectSpec) {
 				s.Navigation[0].Page = fixID(KindPage, "99")
@@ -662,6 +694,20 @@ func TestValidateAcceptsTableFilterSubset(t *testing.T) {
 
 	if diagnostics := Validate(s); diagnostics.Has(CodeInvalidCapability) || diagnostics.Has(CodeDanglingRef) {
 		t.Fatalf("a filter subset of the resource's filterable fields should validate, got:\n%s", diagnostics.Error())
+	}
+}
+
+// TestValidateAcceptsRecentListOrderBy: a recent list may order by a sortable
+// date/datetime field the resource declares (#54).
+func TestValidateAcceptsRecentListOrderBy(t *testing.T) {
+	s := validSpec()
+	// Due is a date on Invoice; declare it sortable and order the recent invoices
+	// card by it.
+	s.Resources[1].Behavior.SortableFields = []ID{fixInvoiceDue}
+	s.Pages[0].Dashboard.RecentLists[0].OrderBy = fixInvoiceDue
+
+	if diagnostics := Validate(s); diagnostics.Has(CodeInvalidCapability) || diagnostics.Has(CodeDanglingRef) {
+		t.Fatalf("a sortable date order_by should validate, got:\n%s", diagnostics.Error())
 	}
 }
 

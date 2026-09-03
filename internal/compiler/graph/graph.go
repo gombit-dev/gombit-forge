@@ -113,6 +113,10 @@ type Page struct {
 type Card struct {
 	Spec     *spec.DashboardCard
 	Resource *Resource
+	// OrderBy is the resolved field a recent-list card orders by, newest first
+	// (#54), or nil when the card declares none. Validation guarantees it is a
+	// sortable date/datetime field on Resource when set.
+	OrderBy *Field
 }
 
 // NavEntry is a resolved navigation entry.
@@ -325,10 +329,14 @@ func (g *Graph) resolveCards(cards []spec.DashboardCard) []*Card {
 	resolved := make([]*Card, 0, len(cards))
 	for i := range cards {
 		card := &cards[i]
-		resolved = append(resolved, &Card{
+		c := &Card{
 			Spec:     card,
 			Resource: g.byResourceID[card.Resource],
-		})
+		}
+		if card.OrderBy != "" && c.Resource != nil {
+			c.OrderBy = c.Resource.byFieldID[card.OrderBy]
+		}
+		resolved = append(resolved, c)
 	}
 	return resolved
 }

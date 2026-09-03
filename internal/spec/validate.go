@@ -733,14 +733,56 @@ func (v *validator) validateDashboardPage(page *Page, path string) {
 	for _, group := range cards {
 		for index, card := range group.cards {
 			cardPath := fmt.Sprintf("%s.dashboard.%s[%d]", path, group.name, index)
-			if v.spec.FindResource(card.Resource) == nil {
+			resource := v.spec.FindResource(card.Resource)
+			if resource == nil {
 				v.report(CodeDanglingRef, cardPath+".resource", page.ID,
 					"dashboard card references resource %q which does not exist", card.Resource)
 			}
 			if strings.TrimSpace(card.Label) == "" {
 				v.report(CodeMissingLabel, cardPath+".label", page.ID, "dashboard card label is required")
 			}
+			v.validateCardOrderBy(page, cardPath, group.name, card, resource)
 		}
+	}
+}
+
+// validateCardOrderBy checks a dashboard card's OrderBy (#54). A count card must
+// not set it (it orders nothing). On a recent list it is optional, but when set
+// it must reference a date/datetime field the card's resource declares sortable,
+// so recency has real temporal meaning and the generated ?ordering=-<field> is a
+// permitted ordering.
+func (v *validator) validateCardOrderBy(page *Page, cardPath, group string, card DashboardCard, resource *Resource) {
+	if group == "count_cards" {
+		if card.OrderBy != "" {
+			v.report(CodeInvalidPage, cardPath+".order_by", page.ID,
+				"a count card does not order records; order_by is only valid on a recent list")
+		}
+		return
+	}
+	// recent_lists
+	if card.OrderBy == "" || resource == nil {
+		return
+	}
+	field := resource.FindField(card.OrderBy)
+	if field == nil {
+		v.report(CodeDanglingRef, cardPath+".order_by", card.OrderBy,
+			"recent list order_by references field %q which is not on resource %s", card.OrderBy, resource.CodeName)
+		return
+	}
+	sortable := false
+	for _, id := range resource.Behavior.SortableFields {
+		if id == card.OrderBy {
+			sortable = true
+			break
+		}
+	}
+	if !sortable {
+		v.report(CodeInvalidCapability, cardPath+".order_by", card.OrderBy,
+			"recent list order_by field %q must be declared sortable on resource %s", card.OrderBy, resource.CodeName)
+	}
+	if field.Type != TypeDate && field.Type != TypeDatetime {
+		v.report(CodeInvalidCapability, cardPath+".order_by", card.OrderBy,
+			"recent list order_by field %q must be a date or datetime (got %q)", card.OrderBy, field.Type)
 	}
 }
 

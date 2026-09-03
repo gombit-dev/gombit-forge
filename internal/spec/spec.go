@@ -290,6 +290,13 @@ type DashboardCard struct {
 	Label    string `json:"label"`
 	Resource ID     `json:"resource"`
 	Limit    int    `json:"limit,omitempty"`
+	// OrderBy is the field a recent-list card orders by, newest first (#54). It
+	// must be a date/datetime field on the card's resource that the resource
+	// declares sortable, so "recent" has real temporal semantics — the generated
+	// card fetches ?ordering=-<field>. It is only meaningful on a recent list; a
+	// count card must leave it empty. When empty on a recent list, the card shows
+	// a section and a "View all" link rather than records.
+	OrderBy ID `json:"order_by,omitempty"`
 }
 
 // NavTarget selects what a navigation entry points at (DESIGN.md §4.5).
