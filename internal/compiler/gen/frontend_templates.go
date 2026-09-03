@@ -37,21 +37,35 @@ var (
 
 // dashboardPageSrc renders a dashboard (DESIGN.md §4.4): count cards showing a
 // real total per resource (read from the list handler's PageMeta, so no Gombit
-// change is needed) and recent-list sections. Recent lists render a heading and
-// a "View all" link to the resource's table page rather than records — actual
-// recent records need descending list ordering, deferred to gombit#260, and are
-// deliberately not faked with an ascending first-N fetch. There is no chart
-// designer (§30 non-goal).
+// change is needed) and recent-record lists. A recent list that declares an
+// OrderBy (a sortable date/datetime field, #54) fetches the newest records
+// (?ordering=-<field>&per_page=<limit>, gombit #260) and renders them; one
+// without an OrderBy stays a labeled section with a "View all" link rather than
+// fabricating an order. There is no chart designer (§30 non-goal).
 const dashboardPageSrc = `{{.Banner}}
-{{if .CountCards}}import { useEffect, useState } from "react";
+{{if or .CountCards .HasRecords}}import { useEffect, useState } from "react";
 {{end}}{{if .HasLinks}}import { Link } from "react-router";
-{{end}}{{if .CountCards}}import { useApiClient } from "../../api/client";
+{{end}}{{if or .CountCards .HasRecords}}import { useApiClient } from "../../api/client";
 import { unwrap } from "../../api/generated/client";
+{{end}}{{if .HasRecords}}import type { paths } from "../../api/generated/schema";
 {{end}}
+{{- range .RecentLists}}{{if .Records}}
+type Recent{{.Index}}Row = NonNullable<
+  paths["{{.CollectionPath}}"]["get"]["responses"][200]["content"]["application/json"]["data"]
+>[number];
+{{- end}}{{end}}
+
 export function {{.Component}}() {
-{{- if .CountCards}}
+{{- if or .CountCards .HasRecords}}
   const client = useApiClient();
+{{- end}}
+{{- if .CountCards}}
   const [counts, setCounts] = useState<(number | null)[]>([{{range .CountCards}}null, {{end}}]);
+{{- end}}
+{{- range .RecentLists}}{{if .Records}}
+  const [recent{{.Index}}, setRecent{{.Index}}] = useState<Recent{{.Index}}Row[]>([]);
+{{- end}}{{end}}
+{{- if .CountCards}}
 
   useEffect(() => {
     let cancelled = false;
@@ -74,6 +88,27 @@ export function {{.Component}}() {
     };
   }, [client]);
 {{- end}}
+{{- range .RecentLists}}{{if .Records}}
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const listed = await unwrap(
+          await client.GET("{{.CollectionPath}}", { params: { query: { ordering: "{{.OrderParam}}", per_page: {{.Limit}} } } }),
+        );
+        if (!cancelled) {
+          setRecent{{.Index}}(Array.isArray(listed.data) ? listed.data : []);
+        }
+      } catch {
+        // A failed recent-list fetch leaves the section empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
+{{- end}}{{end}}
 
   return (
     <section>
@@ -91,6 +126,35 @@ export function {{.Component}}() {
 {{- range .RecentLists}}
       <section aria-label={ {{js .Label}} }>
         <h2>{ {{js .Label}} }</h2>
+{{- if .Records}}
+        <table>
+          <thead>
+            <tr>
+              <th>id</th>
+{{- range .Columns}}
+              <th>{ {{js .Label}} }</th>
+{{- end}}
+            </tr>
+          </thead>
+          <tbody>
+            {recent{{.Index}}.map((row) => (
+              <tr key={String(row.id)}>
+                <td>
+{{- if .DetailRoute}}
+                  <Link to={` + "`/{{.DetailRoute}}/${row.id}`" + `}>{String(row.id)}</Link>
+{{- else}}
+                  {String(row.id)}
+{{- end}}
+                </td>
+{{- range .Columns}}
+                <td>{String(row["{{.JSONName}}"] ?? "")}</td>
+{{- end}}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {recent{{.Index}}.length === 0 ? <p>{ {{js (printf "No %s yet." .Label)}} }</p> : null}
+{{- end}}
 {{- if .ViewAllRoute}}
         <p>
           <Link to="/{{.ViewAllRoute}}">View all</Link>

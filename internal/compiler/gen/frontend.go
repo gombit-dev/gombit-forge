@@ -484,15 +484,37 @@ func newDashboardView(g *graph.Graph, page *graph.Page) dashboardView {
 			CollectionPath: "/api/v1/" + kebab(card.Resource.Spec.StorageName),
 		})
 	}
-	for _, card := range page.RecentLists {
+	for index, card := range page.RecentLists {
 		route := firstTableRoute(g, card.Resource)
 		if route != "" {
 			view.HasLinks = true
 		}
-		view.RecentLists = append(view.RecentLists, recentListView{
+		rl := recentListView{
+			Index:        index,
 			Label:        card.Spec.Label,
 			ViewAllRoute: route,
-		})
+		}
+		// A card that declares a (validated sortable date/datetime) OrderBy shows
+		// the newest records; otherwise it stays a section + "View all" link.
+		if card.OrderBy != nil {
+			rl.Records = true
+			rl.CollectionPath = "/api/v1/" + kebab(card.Resource.Spec.StorageName)
+			rl.OrderParam = "-" + card.OrderBy.Spec.StorageName
+			rl.Limit = card.Spec.Limit
+			if rl.Limit <= 0 {
+				rl.Limit = defaultRecentLimit
+			}
+			rl.DetailRoute = detailRoute(g, card.Resource)
+			cols := card.Resource.Behavior.List
+			if len(cols) == 0 {
+				cols = card.Resource.ScalarFields()
+			}
+			for _, field := range cols {
+				rl.Columns = append(rl.Columns, frontendFieldFor(field))
+			}
+			view.HasRecords = true
+		}
+		view.RecentLists = append(view.RecentLists, rl)
 	}
 	return view
 }
@@ -719,6 +741,10 @@ type dashboardView struct {
 	// HasLinks is true when at least one recent list has a table page to link to,
 	// so the Link import is emitted only when used (the generated app lints).
 	HasLinks bool
+	// HasRecords is true when at least one recent list fetches records (it
+	// declares an OrderBy), so the client/effect imports are emitted for the
+	// recent-list case too, not only for count cards.
+	HasRecords bool
 }
 
 // countCardView is one count card: a labeled total for a resource, read from the
@@ -728,13 +754,35 @@ type countCardView struct {
 	CollectionPath string // the resource's API collection path
 }
 
-// recentListView is one recent-record list. Until Gombit supports descending
-// list ordering (gombit#260), it renders a labeled section with a "View all"
-// link to the resource's table page rather than fabricating mis-ordered records.
+// recentListView is one recent-record list. When the card declares an OrderBy
+// (a sortable date/datetime field), it fetches the newest records
+// (?ordering=-<field>&per_page=<limit>, gombit #260) and renders them as a small
+// table; otherwise it falls back to a labeled section with a "View all" link
+// rather than fabricating an order.
 type recentListView struct {
+	// Index disambiguates the per-list state/type names (recent0, Recent0Row, …).
+	Index        int
 	Label        string
 	ViewAllRoute string // the resource's first table page route, or ""
+
+	// Records is true when the card declares an OrderBy, so the list fetches and
+	// renders actual records; the fields below are set only then.
+	Records bool
+	// CollectionPath is the resource's API collection path.
+	CollectionPath string
+	// OrderParam is the ?ordering= value — "-<storage_name>" for newest first.
+	OrderParam string
+	// Limit is the number of records to show (the card's Limit, else the default).
+	Limit int
+	// DetailRoute is the resource's detail route for row links, or "".
+	DetailRoute string
+	// Columns are a few display columns of the resource (its list / scalar fields).
+	Columns []frontendField
 }
+
+// defaultRecentLimit is the number of records a recent list shows when the card
+// configures no limit.
+const defaultRecentLimit = 5
 
 // navEntryView is one generated navigation entry (DESIGN.md §4.5).
 type navEntryView struct {
