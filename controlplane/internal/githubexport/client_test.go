@@ -157,21 +157,31 @@ func TestPushFiles(t *testing.T) {
 	files := []File{
 		{Path: "go.mod", Content: []byte("module x")},
 		{Path: "cmd/server/main.go", Content: []byte("package main")},
+		{Path: "run.sh", Content: []byte("#!/bin/sh"), Executable: true},
 	}
 	if err := PushFiles(context.Background(), srv.Client(), cfg, "tok", "octo", "my-app", "main", files, "Initial export"); err != nil {
 		t.Fatalf("push: %v", err)
 	}
 
-	if len(treeEntries) != 2 {
-		t.Fatalf("tree has %d entries, want 2", len(treeEntries))
+	if len(treeEntries) != 3 {
+		t.Fatalf("tree has %d entries, want 3", len(treeEntries))
 	}
-	// The tree references both files as blobs, by their created blob shas.
+	// The tree references files as blobs, by their created blob shas, with the
+	// executable's mode preserved as 100755 and regular files as 100644.
 	paths := map[string]string{}
+	modes := map[string]string{}
 	for _, e := range treeEntries {
 		paths[e["path"].(string)] = e["sha"].(string)
-		if e["mode"] != "100644" || e["type"] != "blob" {
-			t.Errorf("tree entry mode/type wrong: %v", e)
+		modes[e["path"].(string)] = e["mode"].(string)
+		if e["type"] != "blob" {
+			t.Errorf("tree entry type wrong: %v", e)
 		}
+	}
+	if modes["go.mod"] != "100644" {
+		t.Errorf("go.mod mode = %q, want 100644", modes["go.mod"])
+	}
+	if modes["run.sh"] != "100755" {
+		t.Errorf("executable run.sh mode = %q, want 100755", modes["run.sh"])
 	}
 	if paths["go.mod"] != "blob-module x" || paths["cmd/server/main.go"] != "blob-package main" {
 		t.Errorf("tree entries don't reference the pushed blobs: %v", paths)

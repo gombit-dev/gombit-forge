@@ -49,10 +49,13 @@ func (c Config) apiBase() string {
 	return "https://api.github.com"
 }
 
-// File is one file to push: a forward-slash repo-relative path and its content.
+// File is one file to push: a forward-slash repo-relative path, its content, and
+// whether it is executable (so an exec bit survives the push, matching the ZIP
+// export's mode handling).
 type File struct {
-	Path    string
-	Content []byte
+	Path       string
+	Content    []byte
+	Executable bool
 }
 
 // Repo is the created repository, as much of it as callers need.
@@ -161,7 +164,11 @@ func PushFiles(ctx context.Context, client *http.Client, cfg Config, token, owne
 		if err := do(client, req, http.StatusCreated, &blob); err != nil {
 			return fmt.Errorf("githubexport: create blob %s: %w", f.Path, err)
 		}
-		entries = append(entries, treeEntry{Path: f.Path, Mode: "100644", Type: "blob", SHA: blob.SHA})
+		mode := "100644"
+		if f.Executable {
+			mode = "100755"
+		}
+		entries = append(entries, treeEntry{Path: f.Path, Mode: mode, Type: "blob", SHA: blob.SHA})
 	}
 
 	var tree struct {
