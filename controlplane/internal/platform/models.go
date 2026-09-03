@@ -4,6 +4,7 @@ import (
 	"github.com/gombit-dev/gombit/auth"
 
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/audit"
+	"github.com/gombit-dev/gombit-forge/controlplane/internal/githubconnect"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/org"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/project"
 )
@@ -26,8 +27,9 @@ import (
 // cannot be expressed through GORM's AutoMigrate (see internal/dbtest).
 //
 // The set is deliberately the authoring loop only — Organization/Member/
-// Invitation (#36), Project/Revision (#37) and audit.Event (#36, service #40).
-// The runtime models (Environment, Build, Deployment, Domain) are owned by
+// Invitation (#36), Project/Revision (#37), audit.Event (#36, service #40) and
+// the GitHub export connection/OAuth-state tables (#85). The runtime models
+// (Environment, Build, Deployment, Domain) are owned by
 // Gombit Cloud, not the Forge control plane (ADR-005 D2/D6): Forge compiles a
 // revision to an ordinary Gombit application and hands it to Cloud, which owns
 // build, deployment, environments, databases, secrets and domains. The link to
@@ -45,5 +47,7 @@ func Models() []any {
 		&project.Project{},
 		&project.Revision{},
 		&audit.Event{},
+		&githubconnect.Connection{},
+		&githubconnect.OAuthState{},
 	)
 }

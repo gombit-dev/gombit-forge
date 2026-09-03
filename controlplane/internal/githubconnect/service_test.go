@@ -32,10 +32,9 @@ func (f *fakeExchanger) ExchangeCode(_ context.Context, _ string) (string, error
 // wiring PR adds that), a controllable clock, and a fake GitHub exchanger.
 func newService(t *testing.T) (*Service, *fakeExchanger, *gorm.DB, *time.Time) {
 	t.Helper()
+	// dbtest.DB applies the committed migration set, which now includes the
+	// connections and o_auth_states tables (#85) — no in-test AutoMigrate.
 	db := dbtest.DB(t)
-	if err := db.AutoMigrate(&Connection{}, &OAuthState{}); err != nil {
-		t.Fatalf("migrate connect tables: %v", err)
-	}
 	gh := &fakeExchanger{token: "gho_token"}
 	svc := NewService(db, gh)
 	now := time.Now()

@@ -5,6 +5,14 @@
       "type_name": "Event"
     },
     {
+      "import_path": "github.com/gombit-dev/gombit-forge/controlplane/internal/githubconnect",
+      "type_name": "Connection"
+    },
+    {
+      "import_path": "github.com/gombit-dev/gombit-forge/controlplane/internal/githubconnect",
+      "type_name": "OAuthState"
+    },
+    {
       "import_path": "github.com/gombit-dev/gombit-forge/controlplane/internal/org",
       "type_name": "Invitation"
     },
