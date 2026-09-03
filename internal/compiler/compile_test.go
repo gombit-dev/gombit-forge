@@ -69,8 +69,13 @@ func sampleSpec(t *testing.T) *spec.ProjectSpec {
 func sampleSpecWithTable(t *testing.T) *spec.ProjectSpec {
 	t.Helper()
 	s := sampleSpec(t)
+	// Exercise search end to end (#51): declare Email searchable and enable the
+	// customers table's search box, so the generated backend exposes ?search=
+	// and the frontend search control is compiled against it in the e2e build.
+	s.Resources[0].Behavior.SearchableFields = []spec.ID{s.Resources[0].Fields[0].ID}
 	s.Pages = []*spec.Page{
-		{ID: spec.MustNewID(spec.KindPage), Slug: "customers", Label: "Customers", Type: spec.PageResourceTable, Resource: s.Resources[0].ID},
+		{ID: spec.MustNewID(spec.KindPage), Slug: "customers", Label: "Customers", Type: spec.PageResourceTable, Resource: s.Resources[0].ID,
+			Table: &spec.TableConfig{Search: true}},
 		{ID: spec.MustNewID(spec.KindPage), Slug: "edit-customer", Label: "Edit customer", Type: spec.PageResourceForm, Resource: s.Resources[0].ID},
 		{ID: spec.MustNewID(spec.KindPage), Slug: "customer", Label: "Customer", Type: spec.PageResourceDetail, Resource: s.Resources[0].ID},
 		{ID: spec.MustNewID(spec.KindPage), Slug: "home", Label: "Home", Type: spec.PageDashboard,
