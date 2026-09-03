@@ -12,7 +12,9 @@ package ghexport
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/githubexport"
 	"github.com/gombit-dev/gombit-forge/internal/compiler"
@@ -120,9 +122,22 @@ func (s *Service) Export(ctx context.Context, userID, projectID uint, repoName s
 }
 
 // rollback best-effort deletes a repo created earlier in a now-failed export, so
-// the user isn't left with an empty repo that also blocks a same-name retry. Its
-// own failure is intentionally swallowed — the caller returns the original
-// export error, which is what actually went wrong.
+// the user isn't left with an empty repo that also blocks a same-name retry.
+//
+// The cleanup must not inherit the cancellation that triggered it: a push that
+// died because ctx hit its deadline (a network timeout — the commonest way a
+// push dies mid-flight) would otherwise hand the delete an already-dead context,
+// the delete would no-op, and the orphan this exists to remove would survive. So
+// we detach from ctx's cancellation and give the delete its own short budget.
+//
+// A rollback failure can't fail the export — the caller returns the original
+// error, which is what actually went wrong — but it means a genuinely orphaned
+// repo, so it is logged rather than silently swallowed.
 func (s *Service) rollback(ctx context.Context, token, owner, repo string) {
-	_ = s.pub.DeleteRepository(ctx, token, owner, repo)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	defer cancel()
+	if err := s.pub.DeleteRepository(ctx, token, owner, repo); err != nil {
+		slog.Error("ghexport: failed to roll back orphaned repository",
+			"owner", owner, "repo", repo, "error", err)
+	}
 }

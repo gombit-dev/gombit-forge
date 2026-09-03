@@ -150,6 +150,11 @@ func TestExport(t *testing.T) {
 	if pub.createdName != "my-app" || !pub.private {
 		t.Errorf("create repo name=%q private=%v", pub.createdName, pub.private)
 	}
+	// A successful export must never roll back — rollback is strictly a
+	// failure-path action.
+	if pub.deleted != "" {
+		t.Errorf("successful export must not roll back; deleted=%q", pub.deleted)
+	}
 	// The push targeted the created repo's owner/branch with a commit message.
 	if pub.pushed.owner != "octo" || pub.pushed.repo != "my-app" || pub.pushed.branch != "main" {
 		t.Errorf("push target = %+v", pub.pushed)

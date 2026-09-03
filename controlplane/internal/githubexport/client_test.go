@@ -101,9 +101,12 @@ func TestCreateRepository(t *testing.T) {
 
 // TestDeleteRepository: DELETE /repos/{owner}/{repo} with a 204 succeeds.
 func TestDeleteRepository(t *testing.T) {
-	var gotMethod, gotPath, gotAuth string
+	var gotMethod, gotPath, gotAuth, gotCType string
+	var gotBody []byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod, gotPath, gotAuth = r.Method, r.URL.Path, r.Header.Get("Authorization")
+		gotCType = r.Header.Get("Content-Type")
+		gotBody, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer srv.Close()
@@ -117,6 +120,10 @@ func TestDeleteRepository(t *testing.T) {
 	}
 	if gotAuth != "Bearer tok" {
 		t.Errorf("missing bearer token: %q", gotAuth)
+	}
+	// A DELETE carries no body: no JSON null, no Content-Type.
+	if len(gotBody) != 0 || gotCType != "" {
+		t.Errorf("DELETE should be bodyless; body=%q content-type=%q", gotBody, gotCType)
 	}
 }
 

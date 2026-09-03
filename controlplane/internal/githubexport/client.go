@@ -223,17 +223,25 @@ func PushFiles(ctx context.Context, client *http.Client, cfg Config, token, owne
 	return nil
 }
 
-// jsonRequest builds a JSON POST/PATCH request with the GitHub auth headers.
+// jsonRequest builds a request with the GitHub auth headers. A nil payload sends
+// no body and no Content-Type (for a bodyless DELETE); otherwise the payload is
+// JSON-encoded.
 func jsonRequest(ctx context.Context, method, u, token string, payload any) (*http.Request, error) {
-	body, err := json.Marshal(payload)
+	var body io.Reader
+	if payload != nil {
+		b, err := json.Marshal(payload)
+		if err != nil {
+			return nil, err
+		}
+		body = bytes.NewReader(b)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, method, u, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
-	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	return req, nil
