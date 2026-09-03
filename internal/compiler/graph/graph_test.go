@@ -569,3 +569,48 @@ func TestTableFiltersResolve(t *testing.T) {
 		t.Errorf("a table without filters must resolve none, got %d", len(g2.Pages[0].Filters))
 	}
 }
+
+// TestRecentListOrderByResolves: a recent-list card's OrderBy resolves to the
+// field on the graph, and an unset OrderBy resolves to nil (#54).
+func TestRecentListOrderByResolves(t *testing.T) {
+	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
+	res := id(spec.KindResource)
+	due := id(spec.KindField)
+	build := func(orderBy spec.ID) *spec.ProjectSpec {
+		return &spec.ProjectSpec{
+			SpecVersion: spec.SpecVersion,
+			Project:     spec.Project{ID: id(spec.KindProject), Name: "Acme", Slug: "acme"},
+			Database:    spec.Database{Driver: spec.DriverPostgres},
+			Auth:        spec.Auth{Mode: spec.AuthCookie},
+			Resources: []*spec.Resource{
+				{ID: res, Label: "Invoice", CodeName: "Invoice", StorageName: "invoices",
+					Behavior: spec.ResourceBehavior{SortableFields: []spec.ID{due}},
+					Fields: []*spec.Field{
+						{ID: due, Label: "Due", Type: spec.TypeDate, CodeName: "Due", StorageName: "due"},
+					}},
+			},
+			Pages: []*spec.Page{
+				{ID: id(spec.KindPage), Slug: "home", Label: "Home", Type: spec.PageDashboard,
+					Dashboard: &spec.DashboardConfig{RecentLists: []spec.DashboardCard{
+						{Label: "Recent", Resource: res, Limit: 5, OrderBy: orderBy}}}},
+			},
+		}
+	}
+
+	g, err := graph.Build(build(due))
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	card := g.Pages[0].RecentLists[0]
+	if card.OrderBy == nil || card.OrderBy.Spec.ID != due {
+		t.Fatalf("recent card OrderBy did not resolve to the due field: %+v", card.OrderBy)
+	}
+
+	g2, err := graph.Build(build(""))
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if g2.Pages[0].RecentLists[0].OrderBy != nil {
+		t.Error("a card without OrderBy must resolve to nil")
+	}
+}
