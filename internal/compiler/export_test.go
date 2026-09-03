@@ -161,6 +161,97 @@ func TestExportIsDeterministic(t *testing.T) {
 	}
 }
 
+// TestCollectSanitizedAndSorted: Collect returns the sanitized source set in
+// sorted path order, with content, excluding VCS/build output and secrets — the
+// shared collection both export targets consume.
+func TestCollectSanitizedAndSorted(t *testing.T) {
+	dir := writeTree(t, sampleRepo())
+	files, err := Collect(dir)
+	if err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+
+	paths := make([]string, len(files))
+	byPath := map[string][]byte{}
+	for i, f := range files {
+		paths[i] = f.Path
+		byPath[f.Path] = f.Content
+	}
+	if !sort.StringsAreSorted(paths) {
+		t.Errorf("Collect must return sorted paths; got %v", paths)
+	}
+	if _, ok := byPath["internal/extensions/customer/hooks.go"]; !ok {
+		t.Error("Collect must include user extensions")
+	}
+	if got := byPath["internal/extensions/customer/hooks.go"]; string(got) != "package customer // user code\n" {
+		t.Errorf("Collect must read content verbatim; got %q", got)
+	}
+	for _, p := range paths {
+		if strings.Contains(p, ".git/") || strings.Contains(p, "node_modules/") || strings.Contains(p, "dist/") {
+			t.Errorf("Collect must exclude VCS/build output; found %s", p)
+		}
+	}
+}
+
+// TestCollectPreservesExecutableBit: an executable file is marked Executable so
+// every export target can preserve it (parity between ZIP and GitHub).
+func TestCollectPreservesExecutableBit(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "run.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	files, err := Collect(dir)
+	if err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+	got := map[string]bool{}
+	for _, f := range files {
+		got[f.Path] = f.Executable
+	}
+	if !got["run.sh"] {
+		t.Error("executable file must be marked Executable")
+	}
+	if got["go.mod"] {
+		t.Error("a 0644 file must not be marked Executable")
+	}
+}
+
+// TestWriteZipFromSourceFiles: WriteZip archives a SourceFile collection with the
+// executable bit preserved and is deterministic.
+func TestWriteZipFromSourceFiles(t *testing.T) {
+	files := []SourceFile{
+		{Path: "go.mod", Content: []byte("module x\n")},
+		{Path: "run.sh", Content: []byte("#!/bin/sh\n"), Executable: true},
+	}
+	var a, b bytes.Buffer
+	if err := WriteZip(files, &a); err != nil {
+		t.Fatalf("write zip: %v", err)
+	}
+	if err := WriteZip(files, &b); err != nil {
+		t.Fatalf("write zip: %v", err)
+	}
+	if !bytes.Equal(a.Bytes(), b.Bytes()) {
+		t.Error("WriteZip of the same collection must be byte-identical")
+	}
+	zr, err := zip.NewReader(bytes.NewReader(a.Bytes()), int64(a.Len()))
+	if err != nil {
+		t.Fatalf("open zip: %v", err)
+	}
+	modes := map[string]uint32{}
+	for _, f := range zr.File {
+		modes[f.Name] = uint32(f.Mode().Perm())
+	}
+	if modes["run.sh"] != 0o755 {
+		t.Errorf("run.sh mode = %o, want 755", modes["run.sh"])
+	}
+	if modes["go.mod"] != 0o644 {
+		t.Errorf("go.mod mode = %o, want 644", modes["go.mod"])
+	}
+}
+
 func TestExportRejectsNonDir(t *testing.T) {
 	f := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
