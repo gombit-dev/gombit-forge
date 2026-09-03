@@ -85,7 +85,7 @@ private framework has to be caught here.
   admin, or GORM abstractions? Still never — ADR-004 did not widen that.
 - Is a per-resource or per-page Gombit subprocess being introduced? The
   protocol is coarse and project-level.
-- Is Gombit pinned at ≥ v0.1.2, or is the integration floating?
+- Is Gombit pinned at ≥ v0.1.11, or is the integration floating?
 - Could the need have been met by extending Gombit instead? P4's preference
   survived the amendment.
 
