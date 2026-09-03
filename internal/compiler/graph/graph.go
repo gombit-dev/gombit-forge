@@ -94,6 +94,11 @@ type Page struct {
 	// populated only for a resource_table page and is empty for every other
 	// type.
 	Columns []*Field
+	// Filters is the resolved set of fields the table exposes as exact-match
+	// filter controls (#51), in authored order. Unlike Columns it has no
+	// default — only what TableConfig.Filters lists. Populated only for a
+	// resource_table page.
+	Filters []*Field
 	// FormFields is the resolved form field order, including the default when
 	// the page declares no fields of its own (see formFields). It is
 	// populated only for a resource_form page and is empty for every other
@@ -245,6 +250,7 @@ func (g *Graph) buildPages() {
 		case spec.PageResourceTable:
 			if page.Resource != nil {
 				page.Columns = page.Resource.tableColumns(pageSpec.Table)
+				page.Filters = page.Resource.tableFilters(pageSpec.Table)
 			}
 
 		case spec.PageResourceForm:
@@ -287,6 +293,16 @@ func (r *Resource) tableColumns(table *spec.TableConfig) []*Field {
 		return r.Behavior.List
 	}
 	return r.ScalarFields()
+}
+
+// tableFilters resolves the fields a resource_table exposes as filter controls.
+// Unlike columns there is no default — a table filters only by the fields it
+// names. Validation guarantees each is in the resource's FilterableFields.
+func (r *Resource) tableFilters(table *spec.TableConfig) []*Field {
+	if table != nil && len(table.Filters) > 0 {
+		return r.resolveFields(table.Filters)
+	}
+	return nil
 }
 
 // formFields resolves the fields a resource_form renders.

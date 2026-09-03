@@ -204,6 +204,21 @@ func TestValidateRejects(t *testing.T) {
 			wantAny: CodeInvalidCapability,
 		},
 		{
+			name: "table filters by a field the resource didn't declare filterable",
+			mutate: func(s *ProjectSpec) {
+				// Name is on Customer but Customer declares no filterable_fields.
+				s.Pages[1].Table.Filters = []ID{fixCustomerName}
+			},
+			wantAny: CodeInvalidCapability,
+		},
+		{
+			name: "table filters by a foreign field",
+			mutate: func(s *ProjectSpec) {
+				s.Pages[1].Table.Filters = []ID{fixInvoiceTotal}
+			},
+			wantAny: CodeDanglingRef,
+		},
+		{
 			name: "navigation references missing page",
 			mutate: func(s *ProjectSpec) {
 				s.Navigation[0].Page = fixID(KindPage, "99")
@@ -632,6 +647,21 @@ func TestValidateAcceptsSupportedQueryCapabilityTypes(t *testing.T) {
 
 	if diagnostics := Validate(s); diagnostics.Has(CodeInvalidCapability) {
 		t.Fatalf("supported capability types should validate, got:\n%s", diagnostics.Error())
+	}
+}
+
+// TestValidateAcceptsTableFilterSubset: a table may filter by a field the
+// resource declares filterable, even one that is not a visible column.
+func TestValidateAcceptsTableFilterSubset(t *testing.T) {
+	s := validSpec()
+	// Declare Name filterable and have the customers table filter by it —
+	// Name is not in the table's Columns, which is allowed.
+	s.Resources[0].Behavior.FilterableFields = []ID{fixCustomerName, fixCustomerTier}
+	s.Pages[1].Table.Filters = []ID{fixCustomerName, fixCustomerTier}
+	s.Pages[1].Table.Columns = []ID{fixCustomerEmail}
+
+	if diagnostics := Validate(s); diagnostics.Has(CodeInvalidCapability) || diagnostics.Has(CodeDanglingRef) {
+		t.Fatalf("a filter subset of the resource's filterable fields should validate, got:\n%s", diagnostics.Error())
 	}
 }
 

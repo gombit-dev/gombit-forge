@@ -678,6 +678,25 @@ func (v *validator) validateResourcePage(page *Page, path string) {
 			v.report(CodeInvalidCapability, path+".table.search", page.ID,
 				"table enables search but resource %s declares no searchable_fields", resource.CodeName)
 		}
+		// Each filter control must reference a field the resource declared
+		// filterable — the table exposes a subset of the resource's filter
+		// capability. A filter field need not also be a visible column.
+		filterable := make(map[ID]bool, len(resource.Behavior.FilterableFields))
+		for _, fieldID := range resource.Behavior.FilterableFields {
+			filterable[fieldID] = true
+		}
+		for index, fieldID := range page.Table.Filters {
+			fpath := fmt.Sprintf("%s.table.filters[%d]", path, index)
+			if resource.FindField(fieldID) == nil {
+				v.report(CodeDanglingRef, fpath, fieldID,
+					"filter references field %q which is not on resource %s", fieldID, resource.CodeName)
+				continue
+			}
+			if !filterable[fieldID] {
+				v.report(CodeInvalidCapability, fpath, fieldID,
+					"filter references field %q which resource %s does not declare filterable", fieldID, resource.CodeName)
+			}
+		}
 	}
 	if page.Form != nil {
 		for index, fieldID := range page.Form.Fields {
