@@ -5,6 +5,7 @@ package exportjob_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"gorm.io/gorm/clause"
@@ -40,8 +41,9 @@ func TestEnqueueCreatesQueuedJob(t *testing.T) {
 func TestEnqueueRejectsEmptyRepoName(t *testing.T) {
 	db := dbtest.DB(t)
 	svc := exportjob.NewService(db)
-	if _, err := svc.Enqueue(context.Background(), 3, 7, 11, "   ", false); err == nil {
-		t.Error("empty repo name must error")
+	_, err := svc.Enqueue(context.Background(), 3, 7, 11, "   ", false)
+	if !errors.Is(err, exportjob.ErrBlankRepoName) {
+		t.Errorf("blank repo name must return ErrBlankRepoName; got %v", err)
 	}
 }
 

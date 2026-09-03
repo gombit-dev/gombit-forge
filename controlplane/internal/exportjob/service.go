@@ -10,6 +10,11 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// ErrBlankRepoName is returned by Enqueue when the repository name is blank. It
+// is a caller (validation) error, distinct from a storage failure, so the HTTP
+// layer can map it to 422 while treating any other Enqueue error as a 500.
+var ErrBlankRepoName = errors.New("exportjob: a repository name is required")
+
 // Service is the export-job store: enqueue, claim (for the worker), report
 // terminal outcomes, and read status (for polling).
 type Service struct {
@@ -28,7 +33,7 @@ func NewService(db *gorm.DB) *Service {
 // a worker runs it.
 func (s *Service) Enqueue(ctx context.Context, projectID, revisionID, userID uint, repoName string, private bool) (ExportJob, error) {
 	if strings.TrimSpace(repoName) == "" {
-		return ExportJob{}, fmt.Errorf("exportjob: a repository name is required")
+		return ExportJob{}, ErrBlankRepoName
 	}
 	job := ExportJob{
 		ProjectID:  projectID,

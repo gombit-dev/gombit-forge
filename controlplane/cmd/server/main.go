@@ -15,15 +15,22 @@ import (
 	"context"
 	"log"
 	"os"
+	"time"
 
 	"github.com/gombit-dev/gombit/config"
 	"github.com/gombit-dev/gombit/framework"
 
+	"github.com/gombit-dev/gombit-forge/controlplane/internal/exportjob"
+	"github.com/gombit-dev/gombit-forge/controlplane/internal/exportworker"
+	"github.com/gombit-dev/gombit-forge/controlplane/internal/ghexport"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/githubconnect"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/githubexport"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/org"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/platform"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/project"
+	"github.com/gombit-dev/gombit-forge/controlplane/internal/projectspec"
+	"github.com/gombit-dev/gombit-forge/internal/compiler"
+	"github.com/gombit-dev/gombit-forge/internal/gombit"
 )
 
 func main() {
@@ -61,14 +68,24 @@ func main() {
 	// without them. GitHub OAuth is not part of Gombit's typed config, so its
 	// settings are read from the environment here at the composition root, not
 	// inside a runtime package.
+	// stopWorker cancels the background export worker on shutdown; it stays a
+	// no-op unless the export feature registers below.
+	stopWorker := func() {}
 	if ghCfg, successRedirect, ok := githubOAuthConfig(); ok {
 		if err := githubconnect.Register(app, ghCfg, successRedirect); err != nil {
 			_ = db.Close()
 			log.Fatal(err)
 		}
+		if err := registerGitHubExport(app, ghCfg, &stopWorker); err != nil {
+			_ = db.Close()
+			log.Fatal(err)
+		}
 	}
 
-	app.OnStop(func(context.Context) error { return db.Close() })
+	app.OnStop(func(context.Context) error {
+		stopWorker() // before closing the DB the worker uses
+		return db.Close()
+	})
 
 	if err := framework.Run(app); err != nil {
 		log.Fatal(err)
@@ -112,4 +129,56 @@ func githubOAuthConfig() (cfg githubexport.Config, successRedirect string, ok bo
 		OAuthBaseURL: os.Getenv("GITHUB_OAUTH_BASE_URL"),
 		APIBaseURL:   os.Getenv("GITHUB_API_BASE_URL"),
 	}, successRedirect, true
+}
+
+// registerGitHubExport wires the asynchronous GitHub export (#85): the job
+// routes plus the background worker that runs them. Enqueue happens in the HTTP
+// request; the toolchain-heavy source assembly (scaffold, tidy, migrations)
+// runs only in the worker, so no request performs a build.
+//
+// It sets *stopWorker to the worker's cancel func so main can stop it on
+// shutdown before closing the database the worker uses. The export stack shares
+// one projectspec.Source both as the worker's frozen-revision resolver and as
+// ghexport's head-spec source.
+func registerGitHubExport(app *framework.App, ghCfg githubexport.Config, stopWorker *func()) error {
+	db := app.DB()
+	projectSvc := project.NewService(db)
+	src := projectspec.NewSource(projectSvc)
+	tokens := githubconnect.NewService(db, githubconnect.NewExchanger(ghCfg, nil))
+	pub := ghexport.NewPublisher(ghCfg, nil)
+
+	// Query the gombit toolchain version once for export provenance. Export needs
+	// the toolchain anyway; if it's unavailable the feature still wires and
+	// provenance records "unknown" rather than failing startup.
+	cli := &gombit.CLI{}
+	gombitVersion := "unknown"
+	if v, err := cli.Version(context.Background()); err == nil {
+		gombitVersion = v.String()
+	} else {
+		log.Printf("github export: gombit toolchain version unavailable (%v); provenance will record %q", err, gombitVersion)
+	}
+	exporter := ghexport.NewService(tokens, src, compiler.GombitToolchain{CLI: cli}, pub, gombitVersion)
+
+	jobs := exportjob.NewService(db)
+	if err := exportjob.Register(app, jobs, projectSvc, org.NewService(db)); err != nil {
+		return err
+	}
+
+	worker := exportworker.New(jobs, src, exporter, 0, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { worker.Run(ctx); close(done) }()
+	// stopWorker signals cancellation and then waits (bounded) for Run to return,
+	// so shutdown actually joins the worker before the DB it writes to is closed,
+	// rather than racing it. A worker mid-export past the deadline is abandoned —
+	// a full in-flight assembly can run for minutes and shutdown can't block on it.
+	*stopWorker = func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			log.Printf("github export: worker did not stop within 10s; proceeding with shutdown")
+		}
+	}
+	return nil
 }
