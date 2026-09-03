@@ -516,6 +516,14 @@ func newDashboardView(g *graph.Graph, page *graph.Page) dashboardView {
 		}
 		view.RecentLists = append(view.RecentLists, rl)
 	}
+	for _, card := range page.AggregateCards {
+		view.AggregateCards = append(view.AggregateCards, aggregateCardView{
+			Label:          card.Spec.Label,
+			CollectionPath: "/api/v1/" + kebab(card.Resource.Spec.StorageName),
+			AggKey:         string(card.Spec.Op) + ":" + card.Field.Spec.StorageName,
+		})
+	}
+	view.HasFetches = len(view.CountCards) > 0 || view.HasRecords || len(view.AggregateCards) > 0
 	return view
 }
 
@@ -736,8 +744,9 @@ type dashboardView struct {
 	Slug      string // the page slug — the dashboard's route
 	Title     string // the page label
 
-	CountCards  []countCardView
-	RecentLists []recentListView
+	CountCards     []countCardView
+	RecentLists    []recentListView
+	AggregateCards []aggregateCardView
 	// HasLinks is true when at least one recent list has a table page to link to,
 	// so the Link import is emitted only when used (the generated app lints).
 	HasLinks bool
@@ -745,6 +754,10 @@ type dashboardView struct {
 	// declares an OrderBy), so the client/effect imports are emitted for the
 	// recent-list case too, not only for count cards.
 	HasRecords bool
+	// HasFetches is true when any card fetches from the API (a count card, a
+	// records recent list, or an aggregate card), gating the client/effect
+	// imports as a group.
+	HasFetches bool
 }
 
 // countCardView is one count card: a labeled total for a resource, read from the
@@ -752,6 +765,18 @@ type dashboardView struct {
 type countCardView struct {
 	Label          string
 	CollectionPath string // the resource's API collection path
+}
+
+// aggregateCardView is one aggregate card: a labeled server-side aggregate
+// (sum/avg/min/max) over a resource field (#182), read from the list endpoint's
+// ListMeta.aggregates (gombit #273). The value is a decimal string, not a
+// number, so it renders verbatim.
+type aggregateCardView struct {
+	Label          string
+	CollectionPath string // the resource's API collection path
+	// AggKey is the "<op>:<field>" pair — both the ?aggregate= request value and
+	// the meta.aggregates response key.
+	AggKey string
 }
 
 // recentListView is one recent-record list. When the card declares an OrderBy

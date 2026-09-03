@@ -124,6 +124,9 @@ func TestBreakingOnFieldTypeChange(t *testing.T) {
 		t.Fatalf("fixture drift: expected Total to be decimal, got %s", total.Type)
 	}
 	total.Type = spec.TypeString
+	// The fixture declares Total aggregatable; a non-numeric field cannot be, so
+	// the same edit drops it from the aggregate set to keep the candidate valid.
+	cand.Resources[1].Behavior.AggregatableFields = nil
 	if d := spec.Validate(cand); d != nil {
 		t.Fatalf("candidate invalid:\n%s", d.Error())
 	}

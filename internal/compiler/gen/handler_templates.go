@@ -34,10 +34,13 @@ type list{{.Type}}Input struct {
 {{- range .Filters}}
 	{{.GoName}} string ` + "`" + `query:"{{.QueryName}}" doc:"Filter by {{.QueryName}}"` + "`" + `
 {{- end}}
+{{- if .AggregateColumns}}
+	Aggregate string ` + "`" + `query:"aggregate" doc:"Server-side aggregates, comma-separated <func>:<field> (e.g. sum:total)"` + "`" + `
+{{- end}}
 }
 
 type list{{.Type}}Output struct {
-	Body contract.DataMeta[[]{{.Data}}, contract.PageMeta]
+	Body contract.DataMeta[[]{{.Data}}, contract.{{if .AggregateColumns}}ListMeta{{else}}PageMeta{{end}}]
 }
 
 type get{{.Type}}Input struct {
@@ -108,6 +111,24 @@ func (h *Handler) list(ctx context.Context, input *list{{.Type}}Input) (*list{{.
 	if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
 		return nil, contract.WithContext(ctx, contract.Internal("list {{.PluralID}}"))
 	}
+{{- if .AggregateColumns}}
+
+	// Aggregates run over the same filtered/searched query, before pagination
+	// (and before ordering, which an aggregate SELECT cannot carry), over a
+	// session snapshot so the ordering/limit applied below do not reach them.
+	aggregateSpecs, err := database.ParseAggregates(ctx, input.Aggregate, map[string]database.AggregateColumn{
+{{- range .AggregateColumns}}
+		"{{.Field}}": {Column: "{{.Column}}"},
+{{- end}}
+	})
+	if err != nil {
+		return nil, err
+	}
+	aggregates, err := database.Aggregate(ctx, q.Session(&gorm.Session{}), aggregateSpecs)
+	if err != nil {
+		return nil, err
+	}
+{{- end}}
 {{- if .SortColumns}}
 	if q, err = database.Ordering(ctx, q, input.Ordering, []string{ {{range .SortColumns}}"{{.}}", {{end}}}, "id"); err != nil {
 		return nil, err
@@ -126,9 +147,9 @@ func (h *Handler) list(ctx context.Context, input *list{{.Type}}Input) (*list{{.
 		items = append(items, to{{.Data}}(row))
 	}
 	return &list{{.Type}}Output{
-		Body: contract.DataMeta[[]{{.Data}}, contract.PageMeta]{
+		Body: contract.DataMeta[[]{{.Data}}, contract.{{if .AggregateColumns}}ListMeta{{else}}PageMeta{{end}}]{
 			Data: items,
-			Meta: &contract.PageMeta{Page: page, PerPage: perPage, Total: total},
+			Meta: &contract.{{if .AggregateColumns}}ListMeta{Page: page, PerPage: perPage, Total: total, Aggregates: aggregates}{{else}}PageMeta{Page: page, PerPage: perPage, Total: total}{{end}},
 		},
 	}, nil
 }

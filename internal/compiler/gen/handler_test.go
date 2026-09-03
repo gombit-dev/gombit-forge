@@ -235,9 +235,10 @@ func TestListHandlerEmitsDeclaredQuerySurface(t *testing.T) {
 						StorageName: "vendor_id", Target: vendorID, InverseLabel: "Products"},
 				},
 				Behavior: spec.ResourceBehavior{
-					SearchableFields: []spec.ID{nameID, skuID},
-					SortableFields:   []spec.ID{nameID, priceID},
-					FilterableFields: []spec.ID{priceID},
+					SearchableFields:   []spec.ID{nameID, skuID},
+					SortableFields:     []spec.ID{nameID, priceID},
+					FilterableFields:   []spec.ID{priceID},
+					AggregatableFields: []spec.ID{priceID},
 				},
 			},
 		},
@@ -267,11 +268,24 @@ func TestListHandlerEmitsDeclaredQuerySurface(t *testing.T) {
 		`database.FilterEq(ctx, q, "vendor_id", database.FilterUint, input.VendorID)`,
 		`database.Search(q, []string{"name", "sku"}, input.Search)`,
 		`database.Ordering(ctx, q, input.Ordering, []string{"name", "price"}, "id")`,
+		// Price is declared aggregatable (#182): the list gains an ?aggregate=
+		// param, the ListMeta envelope, and the ParseAggregates/Aggregate wiring
+		// over a session snapshot (before ordering/pagination).
+		`query:"aggregate"`,
+		`contract.DataMeta[[]ProductData, contract.ListMeta]`,
+		`database.ParseAggregates(ctx, input.Aggregate, map[string]database.AggregateColumn{`,
+		`"price": {Column: "price"},`,
+		`database.Aggregate(ctx, q.Session(&gorm.Session{}), aggregateSpecs)`,
+		`Aggregates: aggregates`,
 	}
 	for _, want := range wants {
 		if !strings.Contains(handlers, want) {
 			t.Errorf("generated list handler missing:\n\t%s\ngot:\n%s", want, handlers)
 		}
+	}
+	// Only the declared numeric field is aggregatable; the non-numeric ones are not.
+	if strings.Contains(handlers, `"name": {Column:`) {
+		t.Error("a non-aggregatable field must not appear in the aggregate allowlist")
 	}
 }
 
@@ -309,6 +323,15 @@ func TestListHandlerWithoutCapabilitiesStaysPlain(t *testing.T) {
 	}
 	if !strings.Contains(handlers, `q.Order("id")`) {
 		t.Error("without a sortable set the list must keep the fixed id ordering")
+	}
+	// No aggregatable field: the plain PageMeta envelope, no ?aggregate= param,
+	// no aggregate wiring — the output stays byte-identical to before #182.
+	if !strings.Contains(handlers, "contract.PageMeta") {
+		t.Error("a resource with no aggregatable field must keep the contract.PageMeta envelope")
+	}
+	if strings.Contains(handlers, "contract.ListMeta") || strings.Contains(handlers, `query:"aggregate"`) ||
+		strings.Contains(handlers, "database.ParseAggregates(") {
+		t.Error("a resource with no aggregatable field must emit no aggregate wiring")
 	}
 }
 

@@ -1090,6 +1090,73 @@ func TestFrontendDashboardRecentRecords(t *testing.T) {
 	}
 }
 
+// TestFrontendDashboardAggregateCards (#182): an aggregate card fetches its
+// server-side aggregate from the list endpoint (?aggregate=<op>:<field>&per_page=1,
+// gombit #273) and renders the value from meta.aggregates; a dashboard with only
+// aggregate cards still wires the client/effect imports (via HasFetches).
+func TestFrontendDashboardAggregateCards(t *testing.T) {
+	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
+	res := id(spec.KindResource)
+	total := id(spec.KindField)
+	count := id(spec.KindField)
+	s := &spec.ProjectSpec{
+		SpecVersion: spec.SpecVersion,
+		Project:     spec.Project{ID: id(spec.KindProject), Name: "Acme", Slug: "acme"},
+		Database:    spec.Database{Driver: spec.DriverPostgres},
+		Auth:        spec.Auth{Mode: spec.AuthCookie},
+		Resources: []*spec.Resource{
+			{ID: res, Label: "Invoice", LabelPlural: "Invoices", CodeName: "Invoice", StorageName: "invoices",
+				Behavior: spec.ResourceBehavior{AggregatableFields: []spec.ID{total, count}},
+				Fields: []*spec.Field{
+					{ID: total, Label: "Total", Type: spec.TypeDecimal, CodeName: "Total", StorageName: "total"},
+					{ID: count, Label: "Lines", Type: spec.TypeInteger, CodeName: "Lines", StorageName: "line_count"},
+				}},
+		},
+		Pages: []*spec.Page{
+			{ID: id(spec.KindPage), Slug: "home", Label: "Home", Type: spec.PageDashboard,
+				Dashboard: &spec.DashboardConfig{AggregateCards: []spec.AggregateCard{
+					{Label: "Total invoiced", Resource: res, Field: total, Op: spec.AggregateSum},
+					{Label: "Max lines", Resource: res, Field: count, Op: spec.AggregateMax},
+				}}},
+		},
+	}
+	if d := spec.Validate(s); d != nil {
+		t.Fatalf("fixture invalid: %s", d.Error())
+	}
+	g, err := graph.Build(s)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	dash := frontendFiles(t, g)["frontend/src/forge_generated/dashboard/HomeDashboardPage.tsx"]
+	if dash == "" {
+		t.Fatal("a dashboard page must generate a dashboard component")
+	}
+	for _, want := range []string{
+		// The client/effect imports are emitted even with no count card / records.
+		`import { useEffect, useState } from "react";`,
+		`import { useApiClient } from "../../api/client";`,
+		`const [aggregates, setAggregates] = useState<(string | null)[]>([null, null, ]);`,
+		`client.GET("/api/v1/invoices", { params: { query: { aggregate: "sum:total", per_page: 1 } } })`,
+		`listed.meta?.aggregates?.["sum:total"] ?? "0"`,
+		`client.GET("/api/v1/invoices", { params: { query: { aggregate: "max:line_count", per_page: 1 } } })`,
+		`listed.meta?.aggregates?.["max:line_count"] ?? "0"`,
+		`className="aggregate-cards"`,
+		`{ "Total invoiced" }`,
+		`{aggregates[0] ?? "…"}`,
+		`{ "Max lines" }`,
+		`{aggregates[1] ?? "…"}`,
+	} {
+		if !strings.Contains(dash, want) {
+			t.Errorf("aggregate-card dashboard must contain %q\n%s", want, dash)
+		}
+	}
+	// No count cards and no records here, so the schema (paths) import — needed
+	// only by a records recent list — must not appear.
+	if strings.Contains(dash, `import type { paths }`) {
+		t.Error("an aggregate-only dashboard must not import the row schema types")
+	}
+}
+
 // TestFrontendDetailRelatedSections is the #53 acceptance point: a page-driven
 // detail renders its own fields plus a section per has_many relationship, with a
 // "View all" link to the related resource's table page when it has one. It does

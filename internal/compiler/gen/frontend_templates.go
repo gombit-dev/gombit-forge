@@ -37,15 +37,17 @@ var (
 
 // dashboardPageSrc renders a dashboard (DESIGN.md §4.4): count cards showing a
 // real total per resource (read from the list handler's PageMeta, so no Gombit
-// change is needed) and recent-record lists. A recent list that declares an
-// OrderBy (a sortable date/datetime field, #54) fetches the newest records
+// change is needed), aggregate cards showing a server-side sum/avg/min/max of a
+// numeric field (read from the list handler's ListMeta.aggregates, gombit #273,
+// #182), and recent-record lists. A recent list that declares an OrderBy (a
+// sortable date/datetime field, #54) fetches the newest records
 // (?ordering=-<field>&per_page=<limit>, gombit #260) and renders them; one
 // without an OrderBy stays a labeled section with a "View all" link rather than
 // fabricating an order. There is no chart designer (§30 non-goal).
 const dashboardPageSrc = `{{.Banner}}
-{{if or .CountCards .HasRecords}}import { useEffect, useState } from "react";
+{{if .HasFetches}}import { useEffect, useState } from "react";
 {{end}}{{if .HasLinks}}import { Link } from "react-router";
-{{end}}{{if or .CountCards .HasRecords}}import { useApiClient } from "../../api/client";
+{{end}}{{if .HasFetches}}import { useApiClient } from "../../api/client";
 import { unwrap } from "../../api/generated/client";
 {{end}}{{if .HasRecords}}import type { paths } from "../../api/generated/schema";
 {{end}}
@@ -56,11 +58,14 @@ type Recent{{.Index}}Row = NonNullable<
 {{- end}}{{end}}
 
 export function {{.Component}}() {
-{{- if or .CountCards .HasRecords}}
+{{- if .HasFetches}}
   const client = useApiClient();
 {{- end}}
 {{- if .CountCards}}
   const [counts, setCounts] = useState<(number | null)[]>([{{range .CountCards}}null, {{end}}]);
+{{- end}}
+{{- if .AggregateCards}}
+  const [aggregates, setAggregates] = useState<(string | null)[]>([{{range .AggregateCards}}null, {{end}}]);
 {{- end}}
 {{- range .RecentLists}}{{if .Records}}
   const [recent{{.Index}}, setRecent{{.Index}}] = useState<Recent{{.Index}}Row[]>([]);
@@ -81,6 +86,29 @@ export function {{.Component}}() {
 {{- end}}
       if (!cancelled) {
         setCounts(next);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [client]);
+{{- end}}
+{{- if .AggregateCards}}
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const next: (string | null)[] = [];
+{{- range .AggregateCards}}
+      try {
+        const listed = await unwrap(await client.GET("{{.CollectionPath}}", { params: { query: { aggregate: "{{.AggKey}}", per_page: 1 } } }));
+        next.push(listed.meta?.aggregates?.["{{.AggKey}}"] ?? "0");
+      } catch {
+        next.push(null);
+      }
+{{- end}}
+      if (!cancelled) {
+        setAggregates(next);
       }
     })();
     return () => {
@@ -119,6 +147,16 @@ export function {{.Component}}() {
         <div className="count-card">
           <span className="count-card-label">{ {{js $c.Label}} }</span>
           <strong className="count-card-value">{counts[{{$i}}] ?? "…"}</strong>
+        </div>
+{{- end}}
+      </div>
+{{- end}}
+{{- if .AggregateCards}}
+      <div className="aggregate-cards">
+{{- range $i, $c := .AggregateCards}}
+        <div className="aggregate-card">
+          <span className="aggregate-card-label">{ {{js $c.Label}} }</span>
+          <strong className="aggregate-card-value">{aggregates[{{$i}}] ?? "…"}</strong>
         </div>
 {{- end}}
       </div>

@@ -164,6 +164,23 @@ func TestM0EndToEnd(t *testing.T) {
 		t.Errorf("invoice total = %v, want 19.95 (decimal round-trip)", invoice["total"])
 	}
 
+	// Server-side numeric aggregates (#182, gombit #273): Invoice.Total is
+	// declared aggregatable, so the generated list handler honors
+	// ?aggregate=<op>:<field> and returns meta.aggregates keyed "<op>:<field>".
+	// With one invoice of 19.95, SUM and MAX both equal 19.95 — proving the
+	// generated ListMeta/ParseAggregates/Aggregate wiring runs against real Gombit.
+	meta := session.listMeta(t, base+"/api/v1/invoices?aggregate=sum:total,max:total")
+	aggs, ok := meta["aggregates"].(map[string]any)
+	if !ok {
+		t.Fatalf("list meta missing aggregates object; got meta=%v", meta)
+	}
+	if fmt.Sprint(aggs["sum:total"]) != "19.95" {
+		t.Errorf("aggregate sum:total = %v, want 19.95", aggs["sum:total"])
+	}
+	if fmt.Sprint(aggs["max:total"]) != "19.95" {
+		t.Errorf("aggregate max:total = %v, want 19.95", aggs["max:total"])
+	}
+
 	// Admin works, and RegisterAll actually ran RegisterAdmin: the admin
 	// catalog lists the admin-visible customer but not the hidden invoice.
 	slugs := session.adminSlugs(t, base+"/api/v1/admin/meta")
@@ -302,6 +319,26 @@ func (s *session) get(t *testing.T, url string) map[string]any {
 		t.Fatalf("GET %s: status %d\n%s", url, resp.StatusCode, readBody(t, resp))
 	}
 	return decodeData(t, mustRead(t, resp))
+}
+
+// listMeta GETs a collection and returns its response meta object — pagination
+// info plus any server-side aggregates (meta.aggregates).
+func (s *session) listMeta(t *testing.T, url string) map[string]any {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, url, nil)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s: status %d\n%s", url, resp.StatusCode, readBody(t, resp))
+	}
+	var env map[string]any
+	if err := json.Unmarshal(mustRead(t, resp), &env); err != nil {
+		t.Fatalf("decode json: %v", err)
+	}
+	meta, _ := env["meta"].(map[string]any)
+	return meta
 }
 
 // adminSlugs returns the set of resource slugs the admin catalog lists.

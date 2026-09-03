@@ -511,14 +511,15 @@ type updateBehaviorInput struct {
 	ProjectID  string `path:"projectID" doc:"Project identifier"`
 	ResourceID string `path:"resourceID" doc:"Resource stable ID"`
 	Body       struct {
-		CreateEnabled    bool     `json:"create_enabled,omitempty"`
-		UpdateEnabled    bool     `json:"update_enabled,omitempty"`
-		DeleteEnabled    bool     `json:"delete_enabled,omitempty"`
-		AdminVisible     bool     `json:"admin_visible,omitempty"`
-		ListFields       []string `json:"list_fields,omitempty" doc:"Field IDs shown in the list view, in order"`
-		SearchableFields []string `json:"searchable_fields,omitempty"`
-		SortableFields   []string `json:"sortable_fields,omitempty"`
-		FilterableFields []string `json:"filterable_fields,omitempty"`
+		CreateEnabled      bool     `json:"create_enabled,omitempty"`
+		UpdateEnabled      bool     `json:"update_enabled,omitempty"`
+		DeleteEnabled      bool     `json:"delete_enabled,omitempty"`
+		AdminVisible       bool     `json:"admin_visible,omitempty"`
+		ListFields         []string `json:"list_fields,omitempty" doc:"Field IDs shown in the list view, in order"`
+		SearchableFields   []string `json:"searchable_fields,omitempty"`
+		SortableFields     []string `json:"sortable_fields,omitempty"`
+		FilterableFields   []string `json:"filterable_fields,omitempty"`
+		AggregatableFields []string `json:"aggregatable_fields,omitempty" doc:"Numeric field IDs a dashboard aggregate card may sum/avg/min/max"`
 	}
 }
 
@@ -528,14 +529,15 @@ func (h *Handler) updateBehavior(ctx context.Context, in *updateBehaviorInput) (
 		return nil, err
 	}
 	behavior := spec.ResourceBehavior{
-		CreateEnabled:    in.Body.CreateEnabled,
-		UpdateEnabled:    in.Body.UpdateEnabled,
-		DeleteEnabled:    in.Body.DeleteEnabled,
-		AdminVisible:     in.Body.AdminVisible,
-		ListFields:       toIDs(in.Body.ListFields),
-		SearchableFields: toIDs(in.Body.SearchableFields),
-		SortableFields:   toIDs(in.Body.SortableFields),
-		FilterableFields: toIDs(in.Body.FilterableFields),
+		CreateEnabled:      in.Body.CreateEnabled,
+		UpdateEnabled:      in.Body.UpdateEnabled,
+		DeleteEnabled:      in.Body.DeleteEnabled,
+		AdminVisible:       in.Body.AdminVisible,
+		ListFields:         toIDs(in.Body.ListFields),
+		SearchableFields:   toIDs(in.Body.SearchableFields),
+		SortableFields:     toIDs(in.Body.SortableFields),
+		FilterableFields:   toIDs(in.Body.FilterableFields),
+		AggregatableFields: toIDs(in.Body.AggregatableFields),
 	}
 	result, err := h.svc.UpdateBehavior(ctx, p.ID, spec.ID(in.ResourceID), behavior, user.ID)
 	if err != nil {
