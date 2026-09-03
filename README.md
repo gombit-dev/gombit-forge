@@ -156,10 +156,14 @@ func main() {
 ```
 
 The `invoice` resource emits no `admin.go` (it is not admin-visible) — the only
-file its toggles drop. The output is deterministic: the same compiler version
-and spec produce byte-identical files. The
-[tutorial](docs/tutorial.md) turns this tree into a running app —
-scaffold, migrate, build, boot.
+file its toggles drop. Generation is **page-driven**: this spec declares no
+pages, so it produces the backend plus an empty frontend registry; add pages
+(tables, forms, details, a dashboard) and the compiler emits the matching React
+components. The output is deterministic — the same compiler version and spec
+produce byte-identical files. The [tutorial](docs/tutorial.md) starts from a
+committed [`spec.json`](examples/acme-crm/spec.json) with pages and turns the
+tree into a running app — scaffold, migrate, build, boot, and use the generated
+frontend.
 
 To watch the whole loop against a real toolchain, run the go/no-go proof, which
 scaffolds a Gombit app, migrates on Postgres, builds, boots, and exercises CRUD
