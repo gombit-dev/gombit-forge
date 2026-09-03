@@ -799,6 +799,37 @@ func TestFrontendTableFilters(t *testing.T) {
 	}
 }
 
+// TestFrontendDetailEmbedsRelated (#53): a detail page embeds each has_many
+// relationship as a table fetched from the related collection filtered by the
+// back-reference FK; a resource with no has_many has no related section.
+func TestFrontendDetailEmbedsRelated(t *testing.T) {
+	files := frontendFiles(t, buildGraph2(t))
+
+	// Customer has_many Invoice (Invoice.customer_id → Customer), so the customer
+	// detail embeds invoices filtered by customer_id.
+	customer := files["frontend/src/forge_generated/customer/CustomerDetailPage.tsx"]
+	for _, want := range []string{
+		`type Related0Row = NonNullable<`,
+		`const RELATED_PAGE_SIZE = 10;`,
+		`const [related0, setRelated0] = useState<Related0Row[]>([]);`,
+		`await client.GET("/api/v1/invoices", { params: { query: { "customer_id": id, per_page: RELATED_PAGE_SIZE } } })`,
+		`{related0.map((row) => (`,
+		`<Link to="/invoices">View all`,
+	} {
+		if !strings.Contains(customer, want) {
+			t.Errorf("customer detail must embed the invoices relationship: missing %q", want)
+		}
+	}
+
+	// Invoice has no has_many relationship, so its detail has no related section.
+	invoice := files["frontend/src/forge_generated/invoice/InvoiceDetailPage.tsx"]
+	for _, absent := range []string{"RELATED_PAGE_SIZE", "related0", `aria-label="Related records"`} {
+		if strings.Contains(invoice, absent) {
+			t.Errorf("invoice detail (no has_many) must have no related section: found %q", absent)
+		}
+	}
+}
+
 // TestFrontendMultipleTablesPerResource is a #51 acceptance point: two
 // resource_table pages can target one resource and generate independent tables
 // with their own component, route and columns.
