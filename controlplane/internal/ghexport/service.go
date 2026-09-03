@@ -74,19 +74,36 @@ type Result struct {
 // initial commit. A user with no GitHub connection surfaces the token store's
 // error (githubconnect.ErrNotConnected).
 func (s *Service) Export(ctx context.Context, userID, projectID uint, repoName string, private bool) (Result, error) {
-	if strings.TrimSpace(repoName) == "" {
-		return Result{}, fmt.Errorf("ghexport: a repository name is required")
-	}
-	token, err := s.tokens.Token(ctx, userID)
-	if err != nil {
-		return Result{}, err
-	}
 	projectSpec, revisionRef, err := s.specs.HeadSpec(ctx, projectID)
 	if err != nil {
 		return Result{}, err
 	}
 	if projectSpec == nil {
 		return Result{}, fmt.Errorf("ghexport: project %d has no revision to export", projectID)
+	}
+	return s.ExportSpec(ctx, userID, repoName, private, projectSpec, revisionRef)
+}
+
+// ExportSpec exports an already-resolved spec — a frozen revision — to a new
+// GitHub repository, rather than resolving the project's current head. The
+// asynchronous export worker uses this so a job exports the exact revision it
+// froze at enqueue, immune to a head that moves before the worker runs.
+// revisionRef is an opaque reference to that revision, stamped into provenance.
+//
+// It creates the repo first so the generated go.mod's module path matches the
+// repository (github.com/owner/repo), assembles the application source for that
+// module, then pushes it as the initial commit. A user with no GitHub connection
+// surfaces the token store's error (githubconnect.ErrNotConnected).
+func (s *Service) ExportSpec(ctx context.Context, userID uint, repoName string, private bool, projectSpec *spec.ProjectSpec, revisionRef string) (Result, error) {
+	if strings.TrimSpace(repoName) == "" {
+		return Result{}, fmt.Errorf("ghexport: a repository name is required")
+	}
+	if projectSpec == nil {
+		return Result{}, fmt.Errorf("ghexport: no spec to export")
+	}
+	token, err := s.tokens.Token(ctx, userID)
+	if err != nil {
+		return Result{}, err
 	}
 
 	repo, err := s.pub.CreateRepository(ctx, token, repoName, private)
