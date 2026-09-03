@@ -193,6 +193,39 @@ func TestConnectCallbackRejectsBadState(t *testing.T) {
 	}
 }
 
+// TestConnectCallbackRejectsCrossUserSession pins the security-critical wiring
+// at the HTTP layer: the callback binds the connection to the *session's* user,
+// not the state's minter. User A mints a state; a callback replaying A's state
+// under B's cookie is rejected (the state is A-bound), storing nothing for B —
+// and A's state survives, so the legitimate user can still complete.
+func TestConnectCallbackRejectsCrossUserSession(t *testing.T) {
+	f := newHTTPFixture(t)
+	userA := seedUser(t, f.db, "victim@example.test")
+	userB := seedUser(t, f.db, "attacker@example.test")
+
+	start := f.api.Get(connectPath, f.sessionCookie(t, userA))
+	u, _ := url.Parse(start.Header().Get("Location"))
+	state := u.Query().Get("state")
+	if state == "" {
+		t.Fatal("no state minted by start")
+	}
+
+	resp := f.api.Get(callbackPath+"?code=the-code&state="+url.QueryEscape(state), f.sessionCookie(t, userB))
+	if resp.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("cross-user callback = %d, want 422\n%s", resp.Code, resp.Body.String())
+	}
+	svc := githubconnect.NewService(f.db, fakeExchanger{})
+	if _, err := svc.Token(context.Background(), userB); err == nil {
+		t.Error("attacker B must not have a stored connection")
+	}
+	// A's state was not consumed by the cross-user attempt: A can still complete.
+	var states int64
+	f.db.Table("o_auth_states").Where("user_id = ?", userA).Count(&states)
+	if states != 1 {
+		t.Errorf("victim's state must survive a cross-user attempt; remaining = %d", states)
+	}
+}
+
 // TestConnectCallbackRequiresParams: a callback missing code or state is a 422,
 // not a 500 or a redirect.
 func TestConnectCallbackRequiresParams(t *testing.T) {

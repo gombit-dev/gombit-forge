@@ -83,7 +83,20 @@ func githubOAuthConfig() (cfg githubexport.Config, successRedirect string, ok bo
 	clientID := os.Getenv("GITHUB_OAUTH_CLIENT_ID")
 	clientSecret := os.Getenv("GITHUB_OAUTH_CLIENT_SECRET")
 	redirectURL := os.Getenv("GITHUB_OAUTH_REDIRECT_URL")
-	if clientID == "" || clientSecret == "" || redirectURL == "" {
+	set := 0
+	for _, v := range []string{clientID, clientSecret, redirectURL} {
+		if v != "" {
+			set++
+		}
+	}
+	if set < 3 {
+		// All-empty is the intentional "feature off" path and stays silent; a
+		// partial config is almost always a typo (a wrong var name, a missing
+		// secret) that would otherwise fail as a mystery 404 on the connect
+		// route, so surface it.
+		if set > 0 {
+			log.Printf("github oauth: partially configured (%d/3 of CLIENT_ID/CLIENT_SECRET/REDIRECT_URL set); connect flow disabled", set)
+		}
 		return githubexport.Config{}, "", false
 	}
 	successRedirect = os.Getenv("GITHUB_OAUTH_SUCCESS_REDIRECT")
