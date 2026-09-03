@@ -26,6 +26,7 @@ func sampleSpec(t *testing.T) *spec.ProjectSpec {
 	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
 	customer := id(spec.KindResource)
 	invoice := id(spec.KindResource)
+	invoiceTotal := id(spec.KindField)
 
 	s := &spec.ProjectSpec{
 		SpecVersion: spec.SpecVersion,
@@ -47,10 +48,13 @@ func sampleSpec(t *testing.T) *spec.ProjectSpec {
 			{
 				ID: invoice, Label: "Invoice", LabelPlural: "Invoices",
 				CodeName: "Invoice", StorageName: "invoices",
-				Behavior: spec.ResourceBehavior{CreateEnabled: true, AdminVisible: false},
+				// Total is declared aggregatable (#182), so the invoice list handler
+				// gains the ?aggregate= surface and ListMeta envelope — the e2e boots
+				// it and asserts a real server-side SUM/MAX against Gombit v0.1.12.
+				Behavior: spec.ResourceBehavior{CreateEnabled: true, AdminVisible: false, AggregatableFields: []spec.ID{invoiceTotal}},
 				Fields: []*spec.Field{
 					{ID: id(spec.KindField), Label: "Customer", Type: spec.TypeBelongsTo, CodeName: "Customer", StorageName: "customer_id", Required: true, Target: customer},
-					{ID: id(spec.KindField), Label: "Total", Type: spec.TypeDecimal, CodeName: "Total", StorageName: "total", Required: true},
+					{ID: invoiceTotal, Label: "Total", Type: spec.TypeDecimal, CodeName: "Total", StorageName: "total", Required: true},
 				},
 			},
 		},

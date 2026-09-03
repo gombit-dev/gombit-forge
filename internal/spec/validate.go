@@ -490,6 +490,7 @@ func (v *validator) validateBehavior(resource *Resource, resourcePath string) {
 		{"searchable_fields", resource.Behavior.SearchableFields},
 		{"sortable_fields", resource.Behavior.SortableFields},
 		{"filterable_fields", resource.Behavior.FilterableFields},
+		{"aggregatable_fields", resource.Behavior.AggregatableFields},
 	}
 
 	for _, list := range lists {
@@ -542,6 +543,10 @@ var capabilityAllowedTypes = map[string]typeSet{
 	"filterable_fields": {TypeString: true, TypeInteger: true, TypeBoolean: true, TypeEnum: true, TypeBelongsTo: true},
 	// Case-insensitive LIKE across text-like columns.
 	"searchable_fields": {TypeString: true, TypeText: true, TypeEnum: true},
+	// Numeric aggregate (SUM/AVG/MIN/MAX): the numeric field types only. A
+	// belongs_to FK is stored numeric but aggregating foreign keys is
+	// meaningless, so it is excluded (gombit #273).
+	"aggregatable_fields": {TypeInteger: true, TypeDecimal: true},
 }
 
 func (v *validator) validatePages() {
@@ -743,6 +748,50 @@ func (v *validator) validateDashboardPage(page *Page, path string) {
 			}
 			v.validateCardOrderBy(page, cardPath, group.name, card, resource)
 		}
+	}
+
+	for index, card := range page.Dashboard.AggregateCards {
+		cardPath := fmt.Sprintf("%s.dashboard.aggregate_cards[%d]", path, index)
+		resource := v.spec.FindResource(card.Resource)
+		if resource == nil {
+			v.report(CodeDanglingRef, cardPath+".resource", page.ID,
+				"aggregate card references resource %q which does not exist", card.Resource)
+		}
+		if strings.TrimSpace(card.Label) == "" {
+			v.report(CodeMissingLabel, cardPath+".label", page.ID, "aggregate card label is required")
+		}
+		v.validateAggregateCard(page, cardPath, card, resource)
+	}
+}
+
+// validateAggregateCard checks a dashboard aggregate card (#182): the op must be
+// one of sum/avg/min/max, and the field must be a numeric field the card's
+// resource declares aggregatable, so the generated ?aggregate=<op>:<field> is a
+// permitted request against the list endpoint (gombit #273).
+func (v *validator) validateAggregateCard(page *Page, cardPath string, card AggregateCard, resource *Resource) {
+	if !card.Op.Valid() {
+		v.report(CodeInvalidPage, cardPath+".op", page.ID,
+			"aggregate card op %q must be one of sum, avg, min, max", card.Op)
+	}
+	if resource == nil {
+		return
+	}
+	field := resource.FindField(card.Field)
+	if field == nil {
+		v.report(CodeDanglingRef, cardPath+".field", card.Field,
+			"aggregate card field %q is not on resource %s", card.Field, resource.CodeName)
+		return
+	}
+	aggregatable := false
+	for _, id := range resource.Behavior.AggregatableFields {
+		if id == card.Field {
+			aggregatable = true
+			break
+		}
+	}
+	if !aggregatable {
+		v.report(CodeInvalidCapability, cardPath+".field", card.Field,
+			"aggregate card field %q must be declared aggregatable on resource %s", card.Field, resource.CodeName)
 	}
 }
 

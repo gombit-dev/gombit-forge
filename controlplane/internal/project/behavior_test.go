@@ -33,11 +33,16 @@ func TestUpdateBehaviorCommitsAndSerializes(t *testing.T) {
 	if _, err := svc.AddField(ctx, projectID, resID, project.FieldInput{Label: "Name", Type: spec.TypeString}, 7); err != nil {
 		t.Fatalf("add field: %v", err)
 	}
-	fieldID := headSpec(t, svc, projectID).Resources[0].Fields[0].ID
+	if _, err := svc.AddField(ctx, projectID, resID, project.FieldInput{Label: "Amount", Type: spec.TypeInteger}, 7); err != nil {
+		t.Fatalf("add field: %v", err)
+	}
+	fields := headSpec(t, svc, projectID).Resources[0].Fields
+	fieldID, amountID := fields[0].ID, fields[1].ID
 
 	res, err := svc.UpdateBehavior(ctx, projectID, resID, spec.ResourceBehavior{
 		CreateEnabled: false, UpdateEnabled: true, DeleteEnabled: true, AdminVisible: true,
 		ListFields: []spec.ID{fieldID}, SearchableFields: []spec.ID{fieldID},
+		AggregatableFields: []spec.ID{amountID},
 	}, 7)
 	if err != nil {
 		t.Fatalf("update behavior: %v", err)
@@ -51,6 +56,9 @@ func TestUpdateBehaviorCommitsAndSerializes(t *testing.T) {
 	}
 	if len(b.ListFields) != 1 || b.ListFields[0] != fieldID {
 		t.Errorf("list_fields not serialized: %v", b.ListFields)
+	}
+	if len(b.AggregatableFields) != 1 || b.AggregatableFields[0] != amountID {
+		t.Errorf("aggregatable_fields not serialized: %v", b.AggregatableFields)
 	}
 }
 

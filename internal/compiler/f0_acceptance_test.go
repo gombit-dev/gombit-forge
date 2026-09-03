@@ -398,6 +398,10 @@ func TestFieldTypeChangeBreaksAndBlocks(t *testing.T) {
 		t.Fatalf("fixture drift: expected Total decimal, got %s", total.Type)
 	}
 	total.Type = spec.TypeString
+	// Total is declared aggregatable in the fixture; a non-numeric field cannot
+	// be, so the same edit drops it from the aggregate set to keep the candidate
+	// valid (the classifier still sees the breaking decimal→string change).
+	cand.Resources[1].Behavior.AggregatableFields = nil
 
 	if tr := classify(t, base, cand); tr.Class != gen.ClassBreaking {
 		t.Fatalf("an extension-visible type change must be breaking; got %s", tr.Class)

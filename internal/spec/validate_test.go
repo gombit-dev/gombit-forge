@@ -251,6 +251,72 @@ func TestValidateRejects(t *testing.T) {
 			wantAny: CodeInvalidPage,
 		},
 		{
+			name: "aggregatable field is not numeric",
+			mutate: func(s *ProjectSpec) {
+				// Name is a string; SUM/AVG/MIN/MAX need a numeric column.
+				s.Resources[0].Behavior.AggregatableFields = []ID{fixCustomerName}
+			},
+			wantAny: CodeInvalidCapability,
+		},
+		{
+			name: "aggregatable field is a belongs_to",
+			mutate: func(s *ProjectSpec) {
+				// The FK is stored numeric but aggregating foreign keys is meaningless.
+				s.Resources[1].Behavior.AggregatableFields = []ID{fixInvoiceCustomer}
+			},
+			wantAny: CodeInvalidCapability,
+		},
+		{
+			name: "aggregate card references missing resource",
+			mutate: func(s *ProjectSpec) {
+				s.Pages[0].Dashboard.AggregateCards = []AggregateCard{
+					{Label: "X", Resource: fixID(KindResource, "99"), Field: fixInvoiceTotal, Op: AggregateSum},
+				}
+			},
+			wantAny: CodeDanglingRef,
+		},
+		{
+			name: "aggregate card label is required",
+			mutate: func(s *ProjectSpec) {
+				s.Resources[1].Behavior.AggregatableFields = []ID{fixInvoiceTotal}
+				s.Pages[0].Dashboard.AggregateCards = []AggregateCard{
+					{Resource: fixInvoice, Field: fixInvoiceTotal, Op: AggregateSum},
+				}
+			},
+			wantAny: CodeMissingLabel,
+		},
+		{
+			name: "aggregate card op is unsupported",
+			mutate: func(s *ProjectSpec) {
+				s.Resources[1].Behavior.AggregatableFields = []ID{fixInvoiceTotal}
+				s.Pages[0].Dashboard.AggregateCards = []AggregateCard{
+					{Label: "Median total", Resource: fixInvoice, Field: fixInvoiceTotal, Op: AggregateOp("median")},
+				}
+			},
+			wantAny: CodeInvalidPage,
+		},
+		{
+			name: "aggregate card field is foreign to its resource",
+			mutate: func(s *ProjectSpec) {
+				// A Customer field on an Invoice aggregate card.
+				s.Pages[0].Dashboard.AggregateCards = []AggregateCard{
+					{Label: "Bad", Resource: fixInvoice, Field: fixCustomerName, Op: AggregateSum},
+				}
+			},
+			wantAny: CodeDanglingRef,
+		},
+		{
+			name: "aggregate card field is not declared aggregatable",
+			mutate: func(s *ProjectSpec) {
+				// Total is numeric and on Invoice, but Invoice never declared it
+				// aggregatable, so the card exposes an undeclared capability.
+				s.Pages[0].Dashboard.AggregateCards = []AggregateCard{
+					{Label: "Total", Resource: fixInvoice, Field: fixInvoiceTotal, Op: AggregateSum},
+				}
+			},
+			wantAny: CodeInvalidCapability,
+		},
+		{
 			name: "navigation references missing page",
 			mutate: func(s *ProjectSpec) {
 				s.Navigation[0].Page = fixID(KindPage, "99")
@@ -708,6 +774,23 @@ func TestValidateAcceptsRecentListOrderBy(t *testing.T) {
 
 	if diagnostics := Validate(s); diagnostics.Has(CodeInvalidCapability) || diagnostics.Has(CodeDanglingRef) {
 		t.Fatalf("a sortable date order_by should validate, got:\n%s", diagnostics.Error())
+	}
+}
+
+// TestValidateAcceptsAggregateCard: a dashboard aggregate card over a numeric
+// field the resource declares aggregatable validates (#182).
+func TestValidateAcceptsAggregateCard(t *testing.T) {
+	s := validSpec()
+	// Total is a decimal on Invoice; declare it aggregatable and sum it.
+	s.Resources[1].Behavior.AggregatableFields = []ID{fixInvoiceTotal}
+	s.Pages[0].Dashboard.AggregateCards = []AggregateCard{
+		{Label: "Total invoiced", Resource: fixInvoice, Field: fixInvoiceTotal, Op: AggregateSum},
+		{Label: "Largest invoice", Resource: fixInvoice, Field: fixInvoiceTotal, Op: AggregateMax},
+	}
+
+	if diagnostics := Validate(s); diagnostics.Has(CodeInvalidCapability) ||
+		diagnostics.Has(CodeDanglingRef) || diagnostics.Has(CodeInvalidPage) {
+		t.Fatalf("an aggregate card over a declared-aggregatable numeric field should validate, got:\n%s", diagnostics.Error())
 	}
 }
 

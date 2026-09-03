@@ -55,10 +55,11 @@ type Resource struct {
 type Behavior struct {
 	Spec *spec.ResourceBehavior
 
-	List       []*Field
-	Searchable []*Field
-	Sortable   []*Field
-	Filterable []*Field
+	List         []*Field
+	Searchable   []*Field
+	Sortable     []*Field
+	Filterable   []*Field
+	Aggregatable []*Field
 }
 
 // Field is a resolved field.
@@ -104,9 +105,11 @@ type Page struct {
 	// populated only for a resource_form page and is empty for every other
 	// type.
 	FormFields []*Field
-	// CountCards and RecentLists are populated only for a dashboard page.
-	CountCards  []*Card
-	RecentLists []*Card
+	// CountCards, RecentLists and AggregateCards are populated only for a
+	// dashboard page.
+	CountCards     []*Card
+	RecentLists    []*Card
+	AggregateCards []*AggregateCard
 }
 
 // Card is a resolved dashboard card with its resource reference linked.
@@ -117,6 +120,16 @@ type Card struct {
 	// (#54), or nil when the card declares none. Validation guarantees it is a
 	// sortable date/datetime field on Resource when set.
 	OrderBy *Field
+}
+
+// AggregateCard is a resolved dashboard aggregate card (#182): its resource and
+// the field it aggregates, linked. Validation guarantees Field is a numeric
+// field on Resource that the resource declares aggregatable, and Spec.Op is a
+// supported function.
+type AggregateCard struct {
+	Spec     *spec.AggregateCard
+	Resource *Resource
+	Field    *Field
 }
 
 // NavEntry is a resolved navigation entry.
@@ -213,11 +226,12 @@ func (g *Graph) resolveBehavior() {
 	for _, resource := range g.Resources {
 		behavior := &resource.Spec.Behavior
 		resource.Behavior = Behavior{
-			Spec:       behavior,
-			List:       resource.resolveFields(behavior.ListFields),
-			Searchable: resource.resolveFields(behavior.SearchableFields),
-			Sortable:   resource.resolveFields(behavior.SortableFields),
-			Filterable: resource.resolveFields(behavior.FilterableFields),
+			Spec:         behavior,
+			List:         resource.resolveFields(behavior.ListFields),
+			Searchable:   resource.resolveFields(behavior.SearchableFields),
+			Sortable:     resource.resolveFields(behavior.SortableFields),
+			Filterable:   resource.resolveFields(behavior.FilterableFields),
+			Aggregatable: resource.resolveFields(behavior.AggregatableFields),
 		}
 	}
 }
@@ -266,6 +280,7 @@ func (g *Graph) buildPages() {
 			if pageSpec.Dashboard != nil {
 				page.CountCards = g.resolveCards(pageSpec.Dashboard.CountCards)
 				page.RecentLists = g.resolveCards(pageSpec.Dashboard.RecentLists)
+				page.AggregateCards = g.resolveAggregateCards(pageSpec.Dashboard.AggregateCards)
 			}
 
 		case spec.PageResourceDetail:
@@ -335,6 +350,27 @@ func (g *Graph) resolveCards(cards []spec.DashboardCard) []*Card {
 		}
 		if card.OrderBy != "" && c.Resource != nil {
 			c.OrderBy = c.Resource.byFieldID[card.OrderBy]
+		}
+		resolved = append(resolved, c)
+	}
+	return resolved
+}
+
+// resolveAggregateCards links each aggregate card to its resource and field,
+// preserving order. Validation guarantees Field belongs to Resource.
+func (g *Graph) resolveAggregateCards(cards []spec.AggregateCard) []*AggregateCard {
+	if len(cards) == 0 {
+		return nil
+	}
+	resolved := make([]*AggregateCard, 0, len(cards))
+	for i := range cards {
+		card := &cards[i]
+		c := &AggregateCard{
+			Spec:     card,
+			Resource: g.byResourceID[card.Resource],
+		}
+		if c.Resource != nil {
+			c.Field = c.Resource.byFieldID[card.Field]
 		}
 		resolved = append(resolved, c)
 	}

@@ -10,7 +10,7 @@ import (
 
 // UpdateBehavior sets a resource's behavior wholesale (DESIGN.md §4.3): the
 // create/update/delete toggles, admin visibility, and the list/searchable/
-// sortable/filterable field selections. Behavior does not touch the extension
+// sortable/filterable/aggregatable field selections. Behavior does not touch the extension
 // ABI — it only steers which handlers, admin registration and list columns the
 // generators emit — so the transition is ABI-neutral and commits. Field-ID
 // selections that don't belong to the resource are caught by spec validation and

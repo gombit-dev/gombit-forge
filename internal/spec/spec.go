@@ -206,6 +206,13 @@ type ResourceBehavior struct {
 	SearchableFields []ID `json:"searchable_fields,omitempty"`
 	SortableFields   []ID `json:"sortable_fields,omitempty"`
 	FilterableFields []ID `json:"filterable_fields,omitempty"`
+	// AggregatableFields are the numeric fields (integer/decimal) this resource
+	// exposes to server-side aggregation (#182). Each opts one field into the
+	// gombit #273 aggregate contract, so the generated list endpoint accepts
+	// ?aggregate=<op>:<field> over it; a dashboard aggregate card exposes a
+	// subset. Non-numeric fields are rejected — an aggregate over them is
+	// meaningless — mirroring how filterable/searchable constrain their types.
+	AggregatableFields []ID `json:"aggregatable_fields,omitempty"`
 }
 
 // Field is one attribute of a Resource.
@@ -281,8 +288,43 @@ type FormConfig struct {
 //
 // There is deliberately no arbitrary chart designer.
 type DashboardConfig struct {
-	CountCards  []DashboardCard `json:"count_cards,omitempty"`
-	RecentLists []DashboardCard `json:"recent_lists,omitempty"`
+	CountCards     []DashboardCard `json:"count_cards,omitempty"`
+	RecentLists    []DashboardCard `json:"recent_lists,omitempty"`
+	AggregateCards []AggregateCard `json:"aggregate_cards,omitempty"`
+}
+
+// AggregateOp is a server-side numeric aggregate function (gombit #273). The
+// four values map directly to the contract's sum/avg/min/max.
+type AggregateOp string
+
+const (
+	AggregateSum AggregateOp = "sum"
+	AggregateAvg AggregateOp = "avg"
+	AggregateMin AggregateOp = "min"
+	AggregateMax AggregateOp = "max"
+)
+
+// Valid reports whether o is one of the four supported aggregate functions.
+func (o AggregateOp) Valid() bool {
+	switch o {
+	case AggregateSum, AggregateAvg, AggregateMin, AggregateMax:
+		return true
+	default:
+		return false
+	}
+}
+
+// AggregateCard is a dashboard card showing one server-side numeric aggregate
+// over a resource's field (#182): a labeled sum/avg/min/max computed by the
+// generated list endpoint (?aggregate=<op>:<field>, gombit #273) over the whole
+// matching set. The aggregate is never computed client-side — that would be
+// wrong over a paginated/filtered set and would ship every row to the browser —
+// so Field must be declared in the resource's AggregatableFields.
+type AggregateCard struct {
+	Label    string      `json:"label"`
+	Resource ID          `json:"resource"`
+	Field    ID          `json:"field"`
+	Op       AggregateOp `json:"op"`
 }
 
 // DashboardCard is a count card or recent-record list bound to a resource.

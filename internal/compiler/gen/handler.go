@@ -86,6 +86,11 @@ type resourceView struct {
 	Filters       []filterView // one exact-match filter per filterable field + every belongs_to FK
 	SearchColumns []string     // DB columns ?search= LIKEs across; empty ⇒ no search param
 	SortColumns   []string     // DB columns ?ordering= may sort by; empty ⇒ no ordering param
+	// AggregateColumns are the fields this resource declares aggregatable
+	// (gombit #273). When non-empty the list handler gains an ?aggregate= param
+	// and returns contract.ListMeta (PageMeta + aggregates); when empty the
+	// handler keeps its plain contract.PageMeta shape, byte for byte.
+	AggregateColumns []aggregateColumnView
 
 	NeedsTime    bool
 	NeedsDecimal bool
@@ -111,6 +116,14 @@ type filterView struct {
 	QueryName string // query-param name = the field's storage/column name
 	Column    string // DB column the filter matches on
 	Kind      string // database.FilterKind constant name, e.g. "FilterString"
+}
+
+// aggregateColumnView is one field a resource exposes to server-side
+// aggregation: the ?aggregate=<op>:<field> field name (the storage/column name)
+// mapped to its DB column via database.AggregateColumn.
+type aggregateColumnView struct {
+	Field  string // the ?aggregate= field name = the storage/column name
+	Column string // DB column the aggregate function is applied to
 }
 
 // filterKind maps a Forge field type to the database.FilterKind constant the
@@ -185,6 +198,12 @@ func newResourceView(resource *graph.Resource) resourceView {
 	}
 	for _, f := range resource.Behavior.Sortable {
 		view.SortColumns = append(view.SortColumns, f.Spec.StorageName)
+	}
+	for _, f := range resource.Behavior.Aggregatable {
+		view.AggregateColumns = append(view.AggregateColumns, aggregateColumnView{
+			Field:  f.Spec.StorageName,
+			Column: f.Spec.StorageName,
+		})
 	}
 
 	// Import order is fixed, not map-derived, so output stays deterministic.
