@@ -110,9 +110,9 @@ export function {{.Component}}() {
 // its row and "New" links target the bound resource's canonical detail/form
 // routes. Pagination is honored at runtime: the generated list handler already
 // accepts page/per_page and returns a PageMeta total, so the table sends the
-// configured page size and pages through the result. Search, filtering and
-// sorting are deliberately not here — they need generic list-query support that
-// belongs in Gombit, not Forge.
+// configured page size and pages through the result. Search is wired when the
+// page enables it (TableConfig.Search) — the ?search= query param the generated
+// list handler exposes (gombit #260); filtering and sorting controls follow.
 const tablePageSrc = `{{.Banner}}
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
@@ -132,6 +132,9 @@ export function {{.Component}}() {
   const [rows, setRows] = useState<{{.Type}}Row[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+{{- if .Search}}
+  const [search, setSearch] = useState("");
+{{- end}}
   const [status, setStatus] = useState({{js (printf "Loading %s…" .Title)}});
 
   useEffect(() => {
@@ -139,7 +142,7 @@ export function {{.Component}}() {
     void (async () => {
       try {
         const listed = await unwrap(
-          await client.GET("{{.CollectionPath}}", { params: { query: { page, per_page: PAGE_SIZE } } }),
+          await client.GET("{{.CollectionPath}}", { params: { query: { page, per_page: PAGE_SIZE{{if .Search}}, search: search || undefined{{end}} } } }),
         );
         if (cancelled) {
           return;
@@ -158,7 +161,7 @@ export function {{.Component}}() {
     return () => {
       cancelled = true;
     };
-  }, [client, page]);
+  }, [client, page{{if .Search}}, search{{end}}]);
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -168,6 +171,20 @@ export function {{.Component}}() {
 {{- if and .Create .FormRoute}}
       <p>
         <Link to="/{{.FormRoute}}/new">New {{.Type}}</Link>
+      </p>
+{{- end}}
+{{- if .Search}}
+      <p>
+        <input
+          type="search"
+          value={search}
+          placeholder={{js (printf "Search %s…" .Title)}}
+          aria-label={{js (printf "Search %s" .Title)}}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPage(1);
+          }}
+        />
       </p>
 {{- end}}
       <table>

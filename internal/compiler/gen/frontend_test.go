@@ -570,6 +570,74 @@ func TestFrontendTablePaginates(t *testing.T) {
 	}
 }
 
+// TestFrontendTableSearch: a table page that enables search over a resource
+// declaring a searchable field renders the search box and wires the ?search=
+// query param; a table without it keeps the plain paginated query unchanged.
+func TestFrontendTableSearch(t *testing.T) {
+	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
+	res := id(spec.KindResource)
+	email := id(spec.KindField)
+	build := func(search bool) *spec.ProjectSpec {
+		behavior := spec.ResourceBehavior{}
+		if search {
+			behavior.SearchableFields = []spec.ID{email}
+		}
+		return &spec.ProjectSpec{
+			SpecVersion: spec.SpecVersion,
+			Project:     spec.Project{ID: id(spec.KindProject), Name: "Acme", Slug: "acme"},
+			Database:    spec.Database{Driver: spec.DriverPostgres},
+			Auth:        spec.Auth{Mode: spec.AuthCookie},
+			Resources: []*spec.Resource{
+				{ID: res, Label: "Customer", CodeName: "Customer", StorageName: "customers",
+					Behavior: behavior,
+					Fields:   []*spec.Field{{ID: email, Label: "Email", Type: spec.TypeString, CodeName: "Email", StorageName: "email"}}},
+			},
+			Pages: []*spec.Page{
+				{ID: id(spec.KindPage), Slug: "customers", Label: "Customers", Type: spec.PageResourceTable, Resource: res,
+					Table: &spec.TableConfig{Search: search}},
+			},
+		}
+	}
+	tableFor := func(s *spec.ProjectSpec) string {
+		if d := spec.Validate(s); d != nil {
+			t.Fatalf("fixture invalid: %s", d.Error())
+		}
+		g, err := graph.Build(s)
+		if err != nil {
+			t.Fatalf("build: %v", err)
+		}
+		return frontendFiles(t, g)["frontend/src/forge_generated/customer/CustomersTablePage.tsx"]
+	}
+
+	searched := tableFor(build(true))
+	for _, want := range []string{
+		`const [search, setSearch] = useState("");`,
+		`type="search"`,
+		`search: search || undefined`,
+		`}, [client, page, search]);`,
+		`setPage(1);`,
+	} {
+		if !strings.Contains(searched, want) {
+			t.Errorf("search-enabled table must contain %q", want)
+		}
+	}
+
+	// Without search the query and deps are exactly the plain paginated shape —
+	// no search state, box, or param leaks in.
+	plain := tableFor(build(false))
+	for _, absent := range []string{"const [search", `type="search"`, "search:"} {
+		if strings.Contains(plain, absent) {
+			t.Errorf("table without search must not contain %q", absent)
+		}
+	}
+	if !strings.Contains(plain, `query: { page, per_page: PAGE_SIZE } }`) {
+		t.Error("non-search table must keep the plain paginated query")
+	}
+	if !strings.Contains(plain, `}, [client, page]);`) {
+		t.Error("non-search table must keep the plain effect deps")
+	}
+}
+
 // TestFrontendMultipleTablesPerResource is a #51 acceptance point: two
 // resource_table pages can target one resource and generate independent tables
 // with their own component, route and columns.

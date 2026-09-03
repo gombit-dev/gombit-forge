@@ -295,6 +295,12 @@ type tableView struct {
 	// Columns are the resolved table columns in order (the graph applies the
 	// TableConfig.Columns → list fields → scalar fields default).
 	Columns []frontendField
+
+	// Search renders the search box and wires the ?search= query param, from
+	// TableConfig.Search. Validation guarantees it is only set when the resource
+	// declares searchable_fields, so the generated list handler exposes the
+	// param (gombit #260) and there is something to match.
+	Search bool
 }
 
 // defaultPageSize is the rows-per-page a resource_table page requests when it
@@ -525,6 +531,7 @@ func newTableView(g *graph.Graph, page *graph.Page) tableView {
 		Create:         resource.Spec.Behavior.CreateEnabled,
 		FormRoute:      formRoute(g, resource),
 		PageSize:       pageSize,
+		Search:         page.Spec.Table != nil && page.Spec.Table.Search,
 	}
 	for _, field := range page.Columns {
 		view.Columns = append(view.Columns, frontendFieldFor(field))
