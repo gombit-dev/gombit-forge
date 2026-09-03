@@ -119,6 +119,33 @@ func TestExportExcludesVCSAndBuildOutput(t *testing.T) {
 	}
 }
 
+// TestExportExcludesSecrets pins the decision that an export ships source, not
+// credentials: .env (which carries the scaffold's GOMBIT_JWT_SECRET) and
+// .env.local are excluded, while a blanked .env.example template is kept.
+func TestExportExcludesSecrets(t *testing.T) {
+	dir := writeTree(t, map[string]string{
+		"go.mod":       "module example.com/app\n",
+		".env":         "GOMBIT_JWT_SECRET=supersecret\n",
+		".env.local":   "GOMBIT_JWT_SECRET=local\n",
+		".env.example": "GOMBIT_JWT_SECRET=\n",
+	})
+	var buf bytes.Buffer
+	if err := Export(dir, &buf); err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	_, content := exportEntries(t, buf.Bytes())
+
+	if _, ok := content[".env"]; ok {
+		t.Error("export must not ship .env (it carries the scaffold's JWT secret)")
+	}
+	if _, ok := content[".env.local"]; ok {
+		t.Error("export must not ship .env.local")
+	}
+	if _, ok := content[".env.example"]; !ok {
+		t.Error("export must keep the .env.example template")
+	}
+}
+
 // TestExportIsDeterministic: the same tree exports to byte-identical archives.
 func TestExportIsDeterministic(t *testing.T) {
 	dir := writeTree(t, sampleRepo())

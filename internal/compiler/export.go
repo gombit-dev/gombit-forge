@@ -30,6 +30,17 @@ var exportSkipDirs = map[string]bool{
 	"dist":         true,
 }
 
+// exportSkipFiles are regular files never included in an export because they
+// carry secrets, not source. A `gombit new` scaffold writes a random
+// GOMBIT_JWT_SECRET into .env (AGENTS.md's non-reproducibility hazard), so
+// shipping it inside a "here's your source" archive would hand over a live
+// session-signing secret; the candidate workspace copy (#119 copyTree) excludes
+// .env for the same reason. A blanked .env.example template is fine and is kept.
+var exportSkipFiles = map[string]bool{
+	".env":       true,
+	".env.local": true,
+}
+
 // Export writes a deterministic ZIP of the Gombit project rooted at root to w
 // (DESIGN.md §4.9, §28; ADR-001 §72). It archives the full repository tree —
 // cmd/, internal/ (including internal/extensions/ user code), frontend/,
@@ -73,6 +84,11 @@ func Export(root string, w io.Writer) error {
 		// Skip symlinks and other non-regular files: an export is source, and a
 		// symlink's target may point outside the tree.
 		if !d.Type().IsRegular() {
+			return nil
+		}
+		// Skip secret-bearing files (e.g. .env with the scaffold's JWT secret): an
+		// export is source, not credentials.
+		if exportSkipFiles[d.Name()] {
 			return nil
 		}
 		rel, err := filepath.Rel(root, p)
