@@ -68,7 +68,7 @@ func TestExportBuildsAndRunsOutsideForge(t *testing.T) {
 	for _, f := range files {
 		writeAppFile(t, dir, f.Path, f.Content)
 	}
-	writeAppFile(t, dir, "cmd/server/main.go", []byte(forgeMainGo))
+	writeAppFile(t, dir, CompositionRootPath, mustCompositionRoot(t, module))
 	runCmd(t, ctx, dir, nil, "go", "mod", "tidy")
 
 	// The migration is generated into the tree before export, so it travels in
