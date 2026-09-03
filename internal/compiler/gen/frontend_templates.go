@@ -206,7 +206,7 @@ export function {{.Component}}() {
             <th>id</th>
 {{- range .Columns}}
 {{- if .Sortable}}
-            <th>
+            <th aria-sort={ordering === "{{.JSONName}}" ? "ascending" : ordering === "-{{.JSONName}}" ? "descending" : "none"}>
               <button type="button" onClick={() => toggleSort("{{.JSONName}}")}>
                 { {{js .Label}} }
                 {ordering === "{{.JSONName}}" ? " ▲" : ordering === "-{{.JSONName}}" ? " ▼" : ""}

@@ -694,6 +694,7 @@ func TestFrontendTableSort(t *testing.T) {
 		`const [ordering, setOrdering] = useState("");`,
 		`const toggleSort = (col: string) => {`,
 		`onClick={() => toggleSort("name")}`,
+		`aria-sort={ordering === "name" ? "ascending" : ordering === "-name" ? "descending" : "none"}`,
 		`ordering === "name" ? " ▲" : ordering === "-name" ? " ▼" : ""`,
 		`ordering: ordering || undefined`,
 		`}, [client, page, ordering]);`,
