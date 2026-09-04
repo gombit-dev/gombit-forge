@@ -1,390 +1,170 @@
-# Tutorial: from a `ProjectSpec` to a running app
+# Tutorial: building an app with Forge
 
-This walks through the whole M0 pipeline by hand: define a two-resource
-application model, compile it into a Gombit app, apply the migration on Postgres,
-build it, boot it, and exercise the real HTTP contract — CRUD plus admin — on an
-app that carries **no dependency on Forge**.
+Forge is a **visual application builder**. You describe an app — its resources,
+fields, relationships, and screens — and Forge compiles that description into an
+ordinary [Gombit](https://github.com/gombit-dev/gombit) application: a Go API,
+a database schema and migrations, an admin, and a React frontend. The generated
+project is normal code you own and can export; it has **no runtime dependency on
+Forge**.
 
-This mirrors the go/no-go gate,
-[`TestM0EndToEnd`](../internal/compiler/e2e_test.go), which does the same flow
-automatically — scaffold, `Compile`, write the bytes, wire `RegisterAll`,
-`makemigrations`, `migrate` on Postgres, build, boot, and exercise CRUD + admin
-over HTTP. The steps below use the same module path (`example.com/app`) and the
-same commands the harness runs, so you can cross-check either way. If you just
-want to see it go, that test *is* the tutorial in executable form:
+You never write Go, and you never hand-write the model. Every change is a small
+edit — "add a resource", "add a field", "add a page" — and Forge mints the stable
+IDs, validates the result, and records it as an immutable revision. This page
+walks that authoring loop.
 
-```bash
-go test ./internal/compiler -run TestM0EndToEnd -v
+> **Where this stands.** The control plane (`controlplane/`) is built and
+> runnable: it's a Gombit app whose Postgres schema ships as committed Atlas
+> migrations, and a React editor SPA (`controlplane/web`) drives the authoring
+> API below. The compiler it feeds is proven end to end by the go/no-go test —
+> the executable version of this whole loop:
+>
+> ```bash
+> go test ./internal/compiler -run TestM0EndToEnd -v
+> ```
+>
+> What's **not** built yet is the Cloud side — one-click build, preview, and
+> deploy (M4–M6), which wait on Gombit Cloud's APIs. Until then the loop ends at
+> a compiled, exportable app, not a hosted URL. This page shows the loop through
+> the HTTP API; the editor issues these same calls for you.
+
+We'll build a tiny CRM — customers and invoices.
+
+## 1. A project
+
+Everything lives in a project, inside an organization you belong to. After
+signing in (cookie session), create one:
+
+```http
+POST /api/v1/organizations/{orgID}/projects
+{ "name": "Acme CRM", "slug": "acme-crm" }
 ```
 
-Read on to do it yourself and understand each moving part.
+A project starts empty. From here, every edit returns a **revision** — the new
+head of an append-only history:
 
-## What we're building
-
-A tiny CRM with two resources:
-
-- **Customer** — `email` (string, required, unique) and `active` (boolean).
-  Full CRUD, visible in the admin.
-- **Invoice** — `customer` (a `belongs_to` reference to Customer, required) and
-  `total` (decimal, required). Create-only, hidden from the admin.
-
-The relationship, the decimal, and the two different behavior/visibility
-settings are what make this a real exercise rather than a hello-world.
-
-## Prerequisites
-
-- **Go 1.25.7** (auto-resolves via `GOTOOLCHAIN`).
-- The [`gombit`](https://github.com/gombit-dev/gombit) CLI, **≥ v0.1.12**. Check
-  with `gombit version`.
-- [`atlas`](https://atlasgo.io) and **Docker** — Gombit's migration diffing uses
-  a throwaway Postgres, and we'll run the app's database in a container too.
-
-Forge itself never imports Gombit; it drives the `gombit` CLI as a subprocess
-through the [`internal/gombit`](../internal/gombit) boundary. The steps below
-show that boundary explicitly.
-
-## Step 1 — Describe the application model
-
-A `ProjectSpec` is the source of truth (decision **D1**). Identity is the stable
-ID, never the name; `label`, `code_name`, and `storage_name` are separate naming
-domains (ADR-001). Here's the spec for our CRM:
-
-```go
-package main
-
-import (
-	"fmt"
-	"log"
-
-	"github.com/gombit-dev/gombit-forge/internal/compiler"
-	"github.com/gombit-dev/gombit-forge/internal/spec"
-)
-
-func buildSpec() *spec.ProjectSpec {
-	customer := spec.MustNewID(spec.KindResource)
-
-	s := &spec.ProjectSpec{
-		SpecVersion: spec.SpecVersion,
-		Project:     spec.Project{ID: spec.MustNewID(spec.KindProject), Name: "Acme CRM", Slug: "acme-crm"},
-		Database:    spec.Database{Driver: spec.DriverPostgres},
-		Auth:        spec.Auth{Mode: spec.AuthCookie},
-		Resources: []*spec.Resource{
-			{
-				ID: customer, Label: "Customer", LabelPlural: "Customers",
-				CodeName: "Customer", StorageName: "customers",
-				Behavior: spec.ResourceBehavior{
-					CreateEnabled: true, UpdateEnabled: true, DeleteEnabled: true, AdminVisible: true,
-				},
-				Fields: []*spec.Field{
-					{ID: spec.MustNewID(spec.KindField), Label: "Email", Type: spec.TypeString,
-						CodeName: "Email", StorageName: "email", Required: true, Unique: true},
-					{ID: spec.MustNewID(spec.KindField), Label: "Active", Type: spec.TypeBoolean,
-						CodeName: "Active", StorageName: "active"},
-				},
-			},
-			{
-				ID: spec.MustNewID(spec.KindResource), Label: "Invoice", LabelPlural: "Invoices",
-				CodeName: "Invoice", StorageName: "invoices",
-				Behavior: spec.ResourceBehavior{CreateEnabled: true, AdminVisible: false},
-				Fields: []*spec.Field{
-					{ID: spec.MustNewID(spec.KindField), Label: "Customer", Type: spec.TypeBelongsTo,
-						CodeName: "Customer", StorageName: "customer_id", Required: true, Target: customer},
-					{ID: spec.MustNewID(spec.KindField), Label: "Total", Type: spec.TypeDecimal,
-						CodeName: "Total", StorageName: "total", Required: true},
-				},
-			},
-		},
-	}
-	return s
-}
+```json
+{ "id": 7, "project_id": 3, "spec_hash": "9f2c…", "abi_class": "additive" }
 ```
 
-A `belongs_to` field points at the target resource's stable ID via `Target`
-(here, `customer`), not its name — a relabel of Customer never touches this
-reference.
+`abi_class` is how Forge tells a safe change from a dangerous one: adding things
+is `additive`, a pure relabel is `neutral`, and a change that would break code
+generated against the old shape is refused (returned as a 409 with its reasons)
+rather than silently applied.
 
-You can validate a spec on its own with `spec.Validate(s)`, which accumulates
-diagnostics (each with a stable `Code` and the offending entity's ID) rather than
-failing on the first problem. `compiler.Compile` runs this for you: the graph
-refuses to build over an invalid spec.
+## 2. Resources
 
-## Step 2 — Compile the model into source
+Add a resource from a **label**. Forge mints its stable ID and its frozen Go
+symbol — you never choose either:
 
-```go
-func main() {
-	s := buildSpec()
-
-	// module is the *generated app's* Go module path — the same one we'll pass
-	// to `gombit new` in Step 3, so register.go's imports resolve.
-	const module = "example.com/app"
-
-	files, err := compiler.Compile(s, module)
-	if err != nil {
-		log.Fatal(err)
-	}
-	for _, f := range files {
-		fmt.Println(f.Path)
-	}
-}
+```http
+POST /api/v1/projects/{id}/resources
+{ "label": "Customer", "label_plural": "Customers" }
 ```
 
-`compiler.Compile` builds the resolved domain graph (deriving Customer's
-`has_many` from Invoice's `belongs_to`) and runs every generator stage into one
-deterministic, gofmt-clean file tree. The output, stage by stage:
+Do the same for `Invoice`. Renaming later (`PATCH …/resources/{id}`) changes only
+the label; the ID and the generated code symbol never move. **Identity is the ID,
+never the name** — that is what lets you relabel freely without breaking anything.
 
-```text
-internal/forge_generated/customer/model.go
-internal/forge_generated/invoice/model.go
-internal/forge_generated/customer/handlers.go
-internal/forge_generated/customer/routes.go
-internal/forge_generated/invoice/handlers.go
-internal/forge_generated/invoice/routes.go
-internal/forge_generated/customer/admin.go
-frontend/src/forge_generated/customer/CustomerListPage.tsx
-frontend/src/forge_generated/customer/CustomerDetailPage.tsx
-frontend/src/forge_generated/customer/CustomerFormPage.tsx
-frontend/src/forge_generated/invoice/InvoiceListPage.tsx
-frontend/src/forge_generated/invoice/InvoiceDetailPage.tsx
-frontend/src/forge_generated/invoice/InvoiceFormPage.tsx
-frontend/src/forge_generated/resources.tsx
-internal/forge_generated/register.go
+## 3. Fields
+
+Add fields the same way — a label and a type, from the MVP set (`string`,
+`text`, `integer`, `decimal`, `boolean`, `date`, `datetime`, `enum`):
+
+```http
+POST /api/v1/projects/{id}/resources/{customerID}/fields
+{ "label": "Email", "type": "string", "required": true, "unique": true }
 ```
 
-Note what the behavior toggles produced: Invoice has **no** `admin.go` because
-it isn't admin-visible — that's the only file its toggles drop. It still gets all
-three frontend pages: a create-only resource needs a form page to create, so the
-form is emitted whenever create *or* update is on, and only a fully read-only
-resource drops it. Everything lives under `internal/forge_generated/**` and
-`frontend/src/forge_generated/**` — the compiler-owned roots. Forge never mixes
-generated and hand-written code (ADR-001).
-
-`register.go` is the composition root: it exposes `RegisterAll(app *framework.App) error`,
-which mounts every resource's routes and admin declarations through Gombit's
-public entry points. It's what makes the generated tree a working app instead of
-a pile of unwired packages.
-
-## Step 3 — Scaffold the Gombit shell
-
-Forge generates *application* code; Gombit owns the *framework shell* — the
-module, config loader, database plumbing, embedded frontend, and the management
-CLI. Scaffold it with the `gombit` CLI (this is what `internal/gombit`'s
-`CLI.Scaffold` shells out to):
-
-```bash
-gombit new app \
-  --module example.com/app \
-  --database postgres \
-  --auth cookie \
-  --ui minimal
-cd app
+```http
+POST /api/v1/projects/{id}/resources/{invoiceID}/fields
+{ "label": "Total", "type": "decimal", "required": true }
 ```
 
-Use the same module path you passed to `Compile`. `--database postgres` and
-`--auth cookie` match decisions **D4** and **D5**.
+Give the invoice a `decimal` total, an `enum` status, a `datetime` — whatever the
+app needs. Each add returns a new revision.
 
-> **Note:** `gombit new` writes a random `GOMBIT_JWT_SECRET` into `.env`, so the
-> scaffold is not byte-reproducible. Forge's determinism contract covers only
-> *compiler-owned* output, which is what Step 2 produced.
+## 4. Relationships
 
-## Step 4 — Drop in the generated tree and own `main`
+Point one resource at another. Forge derives the reverse side (`Customer` gets a
+`has_many` of invoices) for you:
 
-Step 2 only *printed* the paths. Now actually write the compiled bytes into the
-scaffolded project — each `gen.File` carries its repo-relative `Path` and its
-`Content`. This is the `writeAppFile` loop the e2e harness uses:
-
-```go
-// dir is the scaffolded project root, e.g. "./app".
-for _, f := range files {
-	full := filepath.Join(dir, filepath.FromSlash(f.Path))
-	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-		log.Fatal(err)
-	}
-	if err := os.WriteFile(full, f.Content, 0o644); err != nil {
-		log.Fatal(err)
-	}
-}
+```http
+POST /api/v1/projects/{id}/resources/{invoiceID}/relationships
+{ "label": "Customer", "target": "{customerID}", "required": true }
 ```
 
-Then replace the scaffold's `cmd/server/main.go` with a Forge-owned composition
-root that wires every resource through `RegisterAll` and — crucially — does
-**not** call `AutoMigrate`. Migrations are applied out of band (DESIGN.md §14):
+## 5. Behavior and screens
 
-```go
-package main
+Choose what each resource allows and exposes — CRUD toggles, admin visibility,
+and which fields are searchable, filterable, sortable, or aggregatable:
 
-import (
-	"context"
-	"log"
-
-	"github.com/gombit-dev/gombit/config"
-	"github.com/gombit-dev/gombit/framework"
-
-	forge "example.com/app/internal/forge_generated"
-	"example.com/app/internal/platform"
-	"example.com/app/internal/web"
-)
-
-func main() {
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatal(err)
-	}
-	db, err := platform.OpenDatabase(cfg.Database)
-	if err != nil {
-		log.Fatal(err)
-	}
-	app, err := framework.New(
-		framework.WithConfig(cfg),
-		framework.WithDatabase(db),
-		framework.WithEmbeddedFrontend(web.FS()),
-	)
-	if err != nil {
-		_ = db.Close()
-		log.Fatal(err)
-	}
-	if err := forge.RegisterAll(app); err != nil {
-		log.Fatal(err)
-	}
-	app.OnStop(func(context.Context) error { return db.Close() })
-	if err := framework.Run(app); err != nil {
-		log.Fatal(err)
-	}
-}
+```http
+PATCH /api/v1/projects/{id}/resources/{customerID}/behavior
+{ "create_enabled": true, "update_enabled": true, "delete_enabled": true,
+  "admin_visible": true,
+  "searchable_fields": ["{emailID}"], "filterable_fields": ["{tierID}"] }
 ```
 
-Then resolve imports:
+Then add screens — structured pages, not a freeform canvas: a **table**, a
+**form**, a **detail** page, and a **dashboard**:
 
-```bash
-go mod tidy
+```http
+POST /api/v1/projects/{id}/pages
+{ "type": "resource_table", "label": "Customers", "resource": "{customerID}" }
 ```
 
-At this point the app depends on `github.com/gombit-dev/gombit`, `gorm`, and
-`shopspring/decimal` — but **not** on `gombit-forge`. The generated code consumed
-Gombit's public APIs and vanished the compiler from the dependency graph
-(decision **D2**). You can prove it:
-
-```bash
-! grep -rq gombit-forge . --include='*.go' --include=go.mod && echo "no Forge dependency ✓"
+```http
+POST /api/v1/projects/{id}/pages
+{ "type": "dashboard", "label": "Home" }
 ```
 
-## Step 5 — Generate and apply the migration
+A dashboard carries count cards, recent-record lists, and numeric aggregate cards
+(a live SUM/AVG/MIN/MAX over a field). A table gets a search box, sortable
+headers, and filters — drawn straight from the behavior you declared above.
 
-Forge does not diff schemas; Gombit does (via Atlas). Forge derives the model set
-with `MigrationModelsForSpec` and hands it to `gombit db makemigrations` through
-the `internal/gombit` boundary (`CLI.MakeMigrations`). Each model is passed as a
-`--model <import-path>.<Type>` so it enters the Atlas registry; the driver flag
-is `--driver` (not `--database`). That's exactly the argv the boundary builds —
-by hand it is:
+## 6. What you get
 
-```bash
-gombit db makemigrations initial --driver postgres \
-  --model example.com/app/internal/forge_generated/customer.Customer \
-  --model example.com/app/internal/forge_generated/invoice.Invoice
-```
+You never edit the model as a file — but you can read it. `GET
+/api/v1/projects/{id}/spec` returns the current head as canonical JSON: the
+single source of truth Forge stores and hashes for each revision. It is an
+output to inspect or export, not something you author by hand.
 
-Without the `--model` flags, Customer and Invoice never enter the registry and
-the migration would be empty.
+From that model, the compiler produces an ordinary Gombit application:
 
-Start a throwaway Postgres and point the app at it:
+- **GORM models** and **versioned Atlas migrations** for your schema;
+- **Huma-typed handlers, routes, and OpenAPI** for the API, with server-side
+  search / filter / sort and numeric aggregates;
+- a **Django-style admin** for the resources you marked admin-visible;
+- a **React + TypeScript frontend** — the tables, forms, detail pages, and
+  dashboard you added;
+- and a **GitHub export** of the whole repository.
 
-```bash
-docker run -d --rm --name forge-tutorial-db \
-  -e POSTGRES_PASSWORD=forge -e POSTGRES_DB=app \
-  -p 127.0.0.1:5432:5432 postgres:15
+Crucially, the output imports Gombit, not Forge. Delete Forge and the app keeps
+running (decision **D2**). Forge builds nothing Gombit already owns — routing,
+ORM, migrations, auth, admin, the OpenAPI and TypeScript client are all Gombit's;
+Forge only synthesizes the resource-specific code that consumes them
+([ADR-004](ADR-004.md)).
 
-export GOMBIT_DATABASE_DRIVER=postgres
-export GOMBIT_DATABASE_DSN='postgres://postgres:forge@127.0.0.1:5432/app?sslmode=disable'
-export GOMBIT_JWT_SECRET='tutorial-secret-please-change-0001'
-export GOMBIT_AUTH_MODE=cookie
-export GOMBIT_COOKIE_SECURE=false     # we speak plain HTTP locally
-export GOMBIT_COOKIE_SAMESITE=Lax
+## The whole idea
 
-gombit db migrate
-```
+- You describe the app; the **compiler** turns that into ordinary software. You
+  never operate the compiler yourself.
+- **Identity is the stable ID**, minted for you — a relabel is never a code
+  change.
+- Every edit is **validated and versioned**; a build-breaking change is flagged,
+  not silently shipped.
+- The generated app is **yours** — normal code, no Forge runtime, exportable.
 
-The `customers` and `invoices` tables now exist.
+## Where next
 
-## Step 6 — Build, boot, and log in
+- [`README`](../README.md) — what Forge is, and its current status at a glance.
+- [`docs/DESIGN.md`](DESIGN.md) — product scope, milestones, and locked decisions.
+- [`docs/ADR-001.md`](ADR-001.md) — identity and symbol allocation: why the ID,
+  not the name, is the thing.
+- [`docs/ADR-004.md`](ADR-004.md) — the ownership split: Gombit owns framework
+  primitives, Forge owns application synthesis.
+- [`docs/ADR-005.md`](ADR-005.md) — the Forge / Gombit Cloud boundary: who owns
+  build, deploy, and the managed runtime.
 
-```bash
-go build -o server ./cmd/server
-export GOMBIT_HTTP_ADDR=127.0.0.1:8080
-./server &
-# wait for http://127.0.0.1:8080/livez to answer
-```
-
-Cookie mode gates writes with CSRF and the admin plane with a superuser. Create
-one, then log in to get a session cookie and a CSRF token:
-
-```bash
-gombit createsuperuser --no-input \
-  --email admin@example.test --password 'Password123!'
-
-# CSRF token (unauthenticated), then log in, then a fresh CSRF token for the session.
-curl -s -c jar.txt http://127.0.0.1:8080/api/v1/auth/csrf
-curl -s -b jar.txt -c jar.txt -X POST http://127.0.0.1:8080/api/v1/auth/login \
-  -H 'Content-Type: application/json' -H 'X-CSRF-Token: <token>' \
-  -d '{"email":"admin@example.test","password":"Password123!"}'
-```
-
-(The e2e test automates the cookie-jar/CSRF dance; the shape above is what it
-sends.)
-
-## Step 7 — Exercise the real contract
-
-**Create a customer and read it back.** Responses use Gombit's `{data: ...}`
-response envelope — the generated handlers consume it rather than inventing their
-own (ADR-004 D3):
-
-```bash
-curl -s -b jar.txt -X POST http://127.0.0.1:8080/api/v1/customers \
-  -H 'Content-Type: application/json' -H 'X-CSRF-Token: <token>' \
-  -d '{"email":"e2e@example.test","active":true}'
-# -> {"data":{"id":1,"email":"e2e@example.test","active":true, ...}}
-
-curl -s -b jar.txt http://127.0.0.1:8080/api/v1/customers/1
-```
-
-**Create an invoice — the `belongs_to` and the decimal round-trip:**
-
-```bash
-curl -s -b jar.txt -X POST http://127.0.0.1:8080/api/v1/invoices \
-  -H 'Content-Type: application/json' -H 'X-CSRF-Token: <token>' \
-  -d '{"customer_id":1,"total":"19.95"}'
-```
-
-`total` comes back as the string `"19.95"` — a decimal, not a lossy float.
-
-**Confirm the admin catalog honored the visibility toggles:**
-
-```bash
-curl -s -b jar.txt http://127.0.0.1:8080/api/v1/admin/meta
-```
-
-`customers` appears in `models`; `invoices` does not, because it isn't
-admin-visible. That's proof `RegisterAll` actually ran `RegisterAdmin` with the
-declarations the compiler emitted.
-
-## Step 8 — Clean up
-
-```bash
-kill %1                          # the server
-docker stop forge-tutorial-db    # --rm removes it
-```
-
-## What you just proved
-
-From a declarative `ProjectSpec`, Forge synthesized an ordinary Gombit
-application that compiles, migrates on Postgres, boots, serves CRUD with a real
-relationship and a decimal, and catalogs its resources through the admin API —
-all with **no runtime dependency on Forge**. Delete the compiler and this app keeps running. That is
-the M0 go/no-go gate, and it's the contract every later milestone builds on.
-
-## Where to go next
-
-- [`docs/DESIGN.md`](DESIGN.md) — the roadmap (M1–M7) and the locked decisions.
-- [`docs/ADR-001.md`](ADR-001.md) — identity, symbol allocation, and file
-  ownership, which govern how the generator stays stable across edits.
-- [`docs/ADR-004.md`](ADR-004.md) — the ownership split that makes the generated
-  code legitimate: Gombit owns framework primitives, Forge owns application
-  synthesis.
+Something wrong or unclear here? That's a docs bug —
+[open an issue](https://github.com/gombit-dev/gombit-forge/issues/new).

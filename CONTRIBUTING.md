@@ -1,9 +1,12 @@
 # Contributing to Gombit Forge
 
-Thanks for your interest. Forge is pre-alpha and moves fast, so this guide is
-short and opinionated. Read it before opening your first pull request.
+Thanks for wanting to help. This page covers how to get set up, how to get a
+change reviewed, and the bar a change has to clear. Forge is pre-alpha and moves
+fast, so read it before your first pull request.
 
-By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
+- **Bugs and features** → [open an issue](https://github.com/gombit-dev/gombit-forge/issues/new)
+- **Security vulnerabilities** → **not** an issue; see [SECURITY.md](SECURITY.md)
+- **Behaviour expectations** → [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 
 ## The one-sentence test
 
@@ -14,157 +17,192 @@ Every change is measured against the product thesis:
 
 If a change makes Forge a runtime dependency of generated apps, reimplements
 something Gombit already owns, or turns generated source into an editable
-round-trip representation, it is almost certainly wrong. See the locked
-decisions below.
+round-trip representation, it is almost certainly wrong. See
+[Locked decisions](#locked-decisions--do-not-re-litigate).
 
-## Read these first
+## Prerequisites
 
-- [`AGENTS.md`](AGENTS.md) — the working agreement, current state, and the
-  Gombit integration boundary. This is the single source kept current for what
-  has actually shipped.
-- [`docs/DESIGN.md`](docs/DESIGN.md) — product scope, milestones, and the locked
-  MVP decisions (§33).
-- [`docs/ADR-001.md`](docs/ADR-001.md) — identity, symbol allocation, file
-  ownership, and the backend extension ABI.
-- [`docs/ADR-004.md`](docs/ADR-004.md) — generation ownership. Read it before
-  writing any generator.
+| Tool | Version | Needed for |
+| --- | --- | --- |
+| Go | 1.25.7 (`go.mod` is authoritative; auto-resolves via `GOTOOLCHAIN`) | everything |
+| `gombit` CLI | ≥ v0.1.12 | the M0 end-to-end gate (scaffolds and runs a real app) |
+| Atlas | Community Edition | migration diffing in the e2e and control-plane tests |
+| Docker | any recent | throwaway Postgres for the e2e and control-plane tests |
+| Node.js | 22+ | the editor SPA under `controlplane/web` |
 
-The design docs describe a system that mostly does not exist yet. **Read the
-code, not just the docs**, before asserting how something works.
-
-## Development setup
-
-Requires **Go 1.25.7** (the toolchain auto-resolves via `GOTOOLCHAIN`).
+The root module's unit tests need **none** of the external tools — only Go.
+Install the `gombit` CLI when you need the integration suites:
 
 ```bash
-git clone https://github.com/gombit-dev/gombit-forge
+go install github.com/gombit-dev/gombit/cmd/gombit@v0.1.12
+```
+
+## Getting set up
+
+```bash
+git clone https://github.com/gombit-dev/gombit-forge.git
 cd gombit-forge
 go test ./... -short
 ```
 
-The root module's unit tests need no external toolchain. Two suites do:
+The repo is **two Go modules**: the root module
+(`github.com/gombit-dev/gombit-forge`) is the compiler and stays Gombit-free —
+it drives Gombit only through the CLI — and `controlplane/` is the Gombit
+application, where the runtime dependency on Gombit is allowed to live. Root
+`./...` never reaches into the nested module, so the control plane has its own
+`cp-*` make targets. A `go.work` at the repo root is a gitignored local-dev
+convenience; create it with `go work init . ./controlplane`. Never run
+`go work sync` — it rewrites the root module's `go.sum` to workspace-wide
+versions and drags Gombit into the Gombit-free compiler.
 
-- The **M0 end-to-end gate** scaffolds and runs a real application, so it wants
-  the [`gombit`](https://github.com/gombit-dev/gombit) CLI (**≥ v0.1.12**),
-  [`atlas`](https://atlasgo.io), and Docker on PATH. It skips automatically if
-  any is missing or if run with `-short`:
+## Read these first
 
-  ```bash
-  go test ./internal/compiler -run TestM0EndToEnd -v
-  ```
+The design docs describe intent, which has drifted from the code in both
+directions — much of the intended system now exists (F0–M3, M7), and some pieces
+never will (superseded by ADRs). **Read the code and check `gh issue list`**,
+not just the docs, before asserting how something works.
 
-- The **control-plane Postgres tests** (`controlplane/…`, via `make cp-test`)
-  apply the committed Atlas migration to a throwaway Postgres, so they need
-  `atlas` and Docker. They skip under `-short` and when Docker is absent; but
-  with Docker present and `atlas` missing they **fail** rather than skip, since
-  a green run that silently skipped every integration test is worse than a loud
-  one. CI runs them as `make cp-test-short`, which skips them.
+- [`AGENTS.md`](AGENTS.md) — the working agreement, current state, and the Gombit
+  integration boundary. The single source kept current for what has shipped.
+- [`docs/DESIGN.md`](docs/DESIGN.md) — product scope, milestones, locked MVP
+  decisions (§33).
+- [`docs/ADR-001.md`](docs/ADR-001.md) — identity, symbol allocation, file
+  ownership, the backend extension ABI.
+- [`docs/ADR-004.md`](docs/ADR-004.md) — generation ownership. Read it before
+  writing any generator.
 
-## Commands
+## How work is organised
+
+GitHub issues are the unit of work. Each carries an **area label** and lives
+under exactly one **milestone** (`F0`, then `M0`–`M7`). Epics are labelled
+`epic`; don't start a task whose epic describes an unmet prerequisite. Two things
+follow:
+
+- **One issue → one pull request** where practical, and the PR links its issue.
+- When editing issues, keep the existing milestone and area labels — don't
+  rename, re-bucket, or merge issues unasked. Close issues with one keyword each
+  (`Closes #2, closes #3`); a bare `Closes #2, #3` only closes the first.
+
+Check `gh issue list` and `git log` before claiming how anything works. If
+something looks missing from the backlog, say so in an issue rather than adding
+scope in a PR.
+
+## Making a change
+
+1. Branch from `main`. Branch names are free-form; `feat/…`, `fix/…`, `docs/…`
+   are common here.
+2. Write the change **and its tests**. For a bug, the regression test must
+   **fail without the fix and pass with it** — a test that passes both ways
+   proves nothing.
+3. Run the checks below and make them green.
+4. Open a PR against `main` describing what changed and why, and link the issue
+   it closes. Conventional-commit prefixes (`feat:`, `fix:`, `docs:`, `chore:`)
+   are expected in the title.
+
+## Local checks
+
+`make all` is the gate CI runs; run it before you push.
 
 ```bash
-make all           # fmt-check + vet + test + skills-check — the full CI gate
-make test          # go test ./... -count=1
+make all           # fmt-check + vet + test + skills-check + control-plane targets
+make test          # go test ./... -count=1   (root module)
 make race          # go test ./... -race
 make cover         # coverage summary
 make golden        # rewrite the canonical-JSON golden file (deliberate only)
 make skills-check  # the .claude and .cursor skill trees must match byte for byte
 ```
 
-CI runs `fmt-check`, `vet`, `skills-check`, `test`, and `race` on every push and
-pull request. `make all` is the gate to run locally before you push.
+### The end-to-end gate
 
-## How work is organized
+`TestM0EndToEnd` scaffolds a real Gombit app, migrates on Postgres, builds,
+boots, and exercises CRUD + admin. It needs `gombit`, `atlas`, and Docker on
+PATH and skips automatically without them or under `-short`:
 
-GitHub issues are the unit of work. Each issue carries an **area label** and
-lives under exactly one **milestone** (`F0`, then `M0`–`M7`). Epics are labelled
-`epic`; don't start a task whose epic describes an unmet prerequisite. Check
-`gh issue list` and `git log` before claiming how anything works.
+```bash
+go test ./internal/compiler -run TestM0EndToEnd -v
+```
 
-When editing issues, keep the existing milestone and area labels — don't rename,
-re-bucket, or merge issues unasked. Close issues with one keyword each
-(`Closes #2, closes #3`); a bare `Closes #2, #3` only closes the first.
+### The control plane
 
-## The skills, and why they are duplicated
+The control plane is a separate nested module, so root `./...` never covers it:
 
-This repo ships three task workflows as skills:
+```bash
+make cp-vet cp-build cp-test
+```
 
-- **`feature`** — implement a new capability.
-- **`bugfix`** — reproduce, fix, and regression-test a defect.
-- **`review`** — an adversarial merge-gate review that overrides the bundled
-  `/code-review` for this repo.
+`make cp-test` applies the committed Atlas migration to a throwaway Postgres, so
+it needs `atlas` and Docker. It skips under `-short` and when Docker is absent;
+with Docker present but `atlas` missing it **fails** rather than skips — a green
+run that silently skipped every integration test is worse than a loud one. CI
+runs `make cp-test-short`, which skips the boot tests.
 
-They live under `.claude/skills/<name>/SKILL.md` for Claude Code and
-`.cursor/skills/<name>/SKILL.md` for Cursor. **The two trees are duplicated, not
-shared** — Cursor does not reliably follow symlinks. `make skills-check` (run in
-CI) diffs them and fails on any drift. Everything must match byte for byte
-except each `review/SKILL.md`'s one-line pointer to its counterpart.
+### The editor SPA
 
-If you touch a skill: **edit both sides**, then run `make skills-check` before
-committing.
+```bash
+make web-check web-build web-test   # typecheck, build, unit-test controlplane/web
+```
 
-## Conventions that reviews enforce
+### The skills, and why they are duplicated
 
-- **Determinism is a contract, not a nicety.** The same compiler version and the
-  same spec must produce byte-identical output — no map iteration in ordered
-  output, no timestamps, no randomness in generated artifacts. `internal/spec`
-  has a golden file pinning canonical JSON; regenerate it deliberately with
-  `make golden`, never to make a test pass.
-- **Authored order is preserved, not sorted.** Order drives form-field order and
-  navigation order, so it is meaningful.
-- **Three states stay separate** (ADR-001 §36): spec validity, ABI
-  compatibility, and build health. Don't collapse them.
+This repo ships three task workflows as skills — **`feature`**, **`bugfix`**, and
+**`review`** (an adversarial merge-gate review that overrides the bundled
+`/code-review`). They live under `.claude/skills/<name>/SKILL.md` for Claude Code
+and `.cursor/skills/<name>/SKILL.md` for Cursor. **The two trees are duplicated,
+not shared** — Cursor does not reliably follow symlinks — so `make skills-check`
+(run in CI) diffs them and fails on any drift. Everything must match byte for
+byte except each `review/SKILL.md`'s one-line pointer to its counterpart. If you
+touch a skill: **edit both sides**, then run `make skills-check`.
+
+## Code review
+
+Before opening or merging a PR, review the diff as an adversarial senior
+reviewer against the working agreement and the change's claimed contract. Treat
+review findings as **claims, not facts**: reproduce a reported defect against the
+current code before fixing it, and confirm the fix. This repo ships a review
+skill for it — run `/review` in Claude Code or Cursor.
+
+## Working agreement
+
+A pull request is not done unless it satisfies these — the conventions reviews
+enforce (full text in [`AGENTS.md`](AGENTS.md)):
+
+- **Determinism is a contract, not a nicety.** The same compiler version and spec
+  must produce byte-identical output — no map iteration in ordered output, no
+  timestamps, no randomness. `internal/spec` pins canonical JSON in a golden
+  file; regenerate it with `make golden`, never to make a test pass.
+- **Authored order is preserved, not sorted** — it drives form-field and
+  navigation order.
+- **Three states stay separate** (ADR-001 §36): spec validity, ABI compatibility,
+  build health. Don't collapse them.
 - **Validation accumulates diagnostics** rather than failing on the first
-  problem, and every diagnostic carries a stable `Code` plus the offending
-  entity's stable ID.
-- **The graph refuses to build over an invalid spec**, so generation stages
-  carry no defensive nil checks. Preserve that invariant: if you add a reference
-  to the graph, resolve it to a pointer or don't claim it's resolved.
+  problem, each carrying a stable `Code` and the offending entity's stable ID.
+- **The graph refuses to build over an invalid spec**, so generation stages carry
+  no defensive nil checks — preserve that invariant.
 - **Generated code consumes Gombit's public APIs and never duplicates Gombit
-  infrastructure** (ADR-004 D3). No Forge-specific router, ORM layer,
-  auth/permission/admin implementation, divergent response envelope, or vendored
-  Gombit internals — and never import Gombit *internal* packages.
-- **Standard library first.** A dependency needs a reason.
-- **Comments explain why.** A comment that describes behavior the code doesn't
-  have is a bug, not a docs nit.
+  infrastructure** (ADR-004 D3): no Forge-specific router, ORM, auth/admin
+  implementation, or divergent response envelope, and never import Gombit
+  *internal* packages.
+- **Standard library first** — a dependency needs a reason.
+- **Comments explain why** — a comment describing behaviour the code lacks is a
+  bug, not a docs nit.
+- **Verify before asserting**, and **say what's done, what's skipped, and what's
+  uncertain** — report failures with their output.
 
 ## Locked decisions — do not re-litigate
 
-These are settled in DESIGN.md §33 and ADR-001. Changing one needs a new ADR,
-not a pull request:
+Settled in DESIGN.md §33 and ADR-001; changing one needs a new ADR, not a PR:
 
-- **D1 spec-first.** `ProjectSpec` is the source of truth. Generated source is
-  not an editable round-trip representation.
-- **D2 compiler, not runtime.** Generated apps are ordinary Gombit apps with no
-  Forge runtime dependency; a deployed app must keep working if Forge vanishes.
+- **D1 spec-first** — `ProjectSpec` is the source of truth; generated source is
+  not an editable round-trip.
+- **D2 compiler, not runtime** — generated apps are ordinary Gombit apps with no
+  Forge runtime; a deployed app keeps working if Forge vanishes.
 - **D4 PostgreSQL only** for managed hosting (export may target any driver);
   **D5 cookie/session auth**; **D6 structured pages, not a freeform canvas**;
-  **D10/D11 export is mandatory and one-way**; **D12 use Gombit's contracts** —
-  never build a Forge-specific auth, migration, API, admin, or ORM system.
-
-## Submitting a change
-
-1. Branch from `main`.
-2. Make the change with tests. For a bug, the regression test must **fail
-   without the fix and pass with it** — a test that passes both ways proves
-   nothing.
-3. Run `make all` and make it green.
-4. Open a pull request describing what changed and why, and link the issue it
-   closes.
-5. The adversarial review runs on the PR. Treat its findings as **claims, not
-   facts**: reproduce a reported defect against the current code before fixing
-   it, and confirm the fix. Push fixes and re-request review until it is clean
-   and CI is green.
-
-A few standing rules from the working agreement:
-
-- **Verify before asserting.** Read the code; the docs describe intent.
-- **Beware a panicking test** — it aborts the binary, so later subtests silently
-  never run and appear to pass.
-- **Say what's done, what's skipped, and what's uncertain.** Report failures
-  with their output.
+  **D7 Forge itself uses Gombit**; **D10/D11 export is mandatory and one-way**;
+  **D12 use Gombit's contracts** — never build a Forge-specific auth, migration,
+  API, admin, or ORM.
 
 ## License
 
-Forge is licensed under **AGPL-3.0** (see [LICENSE](LICENSE)). By contributing,
-you agree that your contributions are licensed under the same terms.
+Forge is licensed under [**AGPL-3.0**](LICENSE). By contributing, you agree that
+your contributions are licensed under the same terms.
