@@ -69,7 +69,7 @@ model set (auth, org tenancy, Project/Revision, audit, plus the
 holds the Atlas migrations that create it (`20260830074350_initial.sql` plus the
 github-connect and export-job follow-ups), authored via `gombit db makemigrations`
 per §14 — deployment migrates, never AutoMigrate (tests AutoMigrate only). #101
-(migration), #39 (project API), #40 (audit) and #41 are all **closed**; do not
+(migration), #39 (project API) and #40 (audit) are all **closed**; do not
 describe them as open.
 
 The **runtime** — build, deploy, environments, managed database, secrets,
@@ -79,8 +79,9 @@ revision to an ordinary Gombit application and hands the source to Cloud;
 Cloud counterpart. **M4–M6 are the not-yet-built Cloud-client integration**
 (submit source + track build, preview, deploy) and are blocked on those concrete
 Cloud APIs; don't describe them as existing, and don't invent or mock a Cloud
-API to start them. Secrets (#41) moved to Cloud. #182 (dashboard numeric
-aggregate cards, split from M3 #54) shipped once gombit v0.1.12 landed the
+API to start them. Secrets are Cloud's too (ADR-005), never a Forge store. #182
+(dashboard numeric aggregate cards, split from M3 #54) shipped once gombit
+v0.1.12 landed the
 aggregate contract.
 
 The repo is **two Go modules**. The root module
