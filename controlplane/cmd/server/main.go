@@ -14,12 +14,17 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gombit-dev/gombit/config"
 	"github.com/gombit-dev/gombit/framework"
 
+	"github.com/gombit-dev/gombit-forge/controlplane/internal/buildworker"
+	"github.com/gombit-dev/gombit-forge/controlplane/internal/cloudbuild"
+	"github.com/gombit-dev/gombit-forge/controlplane/internal/cloudclient"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/exportjob"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/exportworker"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/ghexport"
@@ -82,8 +87,22 @@ func main() {
 		}
 	}
 
+	// Cloud build/deploy (#103) is optional the same way: it registers only when
+	// the Gombit Cloud API URL + service token are configured, so the control
+	// plane runs fine without them (deploys are simply unavailable). Unset config
+	// means the feature is disabled — never a localhost fallback or a fallback
+	// identity.
+	stopBuildWorker := func() {}
+	if baseURL, token, ok := cloudConfig(); ok {
+		if err := registerCloudBuild(app, baseURL, token, &stopBuildWorker); err != nil {
+			_ = db.Close()
+			log.Fatal(err)
+		}
+	}
+
 	app.OnStop(func(context.Context) error {
-		stopWorker() // before closing the DB the worker uses
+		stopWorker()      // before closing the DB the workers use
+		stopBuildWorker() //
 		return db.Close()
 	})
 
@@ -178,6 +197,75 @@ func registerGitHubExport(app *framework.App, ghCfg githubexport.Config, stopWor
 		case <-done:
 		case <-time.After(10 * time.Second):
 			log.Printf("github export: worker did not stop within 10s; proceeding with shutdown")
+		}
+	}
+	return nil
+}
+
+// cloudConfig reads the Gombit Cloud API settings from the environment. It
+// reports ok=false (feature disabled) unless BOTH the base URL and the service
+// token are set — the two the worker cannot call Cloud without. The token is
+// Forge's own service-principal credential (service:forge-build-worker), a
+// deployment secret, never committed. Unset means deploy is disabled — never a
+// localhost fallback or a fallback identity.
+func cloudConfig() (baseURL, token string, ok bool) {
+	baseURL = strings.TrimRight(os.Getenv("GOMBIT_CLOUD_API_URL"), "/")
+	token = os.Getenv("GOMBIT_CLOUD_API_TOKEN")
+	if baseURL == "" || token == "" {
+		// A partial config is almost always a typo (a wrong var name, a missing
+		// secret) that would otherwise fail as a mystery at deploy time; surface it.
+		if baseURL != "" || token != "" {
+			log.Printf("gombit cloud: partially configured (need both GOMBIT_CLOUD_API_URL and GOMBIT_CLOUD_API_TOKEN); deploy disabled")
+		}
+		return "", "", false
+	}
+	return baseURL, token, true
+}
+
+// registerCloudBuild wires the asynchronous Cloud build/deploy (#103): the deploy
+// routes plus the background worker that assembles a revision's source, submits
+// it to Cloud, and reflects the build's state. Enqueue happens in the HTTP
+// request; the toolchain-heavy assembly + submission runs only in the worker
+// (D8). The worker's Cloud client carries Forge's service-principal token, so
+// Cloud attributes the actor to the service, never the initiating user.
+//
+// It sets *stopWorker to the worker's cancel func so main can stop it on shutdown
+// before closing the database the worker uses.
+func registerCloudBuild(app *framework.App, baseURL, token string, stopWorker *func()) error {
+	db := app.DB()
+	jobs := cloudbuild.NewService(db)
+	projectSvc := project.NewService(db)
+	if err := cloudbuild.Register(app, jobs, projectSvc, org.NewService(db)); err != nil {
+		return err
+	}
+
+	// Query the gombit toolchain version once for build provenance (the assembler
+	// needs the toolchain anyway); if unavailable, provenance records "unknown"
+	// rather than failing startup.
+	cli := &gombit.CLI{}
+	gombitVersion := "unknown"
+	if v, err := cli.Version(context.Background()); err == nil {
+		gombitVersion = v.String()
+	} else {
+		log.Printf("gombit cloud: gombit toolchain version unavailable (%v); provenance will record %q", err, gombitVersion)
+	}
+
+	// A generous whole-request timeout so a large source upload over a slow link
+	// isn't cut off by a short default (the upload's duration scales with archive
+	// size); per-request cancellation still rides on ctx.
+	cloud := &cloudclient.Client{BaseURL: baseURL, Token: token, HTTP: &http.Client{Timeout: 10 * time.Minute}}
+	asm := buildworker.NewSourceAssembler(compiler.GombitToolchain{CLI: cli}, gombitVersion)
+	worker := buildworker.New(jobs, projectspec.NewSource(projectSvc), asm, cloud, buildworker.Options{}, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { worker.Run(ctx); close(done) }()
+	*stopWorker = func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			log.Printf("gombit cloud: build worker did not stop within 10s; proceeding with shutdown")
 		}
 	}
 	return nil
