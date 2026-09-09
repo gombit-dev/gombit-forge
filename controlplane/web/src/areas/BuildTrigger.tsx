@@ -16,6 +16,12 @@ const DEBOUNCE_MS = 4000;
 // commits a meaningful change. Builds are asynchronous (D8): this enqueues one and
 // hands the new job up; the Deploy area tracks it. Auto-rebuild only ever triggers
 // the same enqueue a person could, so it adds no new authority.
+//
+// The debounce is a true quiet-period one, with no max-wait: while the head keeps
+// advancing (steady commits), the rebuild is intentionally postponed until edits
+// settle, so it never builds mid-burst. A project under continuous change thus
+// defers its auto-rebuild indefinitely — the correct behavior for a preview
+// convenience, not a bug.
 export function BuildTrigger({
   projectID,
   onBuildStarted,
@@ -77,6 +83,7 @@ export function BuildTrigger({
       getProject(projectID)
         .then((p) => {
           if (!active) return;
+          setError(null); // a successful poll clears a prior transient error
           const head = p.head_revision_id ?? null;
           if (!initialized) {
             initialized = true;
