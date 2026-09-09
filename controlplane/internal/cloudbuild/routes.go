@@ -175,10 +175,15 @@ func (h *handler) get(ctx context.Context, in *getInput) (*getOutput, error) {
 	if err != nil {
 		return nil, contract.WithContext(ctx, contract.Internal("could not load the build job"))
 	}
-	// A job is owned by the user who initiated it. A non-owner (or a missing job)
-	// gets the same NotFound — no IDOR, and existence isn't leaked across users.
-	if !ok || job.UserID != user.ID {
+	if !ok {
 		return nil, contract.WithContext(ctx, contract.NotFound("build job not found"))
+	}
+	// Deploy history is project-scoped, not initiator-private: any project viewer
+	// can poll any of the project's jobs, consistent with the list endpoint (which
+	// already exposes the same fields). A non-viewer, or a vanished project, maps
+	// to the same build-job NotFound, so a job's existence isn't leaked.
+	if _, err := h.resolveAuthorized(ctx, job.ProjectID, user.ID, org.CapProjectView); err != nil {
+		return nil, mapAuthErr(ctx, err, "build job")
 	}
 	return &getOutput{Body: contract.Data[jobData]{Data: toJobData(job)}}, nil
 }
@@ -209,8 +214,9 @@ func (h *handler) list(ctx context.Context, in *listInput) (*listOutput, error) 
 	return &listOutput{Body: contract.Data[[]jobData]{Data: out}}, nil
 }
 
-// loadAuthorized resolves and authorizes the project for the caller, mapping a
-// non-member and a missing/invalid project alike to NotFound (tenancy-safe).
+// loadAuthorized resolves and authorizes the project named in a path param for
+// the caller, mapping a non-member and a missing/invalid project alike to
+// NotFound (tenancy-safe).
 func (h *handler) loadAuthorized(ctx context.Context, projectIDParam string, capability org.Capability) (project.Project, auth.User, error) {
 	user, err := caller(ctx)
 	if err != nil {
@@ -220,20 +226,38 @@ func (h *handler) loadAuthorized(ctx context.Context, projectIDParam string, cap
 	if err != nil {
 		return project.Project{}, auth.User{}, contract.WithContext(ctx, contract.NotFound("project not found"))
 	}
-	p, err := h.projects.GetProject(ctx, projectID)
+	p, err := h.resolveAuthorized(ctx, projectID, user.ID, capability)
 	if err != nil {
-		if errors.Is(err, project.ErrProjectNotFound) {
-			return project.Project{}, auth.User{}, contract.WithContext(ctx, contract.NotFound("project not found"))
-		}
-		return project.Project{}, auth.User{}, contract.WithContext(ctx, contract.Internal("could not load the project"))
-	}
-	if err := h.authz.Authorize(ctx, p.OrganizationID, user.ID, capability); err != nil {
-		if errors.Is(err, org.ErrNotMember) || errors.Is(err, org.ErrForbidden) {
-			return project.Project{}, auth.User{}, contract.WithContext(ctx, contract.NotFound("project not found"))
-		}
-		return project.Project{}, auth.User{}, contract.WithContext(ctx, contract.Internal("could not authorize the project"))
+		return project.Project{}, auth.User{}, mapAuthErr(ctx, err, "project")
 	}
 	return p, user, nil
+}
+
+// resolveAuthorized loads the project and checks the capability, returning the
+// *unmapped* domain error (project.ErrProjectNotFound / org.ErrNotMember /
+// org.ErrForbidden) or a genuine fault — so each caller maps it to the right
+// resource's NotFound (a project route says "project", the job route says "build
+// job"), rather than leaking that a job's project is the thing that was missing.
+func (h *handler) resolveAuthorized(ctx context.Context, projectID, userID uint, capability org.Capability) (project.Project, error) {
+	p, err := h.projects.GetProject(ctx, projectID)
+	if err != nil {
+		return project.Project{}, err
+	}
+	if err := h.authz.Authorize(ctx, p.OrganizationID, userID, capability); err != nil {
+		return project.Project{}, err
+	}
+	return p, nil
+}
+
+// mapAuthErr maps a resolveAuthorized error to a contract error: a missing
+// project, a non-member, and a forbidden caller all collapse to NotFound on
+// resource (tenancy-safe — no existence leak, no absent/forbidden distinction);
+// anything else is a genuine fault (500).
+func mapAuthErr(ctx context.Context, err error, resource string) error {
+	if errors.Is(err, project.ErrProjectNotFound) || errors.Is(err, org.ErrNotMember) || errors.Is(err, org.ErrForbidden) {
+		return contract.WithContext(ctx, contract.NotFound(resource+" not found"))
+	}
+	return contract.WithContext(ctx, contract.Internal("could not authorize the "+resource))
 }
 
 func caller(ctx context.Context) (auth.User, error) {

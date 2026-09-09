@@ -3,6 +3,7 @@ package cloudbuild_test
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -121,6 +122,24 @@ func TestDeployRejectsUnlinkedProject(t *testing.T) {
 	resp := fx.api.Post("/api/v1/projects/1/deploy", fx.cookie(t, user))
 	if resp.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("deploy unlinked → %d, want 422: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestGetBuildJobIsProjectScoped(t *testing.T) {
+	// Deploy history is project-scoped: a project viewer who did NOT initiate a
+	// job can still poll it (the regression the get/list mismatch would cause).
+	fx := newRoutesFixture(t, fakeProjects{proj: cloudLinked("prj_cloud")}, fakeAuthz{})
+	viewer := fx.seedUser(t, "viewer@example.test")
+
+	// A job initiated by a different user (id 999).
+	job, err := fx.jobs.Enqueue(context.Background(), 1, 42, 999, "prj_cloud")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp := fx.api.Get("/api/v1/build-jobs/"+strconv.FormatUint(uint64(job.ID), 10), fx.cookie(t, viewer))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("viewer (non-initiator) get → %d, want 200: %s", resp.Code, resp.Body.String())
 	}
 }
 
