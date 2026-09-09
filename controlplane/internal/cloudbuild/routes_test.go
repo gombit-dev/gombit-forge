@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/cloudbuild"
+	"github.com/gombit-dev/gombit-forge/controlplane/internal/cloudclient"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/dbtest"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/org"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/project"
@@ -38,6 +40,21 @@ type fakeAuthz struct{ err error }
 
 func (f fakeAuthz) Authorize(context.Context, uint, uint, org.Capability) error { return f.err }
 
+// fakeLogs returns fixed log lines (recording the args it was called with).
+type fakeLogs struct {
+	lines     []cloudclient.BuildLog
+	err       error
+	gotBuild  string
+	gotSince  string
+	callCount int
+}
+
+func (f *fakeLogs) GetBuildLogs(_ context.Context, buildID, since string) ([]cloudclient.BuildLog, error) {
+	f.callCount++
+	f.gotBuild, f.gotSince = buildID, since
+	return f.lines, f.err
+}
+
 type routesFixture struct {
 	api     humatest.TestAPI
 	authSvc *auth.Service
@@ -46,6 +63,10 @@ type routesFixture struct {
 }
 
 func newRoutesFixture(t *testing.T, projects cloudbuild.Projects, authz cloudbuild.Authorizer) *routesFixture {
+	return newRoutesFixtureWithLogs(t, projects, authz, &fakeLogs{})
+}
+
+func newRoutesFixtureWithLogs(t *testing.T, projects cloudbuild.Projects, authz cloudbuild.Authorizer, logs cloudbuild.BuildLogs) *routesFixture {
 	t.Helper()
 	db := dbtest.DB(t)
 	cfg := config.Config{Auth: config.AuthConfig{
@@ -60,7 +81,7 @@ func newRoutesFixture(t *testing.T, projects cloudbuild.Projects, authz cloudbui
 	}
 	jobs := cloudbuild.NewService(db)
 	_, api := humatest.New(t)
-	cloudbuild.RegisterRoutes(api, "/api/v1", huma.Middlewares{authSvc.RequireCookieSession()}, jobs, projects, authz)
+	cloudbuild.RegisterRoutes(api, "/api/v1", huma.Middlewares{authSvc.RequireCookieSession()}, jobs, projects, authz, logs)
 	return &routesFixture{api: api, authSvc: authSvc, jobs: jobs, db: db}
 }
 
@@ -140,6 +161,58 @@ func TestGetBuildJobIsProjectScoped(t *testing.T) {
 	resp := fx.api.Get("/api/v1/build-jobs/"+strconv.FormatUint(uint64(job.ID), 10), fx.cookie(t, viewer))
 	if resp.Code != http.StatusOK {
 		t.Fatalf("viewer (non-initiator) get → %d, want 200: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestBuildJobLogsRelayedFromCloud(t *testing.T) {
+	logs := &fakeLogs{lines: []cloudclient.BuildLog{{Timestamp: "2026-01-01T00:00:00Z", Stream: "build", Message: "cloning repo"}}}
+	fx := newRoutesFixtureWithLogs(t, fakeProjects{proj: cloudLinked("prj_cloud")}, fakeAuthz{}, logs)
+	user := fx.seedUser(t, "viewer@example.test")
+	ctx := context.Background()
+
+	job, err := fx.jobs.Enqueue(ctx, 1, 42, user, "prj_cloud")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Give the job a Cloud build id: claim (→running), then record it.
+	if _, _, err := fx.jobs.Claim(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.jobs.SetCloudBuild(ctx, job.ID, "bld_9"); err != nil {
+		t.Fatal(err)
+	}
+
+	path := "/api/v1/build-jobs/" + strconv.FormatUint(uint64(job.ID), 10) + "/logs?since=2026-01-01T00:00:00Z"
+	resp := fx.api.Get(path, fx.cookie(t, user))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("logs → %d: %s", resp.Code, resp.Body.String())
+	}
+	// The job's Cloud build id and the ?since are forwarded to Cloud.
+	if logs.gotBuild != "bld_9" || logs.gotSince != "2026-01-01T00:00:00Z" {
+		t.Fatalf("GetBuildLogs(build=%q, since=%q)", logs.gotBuild, logs.gotSince)
+	}
+	if !strings.Contains(resp.Body.String(), "cloning repo") {
+		t.Fatalf("logs body missing the relayed line: %s", resp.Body.String())
+	}
+}
+
+func TestBuildJobLogsEmptyBeforeCloudBuild(t *testing.T) {
+	logs := &fakeLogs{}
+	fx := newRoutesFixtureWithLogs(t, fakeProjects{proj: cloudLinked("prj_cloud")}, fakeAuthz{}, logs)
+	user := fx.seedUser(t, "viewer@example.test")
+
+	// A freshly queued job has no Cloud build yet.
+	job, err := fx.jobs.Enqueue(context.Background(), 1, 42, user, "prj_cloud")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := fx.api.Get("/api/v1/build-jobs/"+strconv.FormatUint(uint64(job.ID), 10)+"/logs", fx.cookie(t, user))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("logs → %d", resp.Code)
+	}
+	// Cloud is not called when there's no build id — empty logs, not an error.
+	if logs.callCount != 0 {
+		t.Fatalf("GetBuildLogs called %d times before a cloud build exists", logs.callCount)
 	}
 }
 

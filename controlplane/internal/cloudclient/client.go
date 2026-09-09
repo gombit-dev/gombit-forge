@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -37,6 +38,14 @@ type Build struct {
 	ID             string `json:"id"`
 	Status         string `json:"status"`
 	ArtifactDigest string `json:"artifact_digest,omitempty"`
+}
+
+// BuildLog is one build log line as Cloud returns it (§40). Forge reads these
+// from Cloud and relays them; it never stores them (ADR-005 §24).
+type BuildLog struct {
+	Timestamp string `json:"timestamp"`
+	Stream    string `json:"stream,omitempty"`
+	Message   string `json:"message"`
 }
 
 // Error is a non-2xx Cloud response, carrying the D10 error envelope's code and
@@ -90,6 +99,24 @@ func (c *Client) GetBuild(ctx context.Context, cloudProjectID, buildID string) (
 		return Build{}, err
 	}
 	return b, nil
+}
+
+// GetBuildLogs reads a build's log lines from Cloud, optionally only those after
+// `since` (an RFC3339 timestamp) for tailing. §51 GET /builds/{buildID}/logs.
+// The build id addresses the log owner directly, so no Cloud project id is
+// needed. An empty `since` returns all lines.
+func (c *Client) GetBuildLogs(ctx context.Context, buildID, since string) ([]BuildLog, error) {
+	path := "/builds/" + buildID + "/logs"
+	if since != "" {
+		path += "?since=" + url.QueryEscape(since)
+	}
+	var wrap struct {
+		Logs []BuildLog `json:"logs"`
+	}
+	if err := c.do(ctx, http.MethodGet, path, "", nil, &wrap); err != nil {
+		return nil, err
+	}
+	return wrap.Logs, nil
 }
 
 // do issues a request against the §51 API and unwraps the D10 envelope. On a

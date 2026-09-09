@@ -235,7 +235,13 @@ func registerCloudBuild(app *framework.App, baseURL, token string, stopWorker *f
 	db := app.DB()
 	jobs := cloudbuild.NewService(db)
 	projectSvc := project.NewService(db)
-	if err := cloudbuild.Register(app, jobs, projectSvc, org.NewService(db)); err != nil {
+
+	// A generous whole-request timeout so a large source upload over a slow link
+	// isn't cut off by a short default (the upload's duration scales with archive
+	// size); per-request cancellation still rides on ctx. The same client serves
+	// both the worker (submit/track) and the routes' build-log relay.
+	cloud := &cloudclient.Client{BaseURL: baseURL, Token: token, HTTP: &http.Client{Timeout: 10 * time.Minute}}
+	if err := cloudbuild.Register(app, jobs, projectSvc, org.NewService(db), cloud); err != nil {
 		return err
 	}
 
@@ -249,11 +255,6 @@ func registerCloudBuild(app *framework.App, baseURL, token string, stopWorker *f
 	} else {
 		log.Printf("gombit cloud: gombit toolchain version unavailable (%v); provenance will record %q", err, gombitVersion)
 	}
-
-	// A generous whole-request timeout so a large source upload over a slow link
-	// isn't cut off by a short default (the upload's duration scales with archive
-	// size); per-request cancellation still rides on ctx.
-	cloud := &cloudclient.Client{BaseURL: baseURL, Token: token, HTTP: &http.Client{Timeout: 10 * time.Minute}}
 	asm := buildworker.NewSourceAssembler(compiler.GombitToolchain{CLI: cli}, gombitVersion)
 	worker := buildworker.New(jobs, projectspec.NewSource(projectSvc), asm, cloud, buildworker.Options{}, nil)
 
