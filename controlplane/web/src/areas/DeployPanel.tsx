@@ -11,6 +11,7 @@ import {
   type Deployment,
   type Environment,
 } from "../api/deploy";
+import { formatTime } from "../format";
 import { AppLogViewer } from "./AppLogViewer";
 
 // DeployPanel is the #105 deploy action: pick one of the project's Gombit Cloud
@@ -204,11 +205,6 @@ export function DeployPanel({
       )}
     </div>
   );
-}
-
-function formatTime(ts: string): string {
-  const d = new Date(ts);
-  return Number.isNaN(d.getTime()) ? ts : d.toISOString().replace("T", " ").replace("Z", "");
 }
 
 // DeploymentStatus renders Cloud's view of a deployment: the block banner when it

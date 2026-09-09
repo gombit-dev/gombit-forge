@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { describeError } from "../api/client";
 import { getDeploymentLogs, type DeploymentLog } from "../api/deploy";
+import { formatTime } from "../format";
 
 // The most recent lines kept in view. Application logs are unbounded (a running
 // app emits continuously), so the tail is capped to keep the DOM and memory
@@ -33,12 +34,17 @@ export function AppLogViewer({
   const [error, setError] = useState<string | null>(null);
   // The tail cursor: the timestamp of the last line seen, sent as `since`.
   const since = useRef<string>("");
+  // Ids already appended. Cloud filters ?since inclusively (Timestamp >= since),
+  // so the boundary line comes back on the next tick; timestamps aren't unique,
+  // so we dedup on Cloud's stable per-line id rather than on the clock.
+  const seen = useRef<Set<string>>(new Set());
 
   // Reset when the deployment changes — a new deployment tails from scratch.
   useEffect(() => {
     setLogs([]);
     setError(null);
     since.current = "";
+    seen.current = new Set();
   }, [deploymentID]);
 
   useEffect(() => {
@@ -50,11 +56,22 @@ export function AppLogViewer({
         .then((lines) => {
           if (!active) return;
           setError(null);
-          if (lines.length > 0) {
-            since.current = lines[lines.length - 1].timestamp;
+          // Drop lines already appended (the inclusive-since boundary), then
+          // advance the cursor to the newest line actually returned.
+          const fresh = lines.filter((l) => !seen.current.has(l.id));
+          if (lines.length > 0) since.current = lines[lines.length - 1].timestamp;
+          if (fresh.length > 0) {
+            for (const l of fresh) seen.current.add(l.id);
             setLogs((prev) => {
-              const next = prev.concat(lines);
-              return next.length > MAX_LINES ? next.slice(next.length - MAX_LINES) : next;
+              const next = prev.concat(fresh);
+              if (next.length > MAX_LINES) {
+                const trimmed = next.slice(next.length - MAX_LINES);
+                // Keep `seen` bounded to what's still displayed so it can't grow
+                // without limit on a long-lived tail.
+                seen.current = new Set(trimmed.map((l) => l.id));
+                return trimmed;
+              }
+              return next;
             });
           }
           // Keep tailing a live deployment; a stopped one has no more lines.
@@ -108,9 +125,4 @@ export function AppLogViewer({
       )}
     </div>
   );
-}
-
-function formatTime(ts: string): string {
-  const d = new Date(ts);
-  return Number.isNaN(d.getTime()) ? ts : d.toISOString().replace("T", " ").replace("Z", "");
 }

@@ -485,10 +485,11 @@ func (h *handler) getDeployment(ctx context.Context, in *getDeploymentInput) (*g
 // own shape, so the Cloud transport type doesn't leak into the API. Stream is
 // Cloud's log channel (stdout/stderr); the UI renders it as the line's level.
 type appLogLine struct {
+	ID         string `json:"id" doc:"Cloud's stable per-line id, used by the tail to dedup the inclusive-since boundary"`
 	Timestamp  string `json:"timestamp"`
 	Stream     string `json:"stream,omitempty"`
 	Message    string `json:"message"`
-	InstanceID string `json:"instance_id,omitempty"`
+	InstanceID string `json:"instance_id,omitempty" doc:"The runtime instance that emitted the line, when Cloud reports it"`
 	RequestID  string `json:"request_id,omitempty"`
 }
 
@@ -504,10 +505,19 @@ type deploymentLogsOutput struct {
 }
 
 func (h *handler) deploymentLogs(ctx context.Context, in *deploymentLogsInput) (*deploymentLogsOutput, error) {
-	// Reading application logs is a project read; gate on view. The env-ownership
-	// check bounds the deployment to a project the caller holds view on.
+	// Reading application logs is a project read; gate on view.
 	if _, err := h.authorizedEnv(ctx, in.ProjectID, in.EnvID, org.CapProjectView); err != nil {
 		return nil, err
+	}
+	// authorizedEnv proves EnvID is the project's — NOT that this deployment lives
+	// in it. The Cloud log endpoint is addressed by deployment id alone (GET
+	// /deployments/{id}/logs) and Forge calls Cloud under a global service token
+	// that can see every tenant's deployments, so reading a caller-supplied
+	// deployment id without binding it to the authorized env would leak another
+	// tenant's application logs. GetDeployment is env-scoped by Cloud, so a
+	// deployment outside EnvID 404s here before any log is read.
+	if _, err := h.cloud.GetDeployment(ctx, in.EnvID, in.DeploymentID); err != nil {
+		return nil, mapCloudErr(ctx, err, "deployment")
 	}
 	lines, err := h.cloud.GetDeploymentLogs(ctx, in.DeploymentID, in.Since)
 	if err != nil {
@@ -515,7 +525,7 @@ func (h *handler) deploymentLogs(ctx context.Context, in *deploymentLogsInput) (
 	}
 	out := make([]appLogLine, 0, len(lines))
 	for _, l := range lines {
-		out = append(out, appLogLine{Timestamp: l.Timestamp, Stream: l.Stream, Message: l.Message, InstanceID: l.InstanceID, RequestID: l.RequestID})
+		out = append(out, appLogLine{ID: l.ID, Timestamp: l.Timestamp, Stream: l.Stream, Message: l.Message, InstanceID: l.InstanceID, RequestID: l.RequestID})
 	}
 	return &deploymentLogsOutput{Body: contract.Data[[]appLogLine]{Data: out}}, nil
 }

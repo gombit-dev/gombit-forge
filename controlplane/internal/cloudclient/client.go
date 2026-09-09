@@ -99,6 +99,10 @@ type Deployment struct {
 // (ADR-005 §24). Stream is Cloud's log channel (e.g. stdout/stderr); RequestID
 // correlates a line to a request when the app emits it.
 type DeploymentLog struct {
+	// ID is Cloud's stable per-line id (§40). A client tailing with ?since (which
+	// Cloud filters inclusively) uses it to drop the boundary line it already has,
+	// rather than deduping on a non-unique wall-clock timestamp.
+	ID         string `json:"id"`
 	Timestamp  string `json:"timestamp"`
 	Stream     string `json:"stream,omitempty"`
 	Message    string `json:"message"`

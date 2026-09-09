@@ -52,17 +52,18 @@ type fakeLogs struct {
 	callCount int
 
 	// Deploy surface.
-	envs        []cloudclient.Environment
-	envsErr     error
-	deployment  cloudclient.Deployment
-	deployErr   error
-	gotEnvID    string
-	gotBuildID  string
-	gotDeployID string
-	rollbackErr error
-	didRollback bool
-	appLogs     []cloudclient.DeploymentLog
-	appLogsErr  error
+	envs            []cloudclient.Environment
+	envsErr         error
+	deployment      cloudclient.Deployment
+	deployErr       error
+	gotEnvID        string
+	gotBuildID      string
+	gotDeployID     string
+	rollbackErr     error
+	didRollback     bool
+	appLogs         []cloudclient.DeploymentLog
+	appLogsErr      error
+	gotLogsDeployID string
 }
 
 func (f *fakeLogs) GetBuildLogs(_ context.Context, buildID, since string) ([]cloudclient.BuildLog, error) {
@@ -72,7 +73,7 @@ func (f *fakeLogs) GetBuildLogs(_ context.Context, buildID, since string) ([]clo
 }
 
 func (f *fakeLogs) GetDeploymentLogs(_ context.Context, deploymentID, since string) ([]cloudclient.DeploymentLog, error) {
-	f.gotDeployID, f.gotSince = deploymentID, since
+	f.gotLogsDeployID, f.gotSince = deploymentID, since
 	return f.appLogs, f.appLogsErr
 }
 
@@ -425,13 +426,34 @@ func TestDeploymentLogsRelayedFromCloud(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("deployment logs → %d: %s", resp.Code, resp.Body.String())
 	}
-	// The deployment id + ?since are forwarded to Cloud; the four fields relayed.
-	if cloud.gotDeployID != "dep_1" || cloud.gotSince != "2026-01-01T00:00:00Z" {
-		t.Fatalf("cloud got dep=%q since=%q", cloud.gotDeployID, cloud.gotSince)
+	// The deployment id + ?since are forwarded to Cloud's log endpoint; relayed.
+	if cloud.gotLogsDeployID != "dep_1" || cloud.gotSince != "2026-01-01T00:00:00Z" {
+		t.Fatalf("cloud got logs dep=%q since=%q", cloud.gotLogsDeployID, cloud.gotSince)
 	}
 	body := resp.Body.String()
 	if !strings.Contains(body, `"listening"`) || !strings.Contains(body, `"req_9"`) || !strings.Contains(body, `"stdout"`) {
 		t.Fatalf("logs body = %s", body)
+	}
+}
+
+func TestDeploymentLogsForeignDeploymentIsNotFound(t *testing.T) {
+	// The env is the caller's, but the deployment id belongs to another tenant.
+	// Binding the deployment to the env (GetDeployment is Cloud-env-scoped) must
+	// 404 BEFORE any log is read — otherwise Forge's global service token would
+	// relay another tenant's application logs (cross-tenant IDOR).
+	cloud := &fakeLogs{
+		envs:      []cloudclient.Environment{{ID: "env_prod"}},
+		deployErr: &cloudclient.Error{Status: http.StatusNotFound, Code: "not_found", Message: "deployment not found"},
+	}
+	fx := newRoutesFixtureWithLogs(t, fakeProjects{proj: cloudLinked("prj_cloud")}, fakeAuthz{}, cloud)
+	user := fx.seedUser(t, "viewer@example.test")
+
+	resp := fx.api.Get("/api/v1/projects/1/environments/env_prod/deployments/dep_from_other_tenant/logs", fx.cookie(t, user))
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("foreign-deployment logs → %d, want 404: %s", resp.Code, resp.Body.String())
+	}
+	if cloud.gotLogsDeployID != "" {
+		t.Fatalf("the log fetch must never be reached for a deployment outside the env (got %q)", cloud.gotLogsDeployID)
 	}
 }
 
@@ -446,7 +468,7 @@ func TestDeploymentLogsForeignEnvIsNotFound(t *testing.T) {
 	if resp.Code != http.StatusNotFound {
 		t.Fatalf("foreign-env logs → %d, want 404: %s", resp.Code, resp.Body.String())
 	}
-	if cloud.gotDeployID != "" {
+	if cloud.gotLogsDeployID != "" {
 		t.Fatalf("GetDeploymentLogs must not be called for a foreign env")
 	}
 }

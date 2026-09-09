@@ -71,7 +71,11 @@ export function isPreviewEnvironment(env: Environment): boolean {
 
 // One application/runtime log line for a deployment, read from Cloud (§40).
 // `stream` is Cloud's channel (stdout/stderr) — surfaced as the line's level.
+// `id` is Cloud's stable per-line id, used to dedup the tail's inclusive-since
+// boundary line. `instance_id` is carried from the wire but not shown in the
+// deploy-tab tail (kept for a fuller viewer later).
 export interface DeploymentLog {
+  id: string;
   timestamp: string;
   stream?: string;
   message: string;
