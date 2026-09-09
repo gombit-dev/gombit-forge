@@ -40,19 +40,52 @@ type fakeAuthz struct{ err error }
 
 func (f fakeAuthz) Authorize(context.Context, uint, uint, org.Capability) error { return f.err }
 
-// fakeLogs returns fixed log lines (recording the args it was called with).
+// fakeLogs is the test double for the Cloud client the deploy routes call. It
+// returns fixed log lines, environments and deployments and records the args it
+// was called with, so the route logic (auth, env-ownership, error mapping,
+// pass-through) is tested without a live Cloud.
 type fakeLogs struct {
 	lines     []cloudclient.BuildLog
 	err       error
 	gotBuild  string
 	gotSince  string
 	callCount int
+
+	// Deploy surface.
+	envs        []cloudclient.Environment
+	envsErr     error
+	deployment  cloudclient.Deployment
+	deployErr   error
+	gotEnvID    string
+	gotBuildID  string
+	gotDeployID string
+	rollbackErr error
+	didRollback bool
 }
 
 func (f *fakeLogs) GetBuildLogs(_ context.Context, buildID, since string) ([]cloudclient.BuildLog, error) {
 	f.callCount++
 	f.gotBuild, f.gotSince = buildID, since
 	return f.lines, f.err
+}
+
+func (f *fakeLogs) ListEnvironments(_ context.Context, _ string) ([]cloudclient.Environment, error) {
+	return f.envs, f.envsErr
+}
+
+func (f *fakeLogs) CreateDeployment(_ context.Context, envID, buildID string) (cloudclient.Deployment, error) {
+	f.gotEnvID, f.gotBuildID = envID, buildID
+	return f.deployment, f.deployErr
+}
+
+func (f *fakeLogs) GetDeployment(_ context.Context, envID, deploymentID string) (cloudclient.Deployment, error) {
+	f.gotEnvID, f.gotDeployID = envID, deploymentID
+	return f.deployment, f.deployErr
+}
+
+func (f *fakeLogs) Rollback(_ context.Context, envID string) (cloudclient.Deployment, error) {
+	f.gotEnvID, f.didRollback = envID, true
+	return f.deployment, f.rollbackErr
 }
 
 type routesFixture struct {
@@ -66,7 +99,7 @@ func newRoutesFixture(t *testing.T, projects cloudbuild.Projects, authz cloudbui
 	return newRoutesFixtureWithLogs(t, projects, authz, &fakeLogs{})
 }
 
-func newRoutesFixtureWithLogs(t *testing.T, projects cloudbuild.Projects, authz cloudbuild.Authorizer, logs cloudbuild.BuildLogs) *routesFixture {
+func newRoutesFixtureWithLogs(t *testing.T, projects cloudbuild.Projects, authz cloudbuild.Authorizer, logs cloudbuild.Cloud) *routesFixture {
 	t.Helper()
 	db := dbtest.DB(t)
 	cfg := config.Config{Auth: config.AuthConfig{
@@ -224,5 +257,169 @@ func TestDeployRequiresAuth(t *testing.T) {
 	resp := fx.api.Post("/api/v1/projects/1/deploy")
 	if resp.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated deploy → %d, want 401", resp.Code)
+	}
+}
+
+// --- Deploy surface (#105): environments, deploy-to-env, status, rollback ---
+
+func TestListEnvironments(t *testing.T) {
+	cloud := &fakeLogs{envs: []cloudclient.Environment{
+		{ID: "env_prod", Name: "production", Kind: "persistent"},
+		{ID: "env_stg", Name: "staging", Kind: "persistent"},
+	}}
+	fx := newRoutesFixtureWithLogs(t, fakeProjects{proj: cloudLinked("prj_cloud")}, fakeAuthz{}, cloud)
+	user := fx.seedUser(t, "viewer@example.test")
+
+	resp := fx.api.Get("/api/v1/projects/1/environments", fx.cookie(t, user))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("list environments → %d: %s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), `"env_prod"`) || !strings.Contains(resp.Body.String(), `"staging"`) {
+		t.Fatalf("environments body = %s", resp.Body.String())
+	}
+}
+
+func TestListEnvironmentsUnlinkedProject(t *testing.T) {
+	// A project with no Cloud link has no environments to list — 422, not a 500.
+	fx := newRoutesFixtureWithLogs(t,
+		fakeProjects{proj: project.Project{ID: 1, OrganizationID: 7}}, fakeAuthz{}, &fakeLogs{})
+	user := fx.seedUser(t, "viewer@example.test")
+
+	resp := fx.api.Get("/api/v1/projects/1/environments", fx.cookie(t, user))
+	if resp.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("list environments unlinked → %d, want 422: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestDeployBuildToEnvironmentSurfacesBlock(t *testing.T) {
+	// Cloud creates the deployment and returns it held on a destructive migration
+	// (a legitimate lifecycle state, not an error). Forge passes the block through —
+	// it never approves (L10).
+	cloud := &fakeLogs{
+		envs: []cloudclient.Environment{{ID: "env_prod", Name: "production"}},
+		deployment: cloudclient.Deployment{
+			ID: "dep_1", EnvironmentID: "env_prod", BuildID: "bld_1", Status: "blocked_pending_approval",
+			Block: &cloudclient.DeploymentBlock{Code: "migration_approval_required", MigrationID: "mig_7", ApprovalURL: "https://console.example/databases/db_2/migrations"},
+		},
+	}
+	fx := newRoutesFixtureWithLogs(t, fakeProjects{proj: cloudLinked("prj_cloud")}, fakeAuthz{}, cloud)
+	user := fx.seedUser(t, "dev@example.test")
+
+	resp := fx.api.Post("/api/v1/projects/1/environments/env_prod/deployments", fx.cookie(t, user),
+		map[string]any{"build_id": "bld_1"})
+	if resp.Code != http.StatusAccepted {
+		t.Fatalf("deploy → %d, want 202: %s", resp.Code, resp.Body.String())
+	}
+	// The chosen env + build were forwarded to Cloud.
+	if cloud.gotEnvID != "env_prod" || cloud.gotBuildID != "bld_1" {
+		t.Fatalf("cloud got env=%q build=%q", cloud.gotEnvID, cloud.gotBuildID)
+	}
+	// The structured block is surfaced with Cloud's approval_url.
+	body := resp.Body.String()
+	if !strings.Contains(body, `"blocked_pending_approval"`) || !strings.Contains(body, `"migration_approval_required"`) ||
+		!strings.Contains(body, `"mig_7"`) || !strings.Contains(body, "databases/db_2/migrations") {
+		t.Fatalf("deployment body = %s", body)
+	}
+}
+
+func TestDeployToForeignEnvironmentIsNotFound(t *testing.T) {
+	// An env id that is NOT one of the project's environments must not be deployable
+	// to — tenancy-safe NotFound, and Cloud's CreateDeployment is never called.
+	cloud := &fakeLogs{envs: []cloudclient.Environment{{ID: "env_prod", Name: "production"}}}
+	fx := newRoutesFixtureWithLogs(t, fakeProjects{proj: cloudLinked("prj_cloud")}, fakeAuthz{}, cloud)
+	user := fx.seedUser(t, "dev@example.test")
+
+	resp := fx.api.Post("/api/v1/projects/1/environments/env_someone_else/deployments", fx.cookie(t, user),
+		map[string]any{"build_id": "bld_1"})
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("deploy to foreign env → %d, want 404: %s", resp.Code, resp.Body.String())
+	}
+	if cloud.gotBuildID != "" {
+		t.Fatalf("CreateDeployment must not be called for a foreign env (got build %q)", cloud.gotBuildID)
+	}
+}
+
+func TestDeployMissingBuildIDIsValidation(t *testing.T) {
+	cloud := &fakeLogs{envs: []cloudclient.Environment{{ID: "env_prod"}}}
+	fx := newRoutesFixtureWithLogs(t, fakeProjects{proj: cloudLinked("prj_cloud")}, fakeAuthz{}, cloud)
+	user := fx.seedUser(t, "dev@example.test")
+
+	resp := fx.api.Post("/api/v1/projects/1/environments/env_prod/deployments", fx.cookie(t, user),
+		map[string]any{"build_id": ""})
+	if resp.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("deploy without build id → %d, want 422: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestGetDeploymentPassthrough(t *testing.T) {
+	cloud := &fakeLogs{
+		envs:       []cloudclient.Environment{{ID: "env_prod"}},
+		deployment: cloudclient.Deployment{ID: "dep_1", EnvironmentID: "env_prod", BuildID: "bld_1", Status: "running", ArtifactDigest: "sha256:cafe"},
+	}
+	fx := newRoutesFixtureWithLogs(t, fakeProjects{proj: cloudLinked("prj_cloud")}, fakeAuthz{}, cloud)
+	user := fx.seedUser(t, "viewer@example.test")
+
+	resp := fx.api.Get("/api/v1/projects/1/environments/env_prod/deployments/dep_1", fx.cookie(t, user))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("get deployment → %d: %s", resp.Code, resp.Body.String())
+	}
+	if cloud.gotEnvID != "env_prod" || cloud.gotDeployID != "dep_1" {
+		t.Fatalf("cloud got env=%q dep=%q", cloud.gotEnvID, cloud.gotDeployID)
+	}
+	if !strings.Contains(resp.Body.String(), `"running"`) {
+		t.Fatalf("deployment body = %s", resp.Body.String())
+	}
+}
+
+func TestRollbackEnvironment(t *testing.T) {
+	cloud := &fakeLogs{
+		envs:       []cloudclient.Environment{{ID: "env_prod"}},
+		deployment: cloudclient.Deployment{ID: "dep_2", EnvironmentID: "env_prod", Status: "pending", RestoresDeploymentID: "dep_0", RolledBackFromID: "dep_1"},
+	}
+	fx := newRoutesFixtureWithLogs(t, fakeProjects{proj: cloudLinked("prj_cloud")}, fakeAuthz{}, cloud)
+	user := fx.seedUser(t, "dev@example.test")
+
+	resp := fx.api.Post("/api/v1/projects/1/environments/env_prod/rollback", fx.cookie(t, user))
+	if resp.Code != http.StatusAccepted {
+		t.Fatalf("rollback → %d, want 202: %s", resp.Code, resp.Body.String())
+	}
+	if !cloud.didRollback || cloud.gotEnvID != "env_prod" {
+		t.Fatalf("cloud rollback called=%v env=%q", cloud.didRollback, cloud.gotEnvID)
+	}
+	if !strings.Contains(resp.Body.String(), `"dep_0"`) {
+		t.Fatalf("rollback body = %s", resp.Body.String())
+	}
+}
+
+func TestRollbackConflictIsMapped(t *testing.T) {
+	// Cloud's 409 (nothing to roll back to) is preserved as a 409, not a 500.
+	cloud := &fakeLogs{
+		envs:        []cloudclient.Environment{{ID: "env_prod"}},
+		rollbackErr: &cloudclient.Error{Status: http.StatusConflict, Code: "conflict", Message: "no previous healthy deployment to roll back to"},
+	}
+	fx := newRoutesFixtureWithLogs(t, fakeProjects{proj: cloudLinked("prj_cloud")}, fakeAuthz{}, cloud)
+	user := fx.seedUser(t, "dev@example.test")
+
+	resp := fx.api.Post("/api/v1/projects/1/environments/env_prod/rollback", fx.cookie(t, user))
+	if resp.Code != http.StatusConflict {
+		t.Fatalf("rollback conflict → %d, want 409: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestDeployToEnvironmentDeniedIsNotFound(t *testing.T) {
+	// An authorization failure collapses to NotFound (tenancy-safe), and Cloud is
+	// never called.
+	cloud := &fakeLogs{envs: []cloudclient.Environment{{ID: "env_prod"}}}
+	fx := newRoutesFixtureWithLogs(t,
+		fakeProjects{proj: cloudLinked("prj_cloud")}, fakeAuthz{err: org.ErrForbidden}, cloud)
+	user := fx.seedUser(t, "outsider@example.test")
+
+	resp := fx.api.Post("/api/v1/projects/1/environments/env_prod/deployments", fx.cookie(t, user),
+		map[string]any{"build_id": "bld_1"})
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("forbidden deploy → %d, want 404: %s", resp.Code, resp.Body.String())
+	}
+	if cloud.gotBuildID != "" {
+		t.Fatalf("CreateDeployment must not be called when authorization fails")
 	}
 }

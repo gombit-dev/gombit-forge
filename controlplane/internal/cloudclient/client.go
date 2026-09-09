@@ -1,13 +1,17 @@
 // Package cloudclient is the control plane's HTTP client for the Gombit Cloud
-// build API (gombit-cloud §51): create a build for a Cloud project, upload the
-// project's compiled source, and read the build's state. It is the Forge side of
-// the M4 build integration (ADR-005 §4.4/D3) — Forge hands Cloud source and
-// observes; it never builds. Cloud owns build execution (ADR-005 D2).
+// §51 API: create a build for a Cloud project, upload the project's compiled
+// source, read a build's state and logs, and — the deploy surface — list a
+// project's environments, deploy a build to one, read a deployment (including a
+// migration hold), and roll an environment back. It is the Forge side of the
+// M4–M5 Cloud integration (ADR-005 §4.4/D2/D6) — Forge hands Cloud source and
+// observes; it never builds, and it owns no deployment state machine. Cloud owns
+// build execution, deployment lifecycle, health, rollback and the migration gate.
 //
-// The client is deliberately narrow — three calls against the concrete §51
-// endpoints — and carries no ret/queue policy of its own; the build worker owns
-// orchestration. Every call presents an API token as `Authorization: Bearer` and
-// unwraps Cloud's D10 envelope ({"data": …} / {"error": {code, message}}).
+// The client is deliberately narrow — one call per concrete §51 endpoint — and
+// carries no retry/queue policy of its own; the build worker owns build
+// orchestration and the deploy routes are a thin pass-through. Every call
+// presents an API token as `Authorization: Bearer` and unwraps Cloud's D10
+// envelope ({"data": …} / {"error": {code, message}}).
 package cloudclient
 
 import (
@@ -46,6 +50,43 @@ type BuildLog struct {
 	Timestamp string `json:"timestamp"`
 	Stream    string `json:"stream,omitempty"`
 	Message   string `json:"message"`
+}
+
+// Environment is the subset of a Cloud environment Forge surfaces as a deploy
+// target. Cloud owns the environment lifecycle; Forge only lists the ones on the
+// linked Cloud project and lets a human pick one to deploy a build to.
+type Environment struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+}
+
+// DeploymentBlock is Cloud's structured hold on a deployment that is waiting on a
+// human to approve a destructive migration (§32; L9/L10). It is a legitimate
+// lifecycle state, not an error: the deployment exists and will resume once the
+// exact migration is approved in Cloud. Forge is a service principal and can
+// never approve — it surfaces Code, MigrationID and Cloud's own ApprovalURL so a
+// human resolves it in Cloud, then observes the same deployment resume.
+type DeploymentBlock struct {
+	Code        string `json:"code"`
+	MigrationID string `json:"migration_id"`
+	ApprovalURL string `json:"approval_url,omitempty"`
+}
+
+// Deployment is the subset of a Cloud deployment's state Forge tracks. Forge owns
+// no deployment state machine (ADR-005 D2/D6): Cloud owns status, promotion,
+// health, rollback and the migration gate; Forge holds only a pass-through view
+// and a lightweight build_id→environment/deployment linkage. Block is set only
+// when Status is "blocked_pending_approval".
+type Deployment struct {
+	ID                   string           `json:"id"`
+	EnvironmentID        string           `json:"environment_id"`
+	BuildID              string           `json:"build_id"`
+	Status               string           `json:"status"`
+	ArtifactDigest       string           `json:"artifact_digest,omitempty"`
+	RestoresDeploymentID string           `json:"restores_deployment_id,omitempty"`
+	RolledBackFromID     string           `json:"rolled_back_from_id,omitempty"`
+	Block                *DeploymentBlock `json:"block,omitempty"`
 }
 
 // Error is a non-2xx Cloud response, carrying the D10 error envelope's code and
@@ -117,6 +158,60 @@ func (c *Client) GetBuildLogs(ctx context.Context, buildID, since string) ([]Bui
 		return nil, err
 	}
 	return wrap.Logs, nil
+}
+
+// ListEnvironments lists the deploy targets on a Cloud project. §51
+// GET /projects/{projectID}/environments. The linked Cloud project owns them;
+// Forge surfaces them so a human picks where a build deploys.
+func (c *Client) ListEnvironments(ctx context.Context, cloudProjectID string) ([]Environment, error) {
+	var wrap struct {
+		Environments []Environment `json:"environments"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/projects/"+cloudProjectID+"/environments", "", nil, &wrap); err != nil {
+		return nil, err
+	}
+	return wrap.Environments, nil
+}
+
+// CreateDeployment deploys a build to an environment and returns the created
+// deployment. §51 POST /environments/{envID}/deployments. Cloud runs the C3
+// migration preflight as part of creation: an unapproved destructive migration
+// does not fail the call — Cloud returns a created deployment in
+// "blocked_pending_approval" carrying a Block, and the same deployment resumes
+// once a human approves the migration in Cloud (L10).
+func (c *Client) CreateDeployment(ctx context.Context, envID, buildID string) (Deployment, error) {
+	body, err := json.Marshal(map[string]string{"build_id": buildID})
+	if err != nil {
+		return Deployment{}, fmt.Errorf("cloud: encode create deployment: %w", err)
+	}
+	var d Deployment
+	if err := c.do(ctx, http.MethodPost, "/environments/"+envID+"/deployments", "application/json", bytes.NewReader(body), &d); err != nil {
+		return Deployment{}, err
+	}
+	return d, nil
+}
+
+// GetDeployment reads a deployment's current state, including its Block when it is
+// held on a migration. §51 GET /environments/{envID}/deployments/{id}.
+func (c *Client) GetDeployment(ctx context.Context, envID, deploymentID string) (Deployment, error) {
+	var d Deployment
+	if err := c.do(ctx, http.MethodGet, "/environments/"+envID+"/deployments/"+deploymentID, "", nil, &d); err != nil {
+		return Deployment{}, err
+	}
+	return d, nil
+}
+
+// Rollback rolls an environment back to its previous healthy revision, returning
+// the new forward deployment that re-deploys the earlier build (§92 — rollback is
+// a new deployment, not a backward pointer move). §51
+// POST /environments/{envID}/rollback. An environment with nothing to roll back
+// to yields an *Error with Code "conflict".
+func (c *Client) Rollback(ctx context.Context, envID string) (Deployment, error) {
+	var d Deployment
+	if err := c.do(ctx, http.MethodPost, "/environments/"+envID+"/rollback", "", nil, &d); err != nil {
+		return Deployment{}, err
+	}
+	return d, nil
 }
 
 // do issues a request against the §51 API and unwraps the D10 envelope. On a
