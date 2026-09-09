@@ -181,6 +181,36 @@ func TestClientGetDeploymentUnblocked(t *testing.T) {
 	}
 }
 
+func TestClientCreatePreviewEnvironment(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/projects/{projectID}/preview-environments", func(w http.ResponseWriter, r *http.Request) {
+		if r.PathValue("projectID") != "prj_9" {
+			t.Errorf("project id = %q", r.PathValue("projectID"))
+		}
+		body, _ := io.ReadAll(r.Body)
+		s := string(body)
+		if !strings.Contains(s, `"name":"preview-r42"`) || !strings.Contains(s, `"ttl_seconds":604800`) {
+			t.Errorf("create preview body = %s", s)
+		}
+		if !strings.Contains(s, `"type":"forge"`) || !strings.Contains(s, `"ref":"r42"`) {
+			t.Errorf("create preview source = %s", s)
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"data":{"id":"env_pr42","name":"preview-r42","kind":"ephemeral","state":"active","expires_at":"2026-01-08T00:00:00Z"}}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	c := &Client{BaseURL: srv.URL, Token: "t"}
+	env, err := c.CreatePreviewEnvironment(context.Background(), "prj_9", "preview-r42", 604800, "forge", "r42")
+	if err != nil {
+		t.Fatalf("CreatePreviewEnvironment: %v", err)
+	}
+	if env.ID != "env_pr42" || env.Kind != "ephemeral" || env.ExpiresAt == "" {
+		t.Fatalf("preview env = %+v", env)
+	}
+}
+
 func TestClientGetDeploymentLogs(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/deployments/{id}/logs", func(w http.ResponseWriter, r *http.Request) {

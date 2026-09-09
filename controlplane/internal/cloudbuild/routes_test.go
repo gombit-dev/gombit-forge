@@ -64,6 +64,14 @@ type fakeLogs struct {
 	appLogs         []cloudclient.DeploymentLog
 	appLogsErr      error
 	gotLogsDeployID string
+
+	// Preview environment creation.
+	previewEnv           cloudclient.Environment
+	previewErr           error
+	gotPreviewName       string
+	gotPreviewTTL        int64
+	gotPreviewSourceType string
+	gotPreviewSourceRef  string
 }
 
 func (f *fakeLogs) GetBuildLogs(_ context.Context, buildID, since string) ([]cloudclient.BuildLog, error) {
@@ -79,6 +87,12 @@ func (f *fakeLogs) GetDeploymentLogs(_ context.Context, deploymentID, since stri
 
 func (f *fakeLogs) ListEnvironments(_ context.Context, _ string) ([]cloudclient.Environment, error) {
 	return f.envs, f.envsErr
+}
+
+func (f *fakeLogs) CreatePreviewEnvironment(_ context.Context, _, name string, ttlSeconds int64, sourceType, sourceRef string) (cloudclient.Environment, error) {
+	f.gotPreviewName, f.gotPreviewTTL = name, ttlSeconds
+	f.gotPreviewSourceType, f.gotPreviewSourceRef = sourceType, sourceRef
+	return f.previewEnv, f.previewErr
 }
 
 func (f *fakeLogs) CreateDeployment(_ context.Context, envID, buildID string) (cloudclient.Deployment, error) {
@@ -470,6 +484,54 @@ func TestDeploymentLogsForeignEnvIsNotFound(t *testing.T) {
 	}
 	if cloud.gotLogsDeployID != "" {
 		t.Fatalf("GetDeploymentLogs must not be called for a foreign env")
+	}
+}
+
+func TestCreatePreviewEnvironment(t *testing.T) {
+	cloud := &fakeLogs{
+		previewEnv: cloudclient.Environment{ID: "env_pr42", Name: "preview-r42", Kind: "ephemeral", State: "active", ExpiresAt: "2026-01-08T00:00:00Z"},
+	}
+	fx := newRoutesFixtureWithLogs(t,
+		fakeProjects{proj: cloudLinked("prj_cloud"), head: project.Revision{ID: 42}, hasHead: true}, fakeAuthz{}, cloud)
+	user := fx.seedUser(t, "dev@example.test")
+
+	resp := fx.api.Post("/api/v1/projects/1/preview-environments", fx.cookie(t, user), map[string]any{})
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("create preview → %d, want 201: %s", resp.Code, resp.Body.String())
+	}
+	// The default name is derived from the head revision, the default TTL is a week,
+	// and the preview is tagged with Forge provenance pinning the revision.
+	if cloud.gotPreviewName != "preview-r42" || cloud.gotPreviewTTL != 7*24*60*60 {
+		t.Fatalf("preview name=%q ttl=%d", cloud.gotPreviewName, cloud.gotPreviewTTL)
+	}
+	if cloud.gotPreviewSourceType != "forge" || cloud.gotPreviewSourceRef != "r42" {
+		t.Fatalf("preview source type=%q ref=%q", cloud.gotPreviewSourceType, cloud.gotPreviewSourceRef)
+	}
+	if !strings.Contains(resp.Body.String(), `"ephemeral"`) {
+		t.Fatalf("preview body = %s", resp.Body.String())
+	}
+}
+
+func TestCreatePreviewEnvironmentUnlinkedProject(t *testing.T) {
+	fx := newRoutesFixtureWithLogs(t,
+		fakeProjects{proj: project.Project{ID: 1, OrganizationID: 7}, head: project.Revision{ID: 42}, hasHead: true}, fakeAuthz{}, &fakeLogs{})
+	user := fx.seedUser(t, "dev@example.test")
+
+	resp := fx.api.Post("/api/v1/projects/1/preview-environments", fx.cookie(t, user), map[string]any{})
+	if resp.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("preview unlinked → %d, want 422: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestCreatePreviewEnvironmentNoRevision(t *testing.T) {
+	// A linked project with no revision has nothing to preview — 422, not a 500.
+	fx := newRoutesFixtureWithLogs(t,
+		fakeProjects{proj: cloudLinked("prj_cloud"), hasHead: false}, fakeAuthz{}, &fakeLogs{})
+	user := fx.seedUser(t, "dev@example.test")
+
+	resp := fx.api.Post("/api/v1/projects/1/preview-environments", fx.cookie(t, user), map[string]any{})
+	if resp.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("preview no-revision → %d, want 422: %s", resp.Code, resp.Body.String())
 	}
 }
 

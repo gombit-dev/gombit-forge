@@ -136,6 +136,30 @@ describe("DeployPanel", () => {
     expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/environments/env_prod/rollback"))).toBe(true);
   });
 
+  it("creates a preview environment and selects it as the deploy target", async () => {
+    const calls = mockApi((method, url) => {
+      if (method === "GET" && url.endsWith(`/projects/${PROJECT}/environments`)) return { status: 200, body: { data: [] } };
+      if (method === "POST" && url.endsWith(`/projects/${PROJECT}/preview-environments`)) {
+        return {
+          status: 201,
+          body: { data: { id: "env_pr42", name: "preview-r42", kind: "ephemeral", state: "active", expires_at: "2026-01-08T00:00:00Z" } },
+        };
+      }
+      return { status: 404 };
+    });
+    const user = userEvent.setup();
+    render(<DeployPanel projectID={PROJECT} cloudBuildID={BUILD} />);
+
+    // A linked project with no environments still offers the preview action.
+    await screen.findByRole("button", { name: /create preview environment/i });
+    await user.click(screen.getByRole("button", { name: /create preview environment/i }));
+
+    // The new preview becomes the selected target and can be deployed to.
+    expect(await screen.findByRole("button", { name: "Deploy build to preview-r42" })).toBeInTheDocument();
+    expect(screen.getByText(/preview environment — throwaway/i)).toBeInTheDocument();
+    expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/preview-environments"))).toBe(true);
+  });
+
   it("shows an inapplicable state for a project not linked to Cloud (422)", async () => {
     mockApi((method, url) => {
       if (method === "GET" && url.endsWith(`/projects/${PROJECT}/environments`)) {

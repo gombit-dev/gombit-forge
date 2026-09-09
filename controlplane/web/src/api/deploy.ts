@@ -135,6 +135,13 @@ export function isDeploymentBlocked(d: Deployment): boolean {
 export const listEnvironments = (projectID: number) =>
   api.get<Environment[]>(`/projects/${projectID}/environments`);
 
+// createPreviewEnvironment asks Cloud to create an ephemeral preview environment
+// for the project's current revision. Name/TTL are optional (Cloud/Forge default
+// them). Deploying a build into the returned environment refreshes the preview;
+// Cloud promotes the new healthy revision atomically.
+export const createPreviewEnvironment = (projectID: number, opts?: { name?: string; ttl_seconds?: number }) =>
+  api.post<Environment>(`/projects/${projectID}/preview-environments`, opts ?? {});
+
 // deployBuild deploys a Cloud build (by cloud build id) to one of the project's
 // environments. Cloud runs the migration preflight and may return the created
 // deployment held in blocked_pending_approval with a block.

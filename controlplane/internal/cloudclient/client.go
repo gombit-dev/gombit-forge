@@ -194,6 +194,29 @@ func (c *Client) ListEnvironments(ctx context.Context, cloudProjectID string) ([
 	return wrap.Environments, nil
 }
 
+// CreatePreviewEnvironment creates an ephemeral preview environment (§46/§89) on
+// the Cloud project — a throwaway target with a TTL. §51
+// POST /projects/{projectID}/preview-environments. sourceType/sourceRef are
+// optional provenance (e.g. "forge"/<revision id>); ttlSeconds is the preview's
+// lifetime (Cloud caps it). Deploying a build into the returned environment, and
+// redeploying on each rebuild, is how a preview is refreshed — Cloud's promotion
+// switches traffic atomically to the new healthy revision (L12/§23).
+func (c *Client) CreatePreviewEnvironment(ctx context.Context, cloudProjectID, name string, ttlSeconds int64, sourceType, sourceRef string) (Environment, error) {
+	body := map[string]any{"name": name, "ttl_seconds": ttlSeconds}
+	if sourceType != "" || sourceRef != "" {
+		body["source"] = map[string]string{"type": sourceType, "ref": sourceRef}
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return Environment{}, fmt.Errorf("cloud: encode create preview environment: %w", err)
+	}
+	var e Environment
+	if err := c.do(ctx, http.MethodPost, "/projects/"+cloudProjectID+"/preview-environments", "application/json", bytes.NewReader(raw), &e); err != nil {
+		return Environment{}, err
+	}
+	return e, nil
+}
+
 // CreateDeployment deploys a build to an environment and returns the created
 // deployment. §51 POST /environments/{envID}/deployments. Cloud runs the C3
 // migration preflight as part of creation: an unapproved destructive migration

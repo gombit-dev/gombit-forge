@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { describeError } from "../api/client";
 import {
+  createPreviewEnvironment,
   deployBuild,
   getDeployment,
   isDeploymentBlocked,
@@ -14,9 +15,13 @@ import {
 import { formatTime } from "../format";
 import { AppLogViewer } from "./AppLogViewer";
 
-// DeployPanel is the #105 deploy action: pick one of the project's Gombit Cloud
-// environments, deploy a succeeded build's artifact to it, and watch the
-// deployment through Cloud's lifecycle — including the destructive-migration hold.
+// DeployPanel is the deploy action (#105) plus the preview flow (#71): pick one
+// of the project's Gombit Cloud environments — or create a throwaway preview one
+// for the current revision — deploy a succeeded build's artifact to it, and watch
+// the deployment through Cloud's lifecycle, including the destructive-migration
+// hold. Previewing is just deploying into an ephemeral environment; redeploying
+// into it refreshes the preview, with Cloud promoting the new healthy revision
+// atomically (L12/§23).
 //
 // Everything here is pass-through (ADR-005 D2/D6): Cloud owns the environment set,
 // the deployment state machine, health, rollback and the migration gate. Forge
@@ -122,6 +127,24 @@ export function DeployPanel({
     }
   }, [projectID, selectedEnv, cloudBuildID]);
 
+  // Create a throwaway preview environment for the current revision and select it,
+  // so the operator can deploy the current build into it. A preview is refreshed
+  // by redeploying into it — Cloud promotes the new healthy revision atomically
+  // (L12/§23), so the running preview is replaced without a flicker of downtime.
+  const onCreatePreview = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const env = await createPreviewEnvironment(projectID);
+      setEnvironments((prev) => (prev.some((e) => e.id === env.id) ? prev : [...prev, env]));
+      setSelectedEnvID(env.id);
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [projectID]);
+
   const onRollback = useCallback(async () => {
     if (!selectedEnv) return;
     setBusy(true);
@@ -149,7 +172,7 @@ export function DeployPanel({
       <h4>Deploy</h4>
 
       {environments.length === 0 ? (
-        <p className="muted">No environments on the linked Cloud project yet.</p>
+        <p className="muted">No environments on the linked Cloud project yet. Create a preview to deploy the current revision.</p>
       ) : (
         <div className="deploy-target">
           <label htmlFor="deploy-env">Target environment</label>
@@ -177,6 +200,16 @@ export function DeployPanel({
           </div>
         </div>
       )}
+
+      <div className="deploy-preview">
+        <button type="button" className="secondary" onClick={onCreatePreview} disabled={busy}>
+          Create preview environment
+        </button>
+        <span className="muted">
+          A throwaway environment for the current revision. Deploy the build into it to preview your changes; each
+          redeploy replaces the running preview.
+        </span>
+      </div>
 
       {selectedEnv && isPreviewEnvironment(selectedEnv) && (
         <p className="muted preview-note">
