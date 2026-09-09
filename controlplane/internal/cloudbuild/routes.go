@@ -11,6 +11,7 @@ import (
 	"github.com/gombit-dev/gombit/contract"
 	"github.com/gombit-dev/gombit/framework"
 
+	"github.com/gombit-dev/gombit-forge/controlplane/internal/cloudclient"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/org"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/project"
 )
@@ -30,23 +31,30 @@ type Authorizer interface {
 	Authorize(ctx context.Context, orgID, userID uint, capability org.Capability) error
 }
 
+// BuildLogs reads a Cloud build's log lines (optionally only those after `since`,
+// RFC3339, for tailing). *cloudclient.Client satisfies it. Forge relays Cloud's
+// logs; it never stores them (ADR-005 §24).
+type BuildLogs interface {
+	GetBuildLogs(ctx context.Context, buildID, since string) ([]cloudclient.BuildLog, error)
+}
+
 // Register mounts the cloud-build (deploy) routes on the app behind the cookie
 // gate.
-func Register(app *framework.App, jobs *Service, projects Projects, authz Authorizer) error {
+func Register(app *framework.App, jobs *Service, projects Projects, authz Authorizer, logs BuildLogs) error {
 	authSvc, err := auth.NewService(app.DB(), app.Config())
 	if err != nil {
 		return err
 	}
 	RegisterRoutes(app.API(), app.Config().API.Prefix,
-		huma.Middlewares{authSvc.RequireCookieSession()}, jobs, projects, authz)
+		huma.Middlewares{authSvc.RequireCookieSession()}, jobs, projects, authz, logs)
 	return nil
 }
 
 // RegisterRoutes wires the deploy/build-job operations onto api behind gate.
 // Split from Register so the real routes + cookie gate are testable on a
 // humatest API without a full framework.App.
-func RegisterRoutes(api huma.API, prefix string, gate huma.Middlewares, jobs *Service, projects Projects, authz Authorizer) {
-	h := &handler{jobs: jobs, projects: projects, authz: authz}
+func RegisterRoutes(api huma.API, prefix string, gate huma.Middlewares, jobs *Service, projects Projects, authz Authorizer, logs BuildLogs) {
+	h := &handler{jobs: jobs, projects: projects, authz: authz, logs: logs}
 	security := []map[string][]string{{cookieSecurityName: {}}}
 	tags := []string{"Deploy"}
 
@@ -81,12 +89,24 @@ func RegisterRoutes(api huma.API, prefix string, gate huma.Middlewares, jobs *Se
 		Security:    security,
 		Middlewares: gate,
 	}, h.list)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "get-build-job-logs",
+		Method:      http.MethodGet,
+		Path:        prefix + "/build-jobs/{jobID}/logs",
+		Summary:     "Read a build job's Cloud build logs",
+		Description: "Relays the Cloud build's log lines (read from Cloud, not stored by Forge). Pass ?since=<RFC3339> to tail only newer lines. Empty until the worker has created the Cloud build.",
+		Tags:        tags,
+		Security:    security,
+		Middlewares: gate,
+	}, h.logsHandler)
 }
 
 type handler struct {
 	jobs     *Service
 	projects Projects
 	authz    Authorizer
+	logs     BuildLogs
 }
 
 // jobData is a build job as the API exposes it.
@@ -212,6 +232,59 @@ func (h *handler) list(ctx context.Context, in *listInput) (*listOutput, error) 
 		out = append(out, toJobData(j))
 	}
 	return &listOutput{Body: contract.Data[[]jobData]{Data: out}}, nil
+}
+
+type logsInput struct {
+	JobID string `path:"jobID" doc:"Build job identifier"`
+	Since string `query:"since" doc:"Only return log lines after this RFC3339 timestamp (for tailing)"`
+}
+
+// logLine is a build log line as the API exposes it — Forge's own shape, not the
+// Cloud client's type, so the transport boundary doesn't leak into the API.
+type logLine struct {
+	Timestamp string `json:"timestamp"`
+	Stream    string `json:"stream,omitempty"`
+	Message   string `json:"message"`
+}
+
+type logsOutput struct {
+	Body contract.Data[[]logLine]
+}
+
+func (h *handler) logsHandler(ctx context.Context, in *logsInput) (*logsOutput, error) {
+	user, err := caller(ctx)
+	if err != nil {
+		return nil, err
+	}
+	jobID, err := parseID(in.JobID)
+	if err != nil {
+		return nil, contract.WithContext(ctx, contract.NotFound("build job not found"))
+	}
+	job, ok, err := h.jobs.Get(ctx, jobID)
+	if err != nil {
+		return nil, contract.WithContext(ctx, contract.Internal("could not load the build job"))
+	}
+	if !ok {
+		return nil, contract.WithContext(ctx, contract.NotFound("build job not found"))
+	}
+	// Project-scoped, like get/list: any project viewer can read the logs.
+	if _, err := h.resolveAuthorized(ctx, job.ProjectID, user.ID, org.CapProjectView); err != nil {
+		return nil, mapAuthErr(ctx, err, "build job")
+	}
+	// No Cloud build has been created yet (the worker hasn't run, or the job
+	// failed before submitting) — there are simply no logs, not an error.
+	if job.CloudBuildID == "" {
+		return &logsOutput{Body: contract.Data[[]logLine]{Data: []logLine{}}}, nil
+	}
+	lines, err := h.logs.GetBuildLogs(ctx, job.CloudBuildID, in.Since)
+	if err != nil {
+		return nil, contract.WithContext(ctx, contract.Internal("could not read the build logs from Gombit Cloud"))
+	}
+	out := make([]logLine, 0, len(lines))
+	for _, l := range lines {
+		out = append(out, logLine{Timestamp: l.Timestamp, Stream: l.Stream, Message: l.Message})
+	}
+	return &logsOutput{Body: contract.Data[[]logLine]{Data: out}}, nil
 }
 
 // loadAuthorized resolves and authorizes the project named in a path param for

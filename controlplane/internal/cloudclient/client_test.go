@@ -81,6 +81,31 @@ func TestClientBuildLifecycle(t *testing.T) {
 	}
 }
 
+func TestClientGetBuildLogs(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/builds/{id}/logs", func(w http.ResponseWriter, r *http.Request) {
+		if r.PathValue("id") != "bld_1" {
+			t.Errorf("build id = %q", r.PathValue("id"))
+		}
+		// The since filter is forwarded for tailing.
+		if got := r.URL.Query().Get("since"); got != "2026-01-01T00:00:00Z" {
+			t.Errorf("since = %q", got)
+		}
+		_, _ = w.Write([]byte(`{"data":{"logs":[{"timestamp":"2026-01-01T00:00:01Z","stream":"build","message":"cloning"}]}}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	c := &Client{BaseURL: srv.URL, Token: "tok"}
+	logs, err := c.GetBuildLogs(context.Background(), "bld_1", "2026-01-01T00:00:00Z")
+	if err != nil {
+		t.Fatalf("GetBuildLogs: %v", err)
+	}
+	if len(logs) != 1 || logs[0].Message != "cloning" || logs[0].Stream != "build" {
+		t.Fatalf("logs = %+v", logs)
+	}
+}
+
 func TestClientErrorEnvelope(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("PUT /api/v1/projects/{projectID}/builds/{id}/source", func(w http.ResponseWriter, _ *http.Request) {
