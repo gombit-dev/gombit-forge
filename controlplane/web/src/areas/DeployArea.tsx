@@ -38,6 +38,11 @@ export function DeployArea() {
   // Live-tail the selected build: poll its logs and refreshed status until the
   // job settles, then stop. Re-running on selectedID means switching builds tails
   // the new one and cancels the old poll.
+  //
+  // Logs are re-fetched whole each tick rather than tailed with `since`: build
+  // logs are bounded, and a full refresh sidesteps the dedup/ordering an append
+  // would need — a deliberate simplicity choice, with `since` available on the
+  // endpoint for a future incremental tail.
   useEffect(() => {
     if (selectedID == null) {
       setLogs([]);
@@ -50,6 +55,7 @@ export function DeployArea() {
       Promise.all([getBuildJob(selectedID), getBuildJobLogs(selectedID)])
         .then(([job, lines]) => {
           if (!active) return;
+          setError(null);
           setLogs(lines);
           // Reflect the possibly-advanced status back into the list.
           setJobs((prev) => prev.map((j) => (j.id === job.id ? job : j)));
@@ -57,7 +63,13 @@ export function DeployArea() {
             timer = setTimeout(tick, 2000);
           }
         })
-        .catch((e) => active && setError(describeError(e)));
+        .catch((e) => {
+          if (!active) return;
+          setError(describeError(e));
+          // A transient failure shouldn't freeze the tail: keep polling on a
+          // longer backoff so an in-progress build resumes once the blip clears.
+          timer = setTimeout(tick, 5000);
+        });
     };
     tick();
     return () => {
