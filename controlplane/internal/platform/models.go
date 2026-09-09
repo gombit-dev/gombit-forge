@@ -4,6 +4,7 @@ import (
 	"github.com/gombit-dev/gombit/auth"
 
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/audit"
+	"github.com/gombit-dev/gombit-forge/controlplane/internal/cloudbuild"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/exportjob"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/githubconnect"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/org"
@@ -29,8 +30,10 @@ import (
 //
 // The set is deliberately the authoring loop only — Organization/Member/
 // Invitation (#36), Project/Revision (#37), audit.Event (#36, service #40) and
-// the GitHub export connection/OAuth-state tables and the export-job queue
-// (#85). The runtime models
+// the GitHub export connection/OAuth-state tables, the export-job queue (#85)
+// and the cloud-build queue that tracks a Cloud build for a deployed revision
+// (#103 — a job record mirroring the export queue, not a runtime model). The
+// runtime models
 // (Environment, Build, Deployment, Domain) are owned by
 // Gombit Cloud, not the Forge control plane (ADR-005 D2/D6): Forge compiles a
 // revision to an ordinary Gombit application and hands it to Cloud, which owns
@@ -52,5 +55,6 @@ func Models() []any {
 		&githubconnect.Connection{},
 		&githubconnect.OAuthState{},
 		&exportjob.ExportJob{},
+		&cloudbuild.BuildJob{},
 	)
 }
