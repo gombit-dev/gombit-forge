@@ -204,6 +204,8 @@ export interface ProjectHealth {
 
 export const listOrganizations = () => api.get<Organization[]>("/organizations");
 
+export const getProject = (projectID: number) => api.get<Project>(`/projects/${projectID}`);
+
 export const getProjectHealth = (projectID: number) => api.get<ProjectHealth>(`/projects/${projectID}/health`);
 
 export const addResource = (projectID: number, label: string, labelPlural: string) =>

@@ -32,6 +32,10 @@ export function isBuildTerminal(status: string): boolean {
   return status === "succeeded" || status === "failed";
 }
 
+// triggerDeploy freezes the project's head revision and enqueues a Cloud build
+// (async — no request performs a build, D8). Returns the new build job to track.
+export const triggerDeploy = (projectID: number) => api.post<BuildJob>(`/projects/${projectID}/deploy`);
+
 export const listBuildJobs = (projectID: number) => api.get<BuildJob[]>(`/projects/${projectID}/build-jobs`);
 
 export const getBuildJob = (jobID: number) => api.get<BuildJob>(`/build-jobs/${jobID}`);
