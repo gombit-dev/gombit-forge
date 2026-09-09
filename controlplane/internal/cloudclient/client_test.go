@@ -181,6 +181,30 @@ func TestClientGetDeploymentUnblocked(t *testing.T) {
 	}
 }
 
+func TestClientGetDeploymentLogs(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/deployments/{id}/logs", func(w http.ResponseWriter, r *http.Request) {
+		if r.PathValue("id") != "dep_1" {
+			t.Errorf("deployment id = %q", r.PathValue("id"))
+		}
+		if got := r.URL.Query().Get("since"); got != "2026-01-01T00:00:00Z" {
+			t.Errorf("since = %q", got)
+		}
+		_, _ = w.Write([]byte(`{"data":{"logs":[{"timestamp":"2026-01-01T00:00:01Z","stream":"stdout","message":"listening on :8080","request_id":"req_9"}]}}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	c := &Client{BaseURL: srv.URL, Token: "t"}
+	logs, err := c.GetDeploymentLogs(context.Background(), "dep_1", "2026-01-01T00:00:00Z")
+	if err != nil {
+		t.Fatalf("GetDeploymentLogs: %v", err)
+	}
+	if len(logs) != 1 || logs[0].Message != "listening on :8080" || logs[0].Stream != "stdout" || logs[0].RequestID != "req_9" {
+		t.Fatalf("logs = %+v", logs)
+	}
+}
+
 func TestClientRollback(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/environments/{envID}/rollback", func(w http.ResponseWriter, r *http.Request) {

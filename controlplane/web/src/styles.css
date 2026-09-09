@@ -1039,3 +1039,52 @@ button:disabled {
   color: var(--accent);
   font-weight: 600;
 }
+
+/* Preview surfacing + application-log viewer (#72). */
+.preview-note {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+}
+
+.app-logs {
+  margin-top: 1rem;
+}
+
+.app-logs h5 {
+  margin: 0 0 0.5rem;
+}
+
+.app-log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+}
+
+.app-log-table th,
+.app-log-table td {
+  text-align: left;
+  padding: 0.2rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.app-log-table th {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.app-log-table .log-time {
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.app-log-table .log-message {
+  width: 100%;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.app-log-table .log-level.level-stderr {
+  color: var(--error);
+}

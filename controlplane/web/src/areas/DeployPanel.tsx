@@ -5,11 +5,13 @@ import {
   getDeployment,
   isDeploymentBlocked,
   isDeploymentTerminal,
+  isPreviewEnvironment,
   listEnvironments,
   rollbackEnvironment,
   type Deployment,
   type Environment,
 } from "../api/deploy";
+import { AppLogViewer } from "./AppLogViewer";
 
 // DeployPanel is the #105 deploy action: pick one of the project's Gombit Cloud
 // environments, deploy a succeeded build's artifact to it, and watch the
@@ -160,7 +162,7 @@ export function DeployPanel({
             {environments.map((env) => (
               <option key={env.id} value={env.id}>
                 {env.name}
-                {env.kind ? ` (${env.kind})` : ""}
+                {isPreviewEnvironment(env) ? " · preview" : env.kind ? ` (${env.kind})` : ""}
               </option>
             ))}
           </select>
@@ -175,6 +177,13 @@ export function DeployPanel({
         </div>
       )}
 
+      {selectedEnv && isPreviewEnvironment(selectedEnv) && (
+        <p className="muted preview-note">
+          Preview environment — throwaway, isolated data
+          {selectedEnv.expires_at ? `, expires ${formatTime(selectedEnv.expires_at)}` : ""}.
+        </p>
+      )}
+
       {error && (
         <p role="alert" className="error">
           {error}
@@ -182,8 +191,24 @@ export function DeployPanel({
       )}
 
       {deployment && <DeploymentStatus deployment={deployment} />}
+
+      {/* Application logs make sense once a deployment exists and isn't merely
+          held awaiting approval (nothing is running yet during the hold). */}
+      {deployment && !isDeploymentBlocked(deployment) && (
+        <AppLogViewer
+          projectID={projectID}
+          envID={deployment.environment_id}
+          deploymentID={deployment.id}
+          stopped={isDeploymentTerminal(deployment.status) && deployment.status !== "healthy"}
+        />
+      )}
     </div>
   );
+}
+
+function formatTime(ts: string): string {
+  const d = new Date(ts);
+  return Number.isNaN(d.getTime()) ? ts : d.toISOString().replace("T", " ").replace("Z", "");
 }
 
 // DeploymentStatus renders Cloud's view of a deployment: the block banner when it

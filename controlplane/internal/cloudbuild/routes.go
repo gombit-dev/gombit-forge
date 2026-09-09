@@ -43,6 +43,7 @@ type Cloud interface {
 	ListEnvironments(ctx context.Context, cloudProjectID string) ([]cloudclient.Environment, error)
 	CreateDeployment(ctx context.Context, envID, buildID string) (cloudclient.Deployment, error)
 	GetDeployment(ctx context.Context, envID, deploymentID string) (cloudclient.Deployment, error)
+	GetDeploymentLogs(ctx context.Context, deploymentID, since string) ([]cloudclient.DeploymentLog, error)
 	Rollback(ctx context.Context, envID string) (cloudclient.Deployment, error)
 }
 
@@ -142,6 +143,17 @@ func RegisterRoutes(api huma.API, prefix string, gate huma.Middlewares, jobs *Se
 		Security:    security,
 		Middlewares: gate,
 	}, h.getDeployment)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "get-deployment-logs",
+		Method:      http.MethodGet,
+		Path:        prefix + "/projects/{projectID}/environments/{envID}/deployments/{deploymentID}/logs",
+		Summary:     "Read a deployment's application logs from Gombit Cloud",
+		Description: "Relays a deployment's application/runtime log lines (read from Cloud, not stored by Forge — ADR-005 §24). Pass ?since=<RFC3339> to tail only newer lines. Empty until the deployment's app has emitted logs.",
+		Tags:        tags,
+		Security:    security,
+		Middlewares: gate,
+	}, h.deploymentLogs)
 
 	huma.Register(api, huma.Operation{
 		OperationID:   "rollback-environment",
@@ -345,9 +357,11 @@ func (h *handler) logsHandler(ctx context.Context, in *logsInput) (*logsOutput, 
 // target the human picks. Forge's own shape, so the Cloud transport type doesn't
 // leak into the API.
 type environmentData struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Kind string `json:"kind,omitempty" doc:"The Cloud environment kind (e.g. persistent, ephemeral)"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Kind      string `json:"kind,omitempty" doc:"The Cloud environment kind (e.g. persistent, ephemeral)"`
+	State     string `json:"state,omitempty" doc:"Reclamation lifecycle state, set only for an ephemeral preview"`
+	ExpiresAt string `json:"expires_at,omitempty" doc:"When an ephemeral preview lapses; empty for a persistent environment"`
 }
 
 // deploymentBlock mirrors Cloud's structured migration hold: a deployment waiting
@@ -409,7 +423,7 @@ func (h *handler) listEnvironments(ctx context.Context, in *listEnvironmentsInpu
 	}
 	out := make([]environmentData, 0, len(envs))
 	for _, e := range envs {
-		out = append(out, environmentData{ID: e.ID, Name: e.Name, Kind: e.Kind})
+		out = append(out, environmentData{ID: e.ID, Name: e.Name, Kind: e.Kind, State: e.State, ExpiresAt: e.ExpiresAt})
 	}
 	return &listEnvironmentsOutput{Body: contract.Data[[]environmentData]{Data: out}}, nil
 }
@@ -465,6 +479,45 @@ func (h *handler) getDeployment(ctx context.Context, in *getDeploymentInput) (*g
 		return nil, mapCloudErr(ctx, err, "deployment")
 	}
 	return &getDeploymentOutput{Body: contract.Data[deploymentData]{Data: toDeploymentData(d)}}, nil
+}
+
+// appLogLine is a deployment application-log line as the API exposes it — Forge's
+// own shape, so the Cloud transport type doesn't leak into the API. Stream is
+// Cloud's log channel (stdout/stderr); the UI renders it as the line's level.
+type appLogLine struct {
+	Timestamp  string `json:"timestamp"`
+	Stream     string `json:"stream,omitempty"`
+	Message    string `json:"message"`
+	InstanceID string `json:"instance_id,omitempty"`
+	RequestID  string `json:"request_id,omitempty"`
+}
+
+type deploymentLogsInput struct {
+	ProjectID    string `path:"projectID" doc:"Project identifier"`
+	EnvID        string `path:"envID" doc:"Cloud environment identifier"`
+	DeploymentID string `path:"deploymentID" doc:"Cloud deployment identifier"`
+	Since        string `query:"since" doc:"Only return log lines after this RFC3339 timestamp (for tailing)"`
+}
+
+type deploymentLogsOutput struct {
+	Body contract.Data[[]appLogLine]
+}
+
+func (h *handler) deploymentLogs(ctx context.Context, in *deploymentLogsInput) (*deploymentLogsOutput, error) {
+	// Reading application logs is a project read; gate on view. The env-ownership
+	// check bounds the deployment to a project the caller holds view on.
+	if _, err := h.authorizedEnv(ctx, in.ProjectID, in.EnvID, org.CapProjectView); err != nil {
+		return nil, err
+	}
+	lines, err := h.cloud.GetDeploymentLogs(ctx, in.DeploymentID, in.Since)
+	if err != nil {
+		return nil, mapCloudErr(ctx, err, "deployment")
+	}
+	out := make([]appLogLine, 0, len(lines))
+	for _, l := range lines {
+		out = append(out, appLogLine{Timestamp: l.Timestamp, Stream: l.Stream, Message: l.Message, InstanceID: l.InstanceID, RequestID: l.RequestID})
+	}
+	return &deploymentLogsOutput{Body: contract.Data[[]appLogLine]{Data: out}}, nil
 }
 
 type rollbackInput struct {

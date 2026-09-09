@@ -54,11 +54,16 @@ type BuildLog struct {
 
 // Environment is the subset of a Cloud environment Forge surfaces as a deploy
 // target. Cloud owns the environment lifecycle; Forge only lists the ones on the
-// linked Cloud project and lets a human pick one to deploy a build to.
+// linked Cloud project and lets a human pick one to deploy a build to. Kind
+// distinguishes a persistent environment from an ephemeral preview; State and
+// ExpiresAt are set only for a preview (§46/§89), so the UI can show that a
+// preview is throwaway and when it lapses.
 type Environment struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Kind string `json:"kind"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Kind      string `json:"kind"`
+	State     string `json:"state,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
 }
 
 // DeploymentBlock is Cloud's structured hold on a deployment that is waiting on a
@@ -87,6 +92,18 @@ type Deployment struct {
 	RestoresDeploymentID string           `json:"restores_deployment_id,omitempty"`
 	RolledBackFromID     string           `json:"rolled_back_from_id,omitempty"`
 	Block                *DeploymentBlock `json:"block,omitempty"`
+}
+
+// DeploymentLog is one application/runtime log line for a deployment (§40).
+// Forge reads these from Cloud and relays them; it never collects or stores them
+// (ADR-005 §24). Stream is Cloud's log channel (e.g. stdout/stderr); RequestID
+// correlates a line to a request when the app emits it.
+type DeploymentLog struct {
+	Timestamp  string `json:"timestamp"`
+	Stream     string `json:"stream,omitempty"`
+	Message    string `json:"message"`
+	InstanceID string `json:"instance_id,omitempty"`
+	RequestID  string `json:"request_id,omitempty"`
 }
 
 // Error is a non-2xx Cloud response, carrying the D10 error envelope's code and
@@ -199,6 +216,25 @@ func (c *Client) GetDeployment(ctx context.Context, envID, deploymentID string) 
 		return Deployment{}, err
 	}
 	return d, nil
+}
+
+// GetDeploymentLogs reads a deployment's application logs from Cloud, optionally
+// only those after `since` (an RFC3339 timestamp) for tailing. §51
+// GET /deployments/{deploymentID}/logs. The deployment id addresses the log owner
+// directly, so no environment id is needed on the wire. An empty `since` returns
+// all lines.
+func (c *Client) GetDeploymentLogs(ctx context.Context, deploymentID, since string) ([]DeploymentLog, error) {
+	path := "/deployments/" + deploymentID + "/logs"
+	if since != "" {
+		path += "?since=" + url.QueryEscape(since)
+	}
+	var wrap struct {
+		Logs []DeploymentLog `json:"logs"`
+	}
+	if err := c.do(ctx, http.MethodGet, path, "", nil, &wrap); err != nil {
+		return nil, err
+	}
+	return wrap.Logs, nil
 }
 
 // Rollback rolls an environment back to its previous healthy revision, returning
