@@ -40,3 +40,86 @@ export const getBuildJob = (jobID: number) => api.get<BuildJob>(`/build-jobs/${j
 // `since` (an RFC3339 timestamp) for tailing.
 export const getBuildJobLogs = (jobID: number, since?: string) =>
   api.get<BuildLog[]>(`/build-jobs/${jobID}/logs${since ? `?since=${encodeURIComponent(since)}` : ""}`);
+
+// --- Deploy action (#105) ---
+//
+// The deploy surface is a pass-through to Gombit Cloud: Cloud owns the
+// environment set, the deployment lifecycle, health, rollback and the
+// destructive-migration gate (ADR-005 D2/D6). Forge submits an already-built
+// artifact to a chosen environment and renders whatever state Cloud reports; it
+// holds no deployment state of its own.
+
+// An environment on the project's linked Cloud project — a deploy target the
+// operator picks explicitly (the target is shown before the action, never a
+// generic "deploy to prod" button).
+export interface Environment {
+  id: string;
+  name: string;
+  kind?: string;
+}
+
+// Cloud's structured hold on a deployment that is waiting on a human to approve a
+// destructive migration (§32; L9/L10). It is a legitimate lifecycle state, not an
+// error: the deployment exists and resumes once the exact migration is approved
+// in Cloud. Forge surfaces it and links to Cloud — it never approves.
+export interface DeploymentBlock {
+  code: string;
+  migration_id: string;
+  approval_url?: string;
+}
+
+// A Cloud deployment, pass-through. `block` is present only while `status` is
+// "blocked_pending_approval".
+export interface Deployment {
+  id: string;
+  environment_id: string;
+  build_id: string;
+  status: string;
+  artifact_digest?: string;
+  restores_deployment_id?: string;
+  rolled_back_from_id?: string;
+  block?: DeploymentBlock;
+}
+
+// A deployment's status is terminal when Cloud's §22 lifecycle has settled — no
+// further transitions arrive, so status polling can stop. This mirrors Cloud's
+// DeploymentStatus.IsTerminal(). Note `blocked_pending_approval` is deliberately
+// NOT terminal: polling continues through the hold so the same deployment is seen
+// to resume once a human approves the migration in Cloud.
+export function isDeploymentTerminal(status: string): boolean {
+  switch (status) {
+    case "healthy":
+    case "migration_blocked":
+    case "migration_failed":
+    case "startup_failed":
+    case "health_failed":
+    case "promotion_failed":
+    case "cancelled":
+      return true;
+    default:
+      return false;
+  }
+}
+
+// isDeploymentBlocked reports the destructive-migration hold — a deployment that
+// exists but is waiting on a human to approve its migration in Cloud.
+export function isDeploymentBlocked(d: Deployment): boolean {
+  return d.status === "blocked_pending_approval";
+}
+
+export const listEnvironments = (projectID: number) =>
+  api.get<Environment[]>(`/projects/${projectID}/environments`);
+
+// deployBuild deploys a Cloud build (by cloud build id) to one of the project's
+// environments. Cloud runs the migration preflight and may return the created
+// deployment held in blocked_pending_approval with a block.
+export const deployBuild = (projectID: number, envID: string, buildID: string) =>
+  api.post<Deployment>(`/projects/${projectID}/environments/${envID}/deployments`, { build_id: buildID });
+
+export const getDeployment = (projectID: number, envID: string, deploymentID: string) =>
+  api.get<Deployment>(`/projects/${projectID}/environments/${envID}/deployments/${deploymentID}`);
+
+// rollbackEnvironment rolls an environment back to its previous healthy revision;
+// Cloud creates a new forward deployment restoring the earlier build (§92).
+export const rollbackEnvironment = (projectID: number, envID: string) =>
+  api.post<Deployment>(`/projects/${projectID}/environments/${envID}/rollback`, undefined);

@@ -958,3 +958,84 @@ button:disabled {
 .health-panel .diag-path {
   font-family: ui-monospace, monospace;
 }
+
+/* Deploy action (#105): environment picker, deployment status, and the
+   destructive-migration approval hold. */
+.deploy-panel {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.deploy-panel h4 {
+  margin: 0 0 0.5rem;
+}
+
+.deploy-target {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 32rem;
+}
+
+.deploy-target label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.deploy-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.deploy-actions .secondary {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--border);
+}
+
+.deployment-status {
+  margin-top: 0.75rem;
+}
+
+.deploy-state {
+  font-weight: 600;
+}
+
+.deploy-state.state-healthy {
+  color: #15803d;
+}
+
+.deploy-state.state-migration_failed,
+.deploy-state.state-startup_failed,
+.deploy-state.state-health_failed,
+.deploy-state.state-promotion_failed,
+.deploy-state.state-migration_blocked {
+  color: var(--error);
+}
+
+/* The migration hold is a data-loss warning — make it prominent. */
+.deploy-block {
+  margin-top: 0.75rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--error);
+  border-left-width: 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--error) 8%, var(--bg));
+}
+
+.deploy-block strong {
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.deploy-block p {
+  margin: 0.4rem 0;
+  font-size: 0.9rem;
+}
+
+.deploy-block a {
+  color: var(--accent);
+  font-weight: 600;
+}
