@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
 import { describeError } from "../api/client";
 import { getBuildJob, getBuildJobLogs, isBuildTerminal, listBuildJobs, type BuildJob, type BuildLog } from "../api/deploy";
+import { DeployPanel } from "./DeployPanel";
 import { ProjectPicker } from "./ProjectPicker";
 
-// The Deploy area's build-log view (#104): pick a project, see its Cloud build
-// history, and live-tail the selected build's logs. Forge reads the logs from
-// Gombit Cloud through the control plane and never stores them (ADR-005 §24); the
-// deploy action itself and the destructive-migration approval UX are #105.
+// The Deploy area: pick a project, see its Cloud build history, live-tail the
+// selected build's logs (#104), and — once a build has succeeded — deploy its
+// artifact to a chosen Cloud environment with the destructive-migration approval
+// UX (#105). Forge reads logs from Gombit Cloud and never stores them (ADR-005
+// §24); the deploy action is a pass-through to Cloud, which owns the deployment
+// lifecycle, health, rollback and the migration gate (ADR-005 D2/D6).
 export function DeployArea() {
   const [projectID, setProjectID] = useState<number | null>(null);
   const [jobs, setJobs] = useState<BuildJob[]>([]);
@@ -140,6 +143,14 @@ export function DeployArea() {
                       </span>
                     ))}
               </pre>
+
+              {/* A build can only be deployed once it has succeeded and Cloud has
+                  content-addressed its artifact (cloud_build_id is set). */}
+              {selected.status === "succeeded" && selected.cloud_build_id ? (
+                <DeployPanel projectID={projectID} cloudBuildID={selected.cloud_build_id} />
+              ) : selected.status === "succeeded" ? (
+                <p className="muted">Waiting for Gombit Cloud to finish content-addressing the artifact before it can be deployed.</p>
+              ) : null}
             </div>
           )}
         </div>
