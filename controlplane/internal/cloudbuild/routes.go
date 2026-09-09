@@ -31,30 +31,38 @@ type Authorizer interface {
 	Authorize(ctx context.Context, orgID, userID uint, capability org.Capability) error
 }
 
-// BuildLogs reads a Cloud build's log lines (optionally only those after `since`,
-// RFC3339, for tailing). *cloudclient.Client satisfies it. Forge relays Cloud's
-// logs; it never stores them (ADR-005 §24).
-type BuildLogs interface {
+// Cloud is the slice of the Gombit Cloud §51 client the deploy routes call. It
+// covers reading a build's logs and the deployment surface — list a project's
+// environments, deploy a build to one, read a deployment (including a migration
+// hold), and roll an environment back. *cloudclient.Client satisfies it. Forge
+// relays Cloud's logs and proxies deployment actions; it stores no logs (ADR-005
+// §24) and owns no deployment state machine (ADR-005 D2/D6) — Cloud is the source
+// of truth for build and deployment lifecycle.
+type Cloud interface {
 	GetBuildLogs(ctx context.Context, buildID, since string) ([]cloudclient.BuildLog, error)
+	ListEnvironments(ctx context.Context, cloudProjectID string) ([]cloudclient.Environment, error)
+	CreateDeployment(ctx context.Context, envID, buildID string) (cloudclient.Deployment, error)
+	GetDeployment(ctx context.Context, envID, deploymentID string) (cloudclient.Deployment, error)
+	Rollback(ctx context.Context, envID string) (cloudclient.Deployment, error)
 }
 
 // Register mounts the cloud-build (deploy) routes on the app behind the cookie
 // gate.
-func Register(app *framework.App, jobs *Service, projects Projects, authz Authorizer, logs BuildLogs) error {
+func Register(app *framework.App, jobs *Service, projects Projects, authz Authorizer, cloud Cloud) error {
 	authSvc, err := auth.NewService(app.DB(), app.Config())
 	if err != nil {
 		return err
 	}
 	RegisterRoutes(app.API(), app.Config().API.Prefix,
-		huma.Middlewares{authSvc.RequireCookieSession()}, jobs, projects, authz, logs)
+		huma.Middlewares{authSvc.RequireCookieSession()}, jobs, projects, authz, cloud)
 	return nil
 }
 
 // RegisterRoutes wires the deploy/build-job operations onto api behind gate.
 // Split from Register so the real routes + cookie gate are testable on a
 // humatest API without a full framework.App.
-func RegisterRoutes(api huma.API, prefix string, gate huma.Middlewares, jobs *Service, projects Projects, authz Authorizer, logs BuildLogs) {
-	h := &handler{jobs: jobs, projects: projects, authz: authz, logs: logs}
+func RegisterRoutes(api huma.API, prefix string, gate huma.Middlewares, jobs *Service, projects Projects, authz Authorizer, cloud Cloud) {
+	h := &handler{jobs: jobs, projects: projects, authz: authz, cloud: cloud}
 	security := []map[string][]string{{cookieSecurityName: {}}}
 	tags := []string{"Deploy"}
 
@@ -100,13 +108,59 @@ func RegisterRoutes(api huma.API, prefix string, gate huma.Middlewares, jobs *Se
 		Security:    security,
 		Middlewares: gate,
 	}, h.logsHandler)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "list-project-environments",
+		Method:      http.MethodGet,
+		Path:        prefix + "/projects/{projectID}/environments",
+		Summary:     "List the linked Cloud project's environments (deploy targets)",
+		Description: "Lists the environments of the project's linked Gombit Cloud project, so a human can pick where to deploy. Cloud owns the environments; Forge only surfaces them. 422 if the project is not linked to Cloud.",
+		Tags:        tags,
+		Security:    security,
+		Middlewares: gate,
+	}, h.listEnvironments)
+
+	huma.Register(api, huma.Operation{
+		OperationID:   "deploy-build-to-environment",
+		Method:        http.MethodPost,
+		Path:          prefix + "/projects/{projectID}/environments/{envID}/deployments",
+		Summary:       "Deploy a Cloud build to one of the project's environments",
+		Description:   "Asks Gombit Cloud to deploy an already-built artifact (by Cloud build id) to the chosen environment. Cloud runs the migration preflight and owns the deployment lifecycle; a destructive migration awaiting approval comes back as a created deployment in blocked_pending_approval with a block (Forge never approves — L10).",
+		Tags:          tags,
+		Security:      security,
+		Middlewares:   gate,
+		DefaultStatus: http.StatusAccepted,
+	}, h.createDeployment)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "get-environment-deployment",
+		Method:      http.MethodGet,
+		Path:        prefix + "/projects/{projectID}/environments/{envID}/deployments/{deploymentID}",
+		Summary:     "Get a Cloud deployment's status (including a migration hold)",
+		Description: "Reads a deployment's current Cloud state, pass-through. When held on a destructive migration it carries a block with the Cloud-generated approval_url; the same deployment resumes once a human approves the migration in Cloud.",
+		Tags:        tags,
+		Security:    security,
+		Middlewares: gate,
+	}, h.getDeployment)
+
+	huma.Register(api, huma.Operation{
+		OperationID:   "rollback-environment",
+		Method:        http.MethodPost,
+		Path:          prefix + "/projects/{projectID}/environments/{envID}/rollback",
+		Summary:       "Roll a project's environment back to its previous healthy revision",
+		Description:   "Asks Gombit Cloud to roll the environment back. Cloud creates a new forward deployment that re-deploys the earlier build (§92); Forge owns no rollback state. 409 if there is no previous healthy deployment to restore.",
+		Tags:          tags,
+		Security:      security,
+		Middlewares:   gate,
+		DefaultStatus: http.StatusAccepted,
+	}, h.rollback)
 }
 
 type handler struct {
 	jobs     *Service
 	projects Projects
 	authz    Authorizer
-	logs     BuildLogs
+	cloud    Cloud
 }
 
 // jobData is a build job as the API exposes it.
@@ -276,7 +330,7 @@ func (h *handler) logsHandler(ctx context.Context, in *logsInput) (*logsOutput, 
 	if job.CloudBuildID == "" {
 		return &logsOutput{Body: contract.Data[[]logLine]{Data: []logLine{}}}, nil
 	}
-	lines, err := h.logs.GetBuildLogs(ctx, job.CloudBuildID, in.Since)
+	lines, err := h.cloud.GetBuildLogs(ctx, job.CloudBuildID, in.Since)
 	if err != nil {
 		return nil, contract.WithContext(ctx, contract.Internal("could not read the build logs from Gombit Cloud"))
 	}
@@ -285,6 +339,211 @@ func (h *handler) logsHandler(ctx context.Context, in *logsInput) (*logsOutput, 
 		out = append(out, logLine{Timestamp: l.Timestamp, Stream: l.Stream, Message: l.Message})
 	}
 	return &logsOutput{Body: contract.Data[[]logLine]{Data: out}}, nil
+}
+
+// environmentData is a Cloud environment as the deploy API exposes it — a deploy
+// target the human picks. Forge's own shape, so the Cloud transport type doesn't
+// leak into the API.
+type environmentData struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Kind string `json:"kind,omitempty" doc:"The Cloud environment kind (e.g. persistent, ephemeral)"`
+}
+
+// deploymentBlock mirrors Cloud's structured migration hold: a deployment waiting
+// on a human to approve a destructive migration (§32; L9/L10). Forge surfaces it —
+// it never approves.
+type deploymentBlock struct {
+	Code        string `json:"code" doc:"Why the deployment is held (e.g. migration_approval_required)"`
+	MigrationID string `json:"migration_id" doc:"The migration a human must approve in Cloud"`
+	ApprovalURL string `json:"approval_url,omitempty" doc:"Cloud-generated deep link where a human approves the migration"`
+}
+
+// deploymentData is a Cloud deployment as the deploy API exposes it. Pass-through:
+// Cloud owns status, promotion, health, rollback and the migration gate; Forge
+// mirrors the view and holds no deployment state of its own (ADR-005 D2/D6).
+type deploymentData struct {
+	ID                   string           `json:"id"`
+	EnvironmentID        string           `json:"environment_id"`
+	BuildID              string           `json:"build_id"`
+	Status               string           `json:"status"`
+	ArtifactDigest       string           `json:"artifact_digest,omitempty"`
+	RestoresDeploymentID string           `json:"restores_deployment_id,omitempty" doc:"For a rollback, the earlier deployment whose build this restores"`
+	RolledBackFromID     string           `json:"rolled_back_from_id,omitempty" doc:"For a rollback, the deployment that was current when the rollback was requested"`
+	Block                *deploymentBlock `json:"block,omitempty" doc:"Set only when Status is blocked_pending_approval"`
+}
+
+func toDeploymentData(d cloudclient.Deployment) deploymentData {
+	out := deploymentData{
+		ID: d.ID, EnvironmentID: d.EnvironmentID, BuildID: d.BuildID, Status: d.Status,
+		ArtifactDigest: d.ArtifactDigest, RestoresDeploymentID: d.RestoresDeploymentID,
+		RolledBackFromID: d.RolledBackFromID,
+	}
+	if d.Block != nil {
+		out.Block = &deploymentBlock{Code: d.Block.Code, MigrationID: d.Block.MigrationID, ApprovalURL: d.Block.ApprovalURL}
+	}
+	return out
+}
+
+type listEnvironmentsInput struct {
+	ProjectID string `path:"projectID" doc:"Project identifier"`
+}
+
+type listEnvironmentsOutput struct {
+	Body contract.Data[[]environmentData]
+}
+
+func (h *handler) listEnvironments(ctx context.Context, in *listEnvironmentsInput) (*listEnvironmentsOutput, error) {
+	// Listing deploy targets is a read within the project; gate on view.
+	p, _, err := h.loadAuthorized(ctx, in.ProjectID, org.CapProjectView)
+	if err != nil {
+		return nil, err
+	}
+	cloudProjectID, err := h.cloudProjectID(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	envs, err := h.cloud.ListEnvironments(ctx, cloudProjectID)
+	if err != nil {
+		return nil, mapCloudErr(ctx, err, "environments")
+	}
+	out := make([]environmentData, 0, len(envs))
+	for _, e := range envs {
+		out = append(out, environmentData{ID: e.ID, Name: e.Name, Kind: e.Kind})
+	}
+	return &listEnvironmentsOutput{Body: contract.Data[[]environmentData]{Data: out}}, nil
+}
+
+type createDeploymentInput struct {
+	ProjectID string `path:"projectID" doc:"Project identifier"`
+	EnvID     string `path:"envID" doc:"Cloud environment identifier (one of the project's environments)"`
+	Body      struct {
+		BuildID string `json:"build_id" doc:"The Gombit Cloud build id to deploy (from a succeeded build job's cloud_build_id)"`
+	}
+}
+
+type createDeploymentOutput struct {
+	Status int
+	Body   contract.Data[deploymentData]
+}
+
+func (h *handler) createDeployment(ctx context.Context, in *createDeploymentInput) (*createDeploymentOutput, error) {
+	// Deploying is a write; gate on edit so a read-only viewer can't ship. The env
+	// must belong to the project (tenancy-safe), never an arbitrary Cloud env id.
+	if in.Body.BuildID == "" {
+		return nil, contract.WithContext(ctx, contract.Validation("a build id is required", map[string][]string{
+			"build_id": {"provide the Cloud build id to deploy"},
+		}))
+	}
+	if _, err := h.authorizedEnv(ctx, in.ProjectID, in.EnvID, org.CapProjectEdit); err != nil {
+		return nil, err
+	}
+	d, err := h.cloud.CreateDeployment(ctx, in.EnvID, in.Body.BuildID)
+	if err != nil {
+		return nil, mapCloudErr(ctx, err, "deployment")
+	}
+	return &createDeploymentOutput{Status: http.StatusAccepted, Body: contract.Data[deploymentData]{Data: toDeploymentData(d)}}, nil
+}
+
+type getDeploymentInput struct {
+	ProjectID    string `path:"projectID" doc:"Project identifier"`
+	EnvID        string `path:"envID" doc:"Cloud environment identifier"`
+	DeploymentID string `path:"deploymentID" doc:"Cloud deployment identifier"`
+}
+
+type getDeploymentOutput struct {
+	Body contract.Data[deploymentData]
+}
+
+func (h *handler) getDeployment(ctx context.Context, in *getDeploymentInput) (*getDeploymentOutput, error) {
+	// Reading deployment status is a project read; gate on view.
+	if _, err := h.authorizedEnv(ctx, in.ProjectID, in.EnvID, org.CapProjectView); err != nil {
+		return nil, err
+	}
+	d, err := h.cloud.GetDeployment(ctx, in.EnvID, in.DeploymentID)
+	if err != nil {
+		return nil, mapCloudErr(ctx, err, "deployment")
+	}
+	return &getDeploymentOutput{Body: contract.Data[deploymentData]{Data: toDeploymentData(d)}}, nil
+}
+
+type rollbackInput struct {
+	ProjectID string `path:"projectID" doc:"Project identifier"`
+	EnvID     string `path:"envID" doc:"Cloud environment identifier"`
+}
+
+type rollbackOutput struct {
+	Status int
+	Body   contract.Data[deploymentData]
+}
+
+func (h *handler) rollback(ctx context.Context, in *rollbackInput) (*rollbackOutput, error) {
+	// Rollback is a write; gate on edit.
+	if _, err := h.authorizedEnv(ctx, in.ProjectID, in.EnvID, org.CapProjectEdit); err != nil {
+		return nil, err
+	}
+	d, err := h.cloud.Rollback(ctx, in.EnvID)
+	if err != nil {
+		return nil, mapCloudErr(ctx, err, "deployment")
+	}
+	return &rollbackOutput{Status: http.StatusAccepted, Body: contract.Data[deploymentData]{Data: toDeploymentData(d)}}, nil
+}
+
+// cloudProjectID returns the project's linked Cloud project id, or a 422 when the
+// project is not linked — deploying to Cloud has no meaning without a counterpart.
+func (h *handler) cloudProjectID(ctx context.Context, p project.Project) (string, error) {
+	if p.CloudProjectID == nil || *p.CloudProjectID == "" {
+		return "", contract.WithContext(ctx, contract.Validation("the project is not linked to a Gombit Cloud project", map[string][]string{
+			"project": {"link the project to Gombit Cloud before deploying"},
+		}))
+	}
+	return *p.CloudProjectID, nil
+}
+
+// authorizedEnv authorizes the caller on the project for capability and confirms
+// envID is one of that project's linked Cloud environments — so a caller can only
+// target an environment that actually belongs to the project they hold the
+// capability on, never an arbitrary Cloud env id from another tenant. An env that
+// isn't the project's maps to the same NotFound as a missing one (no existence
+// leak). Returns the resolved Cloud project id.
+func (h *handler) authorizedEnv(ctx context.Context, projectIDParam, envID string, capability org.Capability) (string, error) {
+	p, _, err := h.loadAuthorized(ctx, projectIDParam, capability)
+	if err != nil {
+		return "", err
+	}
+	cloudProjectID, err := h.cloudProjectID(ctx, p)
+	if err != nil {
+		return "", err
+	}
+	envs, err := h.cloud.ListEnvironments(ctx, cloudProjectID)
+	if err != nil {
+		return "", mapCloudErr(ctx, err, "environments")
+	}
+	for _, e := range envs {
+		if e.ID == envID {
+			return cloudProjectID, nil
+		}
+	}
+	return "", contract.WithContext(ctx, contract.NotFound("environment not found"))
+}
+
+// mapCloudErr maps a Gombit Cloud client error to a contract error, preserving the
+// meaning of Cloud's HTTP status rather than collapsing every remote failure to a
+// 500: a 404 stays a NotFound, a 409 a Conflict (e.g. nothing to roll back to),
+// other 4xx a Validation. A transport failure or a 5xx is a genuine internal fault.
+func mapCloudErr(ctx context.Context, err error, resource string) error {
+	var ce *cloudclient.Error
+	if errors.As(err, &ce) {
+		switch {
+		case ce.Status == http.StatusNotFound:
+			return contract.WithContext(ctx, contract.NotFound(resource+" not found"))
+		case ce.Status == http.StatusConflict:
+			return contract.WithContext(ctx, contract.Conflict(ce.Message))
+		case ce.Status >= 400 && ce.Status < 500:
+			return contract.WithContext(ctx, contract.Validation(ce.Message, nil))
+		}
+	}
+	return contract.WithContext(ctx, contract.Internal("could not reach Gombit Cloud for the "+resource))
 }
 
 // loadAuthorized resolves and authorizes the project named in a path param for
