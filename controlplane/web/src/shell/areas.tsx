@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { DataArea } from "../areas/DataArea";
+import { DeployArea } from "../areas/DeployArea";
 import { DesignPreview } from "../areas/DesignPreview";
 import { PagesArea } from "../areas/PagesArea";
 
@@ -22,7 +23,12 @@ export const AREAS: EditorArea[] = [
   { path: "pages", label: "Pages", summary: "Page list and structured page properties.", element: <PagesArea /> },
   { path: "preview", label: "Preview", summary: "Structural design preview rendered from the spec.", element: <DesignPreview /> },
   { path: "access", label: "Access", summary: "Users, groups and permission configuration." },
-  { path: "deploy", label: "Deploy", summary: "Preview, build history, production deployment and logs." },
+  {
+    path: "deploy",
+    label: "Deploy",
+    summary: "Preview, build history, production deployment and logs.",
+    element: <DeployArea />,
+  },
 ];
 
 export const DEFAULT_AREA = AREAS[0];
