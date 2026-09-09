@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { describeError } from "../api/client";
 import { getBuildJob, getBuildJobLogs, isBuildTerminal, listBuildJobs, type BuildJob, type BuildLog } from "../api/deploy";
+import { BuildTrigger } from "./BuildTrigger";
 import { DeployPanel } from "./DeployPanel";
 import { ProjectPicker } from "./ProjectPicker";
 
-// The Deploy area: pick a project, see its Cloud build history, live-tail the
+// The Deploy area: pick a project, build its current revision (manually or
+// auto-rebuild on changes, #71), see its Cloud build history, live-tail the
 // selected build's logs (#104), and — once a build has succeeded — deploy its
 // artifact to a chosen Cloud environment with the destructive-migration approval
 // UX (#105). Forge reads logs from Gombit Cloud and never stores them (ADR-005
@@ -83,6 +85,13 @@ export function DeployArea() {
 
   const selected = jobs.find((j) => j.id === selectedID) ?? null;
 
+  // A newly-triggered build (manual or auto-rebuild) goes to the top of the
+  // history and is selected, so its logs tail immediately.
+  const handleBuildStarted = useCallback((job: BuildJob) => {
+    setJobs((prev) => [job, ...prev.filter((j) => j.id !== job.id)]);
+    setSelectedID(job.id);
+  }, []);
+
   return (
     <section aria-labelledby="area-deploy">
       <h2 id="area-deploy">Deploy</h2>
@@ -96,6 +105,7 @@ export function DeployArea() {
 
       {projectID != null && (
         <div className="deploy-area">
+          <BuildTrigger projectID={projectID} onBuildStarted={handleBuildStarted} />
           <ul className="build-jobs" aria-label="Build history">
             {jobs.length === 0 ? (
               <li className="muted">No builds yet. Deploy this project to build it on Gombit Cloud.</li>

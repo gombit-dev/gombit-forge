@@ -1102,3 +1102,23 @@ button:disabled {
   font-size: 0.85rem;
   flex: 1 1 16rem;
 }
+
+/* Build trigger + auto-rebuild (#71). */
+.build-trigger {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.build-trigger .auto-rebuild {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+}
+
+.build-trigger .auto-status {
+  font-size: 0.85rem;
+}
