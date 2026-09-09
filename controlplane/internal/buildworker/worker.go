@@ -71,6 +71,11 @@ const (
 
 // cloudTerminal reports whether a Cloud build status is terminal (Cloud's §22
 // build state machine). "succeeded" is the only success; the rest are failures.
+//
+// This set is a cross-service coupling: it must track Cloud's terminal statuses.
+// A Cloud-side terminal status not listed here reads as non-terminal and is only
+// caught by track's trackTimeout — i.e. it surfaces as a 20-minute timeout rather
+// than an obvious error — so keep this in sync with gombit-cloud's build states.
 func cloudTerminal(status string) bool {
 	switch status {
 	case "succeeded", "failed", "cancelled", "timed_out":
@@ -176,6 +181,11 @@ func (w *Worker) process(ctx context.Context, job cloudbuild.BuildJob) {
 		digest := ""
 		if b, err := w.cloud.GetBuild(ctx, job.CloudProjectID, build.ID); err == nil {
 			digest = b.ArtifactDigest
+		} else {
+			// The build succeeded, so recording success is still right — but log why
+			// the digest is empty rather than leave it a silent gap.
+			w.log.Error("buildworker: build succeeded but fetching its artifact digest failed",
+				"job", job.ID, "cloud_build", build.ID, "error", err)
 		}
 		w.succeed(ctx, job, final, digest)
 		return
