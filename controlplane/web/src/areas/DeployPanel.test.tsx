@@ -27,6 +27,7 @@ const BUILD = "bld_cloud_1";
 const ENVS = [
   { id: "env_prod", name: "production", kind: "persistent" },
   { id: "env_stg", name: "staging", kind: "persistent" },
+  { id: "env_pr12", name: "preview-pr-12", kind: "ephemeral", state: "active", expires_at: "2026-01-02T00:00:00Z" },
 ];
 
 describe("DeployPanel", () => {
@@ -45,6 +46,10 @@ describe("DeployPanel", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: /target environment/i }), "env_prod");
     // The action names its target — no generic "deploy to prod" footgun.
     expect(screen.getByRole("button", { name: "Deploy build to production" })).toBeInTheDocument();
+
+    // A preview environment is marked as throwaway, with its expiry, when chosen.
+    await user.selectOptions(screen.getByRole("combobox", { name: /target environment/i }), "env_pr12");
+    expect(screen.getByText(/preview environment — throwaway/i)).toHaveTextContent(/expires/i);
   });
 
   it("deploys the build to the chosen environment and forwards the build id to Cloud", async () => {
@@ -53,6 +58,7 @@ describe("DeployPanel", () => {
       if (method === "POST" && url.endsWith(`/projects/${PROJECT}/environments/env_stg/deployments`)) {
         return { status: 202, body: { data: { id: "dep_1", environment_id: "env_stg", build_id: BUILD, status: "pending" } } };
       }
+      if (method === "GET" && url.includes("/deployments/dep_1/logs")) return { status: 200, body: { data: [] } };
       return { status: 404 };
     });
     const user = userEvent.setup();
@@ -116,6 +122,7 @@ describe("DeployPanel", () => {
           body: { data: { id: "dep_3", environment_id: "env_prod", build_id: "bld_prev", status: "pending", rolled_back_from_id: "dep_1" } },
         };
       }
+      if (method === "GET" && url.includes("/deployments/dep_3/logs")) return { status: 200, body: { data: [] } };
       return { status: 404 };
     });
     const user = userEvent.setup();

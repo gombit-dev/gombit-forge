@@ -56,6 +56,31 @@ export interface Environment {
   id: string;
   name: string;
   kind?: string;
+  // Set only for an ephemeral preview environment (§46/§89): its reclamation
+  // state and when it lapses, so the UI can mark a preview as throwaway.
+  state?: string;
+  expires_at?: string;
+}
+
+// isPreviewEnvironment reports an ephemeral preview target (as opposed to a
+// persistent environment). Cloud names it "ephemeral"; a set expiry is the
+// fallback signal for a Cloud that labels the kind differently.
+export function isPreviewEnvironment(env: Environment): boolean {
+  return env.kind === "ephemeral" || env.kind === "preview" || Boolean(env.expires_at);
+}
+
+// One application/runtime log line for a deployment, read from Cloud (§40).
+// `stream` is Cloud's channel (stdout/stderr) — surfaced as the line's level.
+// `id` is Cloud's stable per-line id, used to dedup the tail's inclusive-since
+// boundary line. `instance_id` is carried from the wire but not shown in the
+// deploy-tab tail (kept for a fuller viewer later).
+export interface DeploymentLog {
+  id: string;
+  timestamp: string;
+  stream?: string;
+  message: string;
+  instance_id?: string;
+  request_id?: string;
 }
 
 // Cloud's structured hold on a deployment that is waiting on a human to approve a
@@ -118,6 +143,13 @@ export const deployBuild = (projectID: number, envID: string, buildID: string) =
 
 export const getDeployment = (projectID: number, envID: string, deploymentID: string) =>
   api.get<Deployment>(`/projects/${projectID}/environments/${envID}/deployments/${deploymentID}`);
+
+// getDeploymentLogs reads a deployment's application logs, optionally only those
+// after `since` (RFC3339) for tailing.
+export const getDeploymentLogs = (projectID: number, envID: string, deploymentID: string, since?: string) =>
+  api.get<DeploymentLog[]>(
+    `/projects/${projectID}/environments/${envID}/deployments/${deploymentID}/logs${since ? `?since=${encodeURIComponent(since)}` : ""}`,
+  );
 
 // rollbackEnvironment rolls an environment back to its previous healthy revision;
 // Cloud creates a new forward deployment restoring the earlier build (§92).
