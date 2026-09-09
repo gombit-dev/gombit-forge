@@ -492,12 +492,40 @@ func (h *handler) createPreviewEnvironment(ctx context.Context, in *createPrevie
 	// Provenance: mark the preview as Forge-created and pin the revision it previews.
 	env, err := h.cloud.CreatePreviewEnvironment(ctx, cloudProjectID, name, ttl, "forge", fmt.Sprintf("r%d", head.ID))
 	if err != nil {
+		// Cloud enforces (project, name) uniqueness, so a second create for the same
+		// revision 409s. A preview of a revision is a single environment you redeploy
+		// into to refresh it — so treat create as idempotent: return the existing
+		// preview (200) for the operator to reselect and redeploy, rather than a
+		// confusing Conflict on a button that looks like it should just work, or a
+		// pile of orphaned week-TTL environments for one revision.
+		var ce *cloudclient.Error
+		if errors.As(err, &ce) && ce.Status == http.StatusConflict {
+			if existing, ok, ferr := h.findEnvironmentByName(ctx, cloudProjectID, name); ferr == nil && ok {
+				return &createPreviewEnvironmentOutput{Status: http.StatusOK, Body: contract.Data[environmentData]{Data: existing}}, nil
+			}
+		}
 		return nil, mapCloudErr(ctx, err, "preview environment")
 	}
 	return &createPreviewEnvironmentOutput{
 		Status: http.StatusCreated,
 		Body:   contract.Data[environmentData]{Data: environmentData{ID: env.ID, Name: env.Name, Kind: env.Kind, State: env.State, ExpiresAt: env.ExpiresAt}},
 	}, nil
+}
+
+// findEnvironmentByName returns the project's environment with the given name, if
+// any. Used to make preview creation idempotent when Cloud reports the name is
+// already taken.
+func (h *handler) findEnvironmentByName(ctx context.Context, cloudProjectID, name string) (environmentData, bool, error) {
+	envs, err := h.cloud.ListEnvironments(ctx, cloudProjectID)
+	if err != nil {
+		return environmentData{}, false, err
+	}
+	for _, e := range envs {
+		if e.Name == name {
+			return environmentData{ID: e.ID, Name: e.Name, Kind: e.Kind, State: e.State, ExpiresAt: e.ExpiresAt}, true, nil
+		}
+	}
+	return environmentData{}, false, nil
 }
 
 type createDeploymentInput struct {

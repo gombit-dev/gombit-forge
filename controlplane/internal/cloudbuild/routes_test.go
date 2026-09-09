@@ -512,6 +512,30 @@ func TestCreatePreviewEnvironment(t *testing.T) {
 	}
 }
 
+func TestCreatePreviewEnvironmentIdempotentOnConflict(t *testing.T) {
+	// Cloud enforces (project, name) uniqueness, so a second create for the same
+	// revision 409s. The route must return the EXISTING preview (200) so repeated
+	// clicks just reselect it — not a confusing Conflict, not a pile of orphans.
+	cloud := &fakeLogs{
+		previewErr: &cloudclient.Error{Status: http.StatusConflict, Code: "conflict", Message: "environment name already in use"},
+		envs: []cloudclient.Environment{
+			{ID: "env_prod", Name: "production", Kind: "persistent"},
+			{ID: "env_pr42", Name: "preview-r42", Kind: "ephemeral", State: "active", ExpiresAt: "2026-01-08T00:00:00Z"},
+		},
+	}
+	fx := newRoutesFixtureWithLogs(t,
+		fakeProjects{proj: cloudLinked("prj_cloud"), head: project.Revision{ID: 42}, hasHead: true}, fakeAuthz{}, cloud)
+	user := fx.seedUser(t, "dev@example.test")
+
+	resp := fx.api.Post("/api/v1/projects/1/preview-environments", fx.cookie(t, user), map[string]any{})
+	if resp.Code != http.StatusOK {
+		t.Fatalf("duplicate preview → %d, want 200 (return existing): %s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), `"env_pr42"`) {
+		t.Fatalf("expected the existing preview env, got %s", resp.Body.String())
+	}
+}
+
 func TestCreatePreviewEnvironmentUnlinkedProject(t *testing.T) {
 	fx := newRoutesFixtureWithLogs(t,
 		fakeProjects{proj: project.Project{ID: 1, OrganizationID: 7}, head: project.Revision{ID: 42}, hasHead: true}, fakeAuthz{}, &fakeLogs{})
