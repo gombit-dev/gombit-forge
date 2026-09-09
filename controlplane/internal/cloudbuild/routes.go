@@ -3,6 +3,7 @@ package cloudbuild
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -41,6 +42,7 @@ type Authorizer interface {
 type Cloud interface {
 	GetBuildLogs(ctx context.Context, buildID, since string) ([]cloudclient.BuildLog, error)
 	ListEnvironments(ctx context.Context, cloudProjectID string) ([]cloudclient.Environment, error)
+	CreatePreviewEnvironment(ctx context.Context, cloudProjectID, name string, ttlSeconds int64, sourceType, sourceRef string) (cloudclient.Environment, error)
 	CreateDeployment(ctx context.Context, envID, buildID string) (cloudclient.Deployment, error)
 	GetDeployment(ctx context.Context, envID, deploymentID string) (cloudclient.Deployment, error)
 	GetDeploymentLogs(ctx context.Context, deploymentID, since string) ([]cloudclient.DeploymentLog, error)
@@ -120,6 +122,18 @@ func RegisterRoutes(api huma.API, prefix string, gate huma.Middlewares, jobs *Se
 		Security:    security,
 		Middlewares: gate,
 	}, h.listEnvironments)
+
+	huma.Register(api, huma.Operation{
+		OperationID:   "create-preview-environment",
+		Method:        http.MethodPost,
+		Path:          prefix + "/projects/{projectID}/preview-environments",
+		Summary:       "Create an ephemeral preview environment on the linked Cloud project",
+		Description:   "Asks Gombit Cloud to create a throwaway preview environment (with a TTL) for the project's current revision. Deploying a build into it — and redeploying on each preview rebuild — refreshes the preview; Cloud's promotion switches traffic to the new healthy revision atomically (L12/§23). 422 if the project is not linked to Cloud or has no revision to preview.",
+		Tags:          tags,
+		Security:      security,
+		Middlewares:   gate,
+		DefaultStatus: http.StatusCreated,
+	}, h.createPreviewEnvironment)
 
 	huma.Register(api, huma.Operation{
 		OperationID:   "deploy-build-to-environment",
@@ -426,6 +440,92 @@ func (h *handler) listEnvironments(ctx context.Context, in *listEnvironmentsInpu
 		out = append(out, environmentData{ID: e.ID, Name: e.Name, Kind: e.Kind, State: e.State, ExpiresAt: e.ExpiresAt})
 	}
 	return &listEnvironmentsOutput{Body: contract.Data[[]environmentData]{Data: out}}, nil
+}
+
+// defaultPreviewTTLSeconds is the lifetime Forge requests for a preview when the
+// caller doesn't specify one — a week, well under Cloud's 30-day cap. Cloud
+// validates and bounds it regardless.
+const defaultPreviewTTLSeconds = 7 * 24 * 60 * 60
+
+type createPreviewEnvironmentInput struct {
+	ProjectID string `path:"projectID" doc:"Project identifier"`
+	Body      struct {
+		Name       string `json:"name,omitempty" doc:"Optional environment name (lowercase slug); defaults to preview-r<revision> for the current revision"`
+		TTLSeconds int64  `json:"ttl_seconds,omitempty" doc:"Optional preview lifetime in seconds; defaults to one week, capped by Cloud"`
+	}
+}
+
+type createPreviewEnvironmentOutput struct {
+	Status int
+	Body   contract.Data[environmentData]
+}
+
+func (h *handler) createPreviewEnvironment(ctx context.Context, in *createPreviewEnvironmentInput) (*createPreviewEnvironmentOutput, error) {
+	// Creating a preview is a write (it provisions a Cloud environment); gate on edit.
+	p, _, err := h.loadAuthorized(ctx, in.ProjectID, org.CapProjectEdit)
+	if err != nil {
+		return nil, err
+	}
+	cloudProjectID, err := h.cloudProjectID(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	// A preview is of the project's current revision — resolve it for provenance
+	// and a sensible default name. No revision means nothing to preview (422).
+	head, ok, err := h.projects.Head(ctx, p.ID)
+	if err != nil {
+		return nil, contract.WithContext(ctx, contract.Internal("could not resolve the project's head revision"))
+	}
+	if !ok {
+		return nil, contract.WithContext(ctx, contract.Validation("the project has no revision to preview", map[string][]string{
+			"project": {"create a revision before previewing"},
+		}))
+	}
+	name := in.Body.Name
+	if name == "" {
+		name = fmt.Sprintf("preview-r%d", head.ID)
+	}
+	ttl := in.Body.TTLSeconds
+	if ttl <= 0 {
+		ttl = defaultPreviewTTLSeconds
+	}
+	// Provenance: mark the preview as Forge-created and pin the revision it previews.
+	env, err := h.cloud.CreatePreviewEnvironment(ctx, cloudProjectID, name, ttl, "forge", fmt.Sprintf("r%d", head.ID))
+	if err != nil {
+		// Cloud enforces (project, name) uniqueness, so a second create for the same
+		// revision 409s. A preview of a revision is a single environment you redeploy
+		// into to refresh it — so treat create as idempotent: return the existing
+		// preview (200) for the operator to reselect and redeploy, rather than a
+		// confusing Conflict on a button that looks like it should just work, or a
+		// pile of orphaned week-TTL environments for one revision.
+		var ce *cloudclient.Error
+		if errors.As(err, &ce) && ce.Status == http.StatusConflict {
+			if existing, ok, ferr := h.findEnvironmentByName(ctx, cloudProjectID, name); ferr == nil && ok {
+				return &createPreviewEnvironmentOutput{Status: http.StatusOK, Body: contract.Data[environmentData]{Data: existing}}, nil
+			}
+		}
+		return nil, mapCloudErr(ctx, err, "preview environment")
+	}
+	return &createPreviewEnvironmentOutput{
+		Status: http.StatusCreated,
+		Body:   contract.Data[environmentData]{Data: environmentData{ID: env.ID, Name: env.Name, Kind: env.Kind, State: env.State, ExpiresAt: env.ExpiresAt}},
+	}, nil
+}
+
+// findEnvironmentByName returns the project's environment with the given name, if
+// any. Used to make preview creation idempotent when Cloud reports the name is
+// already taken.
+func (h *handler) findEnvironmentByName(ctx context.Context, cloudProjectID, name string) (environmentData, bool, error) {
+	envs, err := h.cloud.ListEnvironments(ctx, cloudProjectID)
+	if err != nil {
+		return environmentData{}, false, err
+	}
+	for _, e := range envs {
+		if e.Name == name {
+			return environmentData{ID: e.ID, Name: e.Name, Kind: e.Kind, State: e.State, ExpiresAt: e.ExpiresAt}, true, nil
+		}
+	}
+	return environmentData{}, false, nil
 }
 
 type createDeploymentInput struct {

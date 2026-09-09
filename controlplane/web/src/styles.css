@@ -1088,3 +1088,17 @@ button:disabled {
 .app-log-table .log-level.level-stderr {
   color: var(--error);
 }
+
+/* Preview environment creation (#71). */
+.deploy-preview {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+
+.deploy-preview .muted {
+  font-size: 0.85rem;
+  flex: 1 1 16rem;
+}
