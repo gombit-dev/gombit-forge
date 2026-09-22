@@ -1,10 +1,10 @@
 module github.com/gombit-dev/gombit-forge/controlplane
 
-go 1.25.7
+go 1.26.0
 
 require (
 	github.com/danielgtaylor/huma/v2 v2.39.1
-	github.com/gombit-dev/gombit v0.1.13
+	github.com/gombit-dev/gombit v0.1.14
 	gorm.io/gorm v1.31.2
 )
 
@@ -57,7 +57,7 @@ require (
 	go.uber.org/multierr v1.10.0 // indirect
 	go.uber.org/zap v1.28.0 // indirect
 	golang.org/x/arch v0.29.0 // indirect
-	golang.org/x/crypto v0.55.0 // indirect
+	golang.org/x/crypto v0.56.0 // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
