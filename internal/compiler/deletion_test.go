@@ -1,10 +1,54 @@
 package compiler
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/gombit-dev/gombit-forge/internal/spec"
 )
+
+func TestAnalyzeDeletionsNilEntries(t *testing.T) {
+	for _, kind := range []string{"current_resources", "candidate_resources", "candidate_fields", "candidate_pages", "all"} {
+		t.Run(kind, func(t *testing.T) {
+			current := sampleSpec(t)
+			candidate := cloneSpec(t, current)
+			candidate.Resources = candidate.Resources[1:] // delete Customer, keep Invoice's relationship
+			want := AnalyzeDeletions(current, candidate)
+			if len(want) != 1 || !want[0].Blocked() {
+				t.Fatalf("expected one blocked deletion before adding nil entries, got %+v", want)
+			}
+
+			if kind == "current_resources" || kind == "all" {
+				current.Resources = append([]*spec.Resource{nil}, current.Resources...)
+				current.Resources = append(current.Resources, nil)
+			}
+			if kind == "candidate_fields" || kind == "all" {
+				candidate.Resources[0].Fields = append([]*spec.Field{nil}, candidate.Resources[0].Fields...)
+				candidate.Resources[0].Fields = append(candidate.Resources[0].Fields, nil)
+			}
+			if kind == "candidate_resources" || kind == "all" {
+				candidate.Resources = append([]*spec.Resource{nil}, candidate.Resources...)
+				candidate.Resources = append(candidate.Resources, nil)
+			}
+			if kind == "candidate_pages" || kind == "all" {
+				candidate.Pages = append([]*spec.Page{nil}, candidate.Pages...)
+				candidate.Pages = append(candidate.Pages, nil)
+			}
+
+			if got := AnalyzeDeletions(current, candidate); !reflect.DeepEqual(got, want) {
+				t.Fatalf("nil entries changed deletion analysis:\n got: %+v\nwant: %+v", got, want)
+			}
+		})
+	}
+}
+
+func TestAnalyzeDeletionsOnlyNilEntries(t *testing.T) {
+	current := &spec.ProjectSpec{Resources: []*spec.Resource{nil}}
+	candidate := &spec.ProjectSpec{Resources: []*spec.Resource{nil}, Pages: []*spec.Page{nil}}
+	if got := AnalyzeDeletions(current, candidate); len(got) != 0 {
+		t.Fatalf("nil entries must not create deleted resources, got %+v", got)
+	}
+}
 
 // find returns the single deletion for id, or fails.
 func findDeletion(t *testing.T, deletions []DeletedResource, id spec.ID) DeletedResource {
