@@ -505,6 +505,9 @@ func newDashboardView(g *graph.Graph, page *graph.Page) dashboardView {
 				rl.Limit = defaultRecentLimit
 			}
 			rl.DetailRoute = detailRoute(g, card.Resource)
+			if rl.DetailRoute != "" {
+				view.HasLinks = true
+			}
 			cols := card.Resource.Behavior.List
 			if len(cols) == 0 {
 				cols = card.Resource.ScalarFields()
@@ -747,8 +750,8 @@ type dashboardView struct {
 	CountCards     []countCardView
 	RecentLists    []recentListView
 	AggregateCards []aggregateCardView
-	// HasLinks is true when at least one recent list has a table page to link to,
-	// so the Link import is emitted only when used (the generated app lints).
+	// HasLinks is true when a recent list links to a table page or a record's
+	// detail page, so the Link import is emitted only when used.
 	HasLinks bool
 	// HasRecords is true when at least one recent list fetches records (it
 	// declares an OrderBy), so the client/effect imports are emitted for the

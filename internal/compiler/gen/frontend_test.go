@@ -1088,6 +1088,51 @@ func TestFrontendDashboardRecentRecords(t *testing.T) {
 			t.Errorf("a recent list without OrderBy must not fetch records: found %q", absent)
 		}
 	}
+
+	for _, tc := range []struct {
+		name                 string
+		table, detail, order bool
+	}{
+		{"no pages", false, false, true},
+		{"table only", true, false, true},
+		{"detail only", false, true, true},
+		{"table and detail", true, true, true},
+		{"no pages without ordering", false, false, false},
+		{"table without ordering", true, false, false},
+		{"detail without ordering", false, true, false},
+		{"table and detail without ordering", true, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			order := spec.ID("")
+			if tc.order {
+				order = due
+			}
+			s := build(order, 5)
+			if tc.table {
+				s.Pages = append(s.Pages, &spec.Page{
+					ID: id(spec.KindPage), Slug: "invoices", Label: "Invoices",
+					Type: spec.PageResourceTable, Resource: res,
+				})
+			}
+			if tc.detail {
+				s.Pages = append(s.Pages, &spec.Page{
+					ID: id(spec.KindPage), Slug: "invoice", Label: "Invoice",
+					Type: spec.PageResourceDetail, Resource: res,
+				})
+			}
+			dash := dashFor(s)
+			wantRowLink := tc.detail && tc.order
+			if got := strings.Contains(dash, "<Link to={`/invoice/${row.id}`}>"); got != wantRowLink {
+				t.Errorf("row link: got %v want %v", got, wantRowLink)
+			}
+			if got := strings.Contains(dash, `<Link to="/invoices">View all</Link>`); got != tc.table {
+				t.Errorf("View all link: got %v want %v", got, tc.table)
+			}
+			if got, want := strings.Contains(dash, `import { Link } from "react-router";`), tc.table || wantRowLink; got != want {
+				t.Errorf("Link import: got %v want %v", got, want)
+			}
+		})
+	}
 }
 
 // TestFrontendDashboardAggregateCards (#182): an aggregate card fetches its
