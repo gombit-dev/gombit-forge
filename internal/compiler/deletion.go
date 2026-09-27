@@ -77,12 +77,18 @@ func AnalyzeDeletions(current, candidate *spec.ProjectSpec) []DeletedResource {
 	surviving := map[spec.ID]bool{}
 	if candidate != nil {
 		for _, r := range candidate.Resources {
+			if r == nil {
+				continue
+			}
 			surviving[r.ID] = true
 		}
 	}
 
 	var deletions []DeletedResource
 	for _, r := range current.Resources {
+		if r == nil {
+			continue
+		}
 		if surviving[r.ID] {
 			continue
 		}
@@ -109,7 +115,13 @@ func blockersFor(candidate *spec.ProjectSpec, deleted *spec.Resource) []Deletion
 	// Relationships: a belongs_to field on a surviving resource still targeting
 	// the deleted one.
 	for _, r := range candidate.Resources {
+		if r == nil {
+			continue
+		}
 		for _, f := range r.Fields {
+			if f == nil {
+				continue
+			}
 			if f.Type == spec.TypeBelongsTo && f.Target == deleted.ID {
 				blockers = append(blockers, DeletionBlocker{
 					Kind:   "relationship",
@@ -124,6 +136,9 @@ func blockersFor(candidate *spec.ProjectSpec, deleted *spec.Resource) []Deletion
 
 	// Pages bound to the deleted resource, and dashboard cards pointing at it.
 	for _, p := range candidate.Pages {
+		if p == nil {
+			continue
+		}
 		if p.Resource == deleted.ID {
 			blockers = append(blockers, DeletionBlocker{
 				Kind:    "page",
