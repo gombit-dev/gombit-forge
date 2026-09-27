@@ -101,6 +101,43 @@ describe("HealthPanel", () => {
     expect(await screen.findByText("Project B health")).toBeInTheDocument();
   });
 
+  // A same-project reload (reloadKey bump after an edit) must keep the last-good
+  // facets visible while the refetch is in flight; only a project switch clears.
+  it("keeps the current health visible while a same-project reload is in flight", async () => {
+    const health = (summary: string) =>
+      ({
+        ok: true,
+        status: 200,
+        statusText: "",
+        json: async () => ({
+          data: { facets: [{ name: "Spec", status: "ok", summary }] },
+        }),
+      }) as Response;
+
+    let resolveReload!: (response: Response) => void;
+    const reloadRequest = new Promise<Response>((resolve) => {
+      resolveReload = resolve;
+    });
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(health("Valid before edit"))
+      .mockImplementationOnce(() => reloadRequest) as unknown as typeof fetch;
+
+    const { rerender } = render(<HealthPanel projectID={1} reloadKey={0} />);
+    expect(await screen.findByText("Valid before edit")).toBeInTheDocument();
+
+    rerender(<HealthPanel projectID={1} reloadKey={1} />);
+
+    // The refetch is pending, but the panel still shows the previous facets.
+    expect(screen.getByRole("complementary", { name: "Project health" })).toHaveTextContent("Valid before edit");
+
+    await act(async () => {
+      resolveReload(health("Valid after edit"));
+    });
+    expect(await screen.findByText("Valid after edit")).toBeInTheDocument();
+    expect(screen.queryByText("Valid before edit")).not.toBeInTheDocument();
+  });
+
   // A transient health-fetch failure must not latch: once a later load (a bumped
   // reloadKey after an edit) succeeds, the panel shows live health again, never
   // the stale error. Guards against the panel going permanently dark on one blip.
