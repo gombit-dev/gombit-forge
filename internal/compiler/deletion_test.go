@@ -211,6 +211,74 @@ func TestDeletionBlockedByPageAndDashboard(t *testing.T) {
 	}
 }
 
+func TestDeletionBlockedByAggregateCard(t *testing.T) {
+	base := sampleSpec(t)
+	invoice := base.Resources[1]
+	pageID := spec.MustNewID(spec.KindPage)
+	base.Pages = []*spec.Page{
+		{ID: pageID, Slug: "home", Label: "Home", Type: spec.PageDashboard, Dashboard: &spec.DashboardConfig{
+			AggregateCards: []spec.AggregateCard{{Label: "Total sales", Resource: invoice.ID, Field: invoice.Fields[1].ID, Op: spec.AggregateSum}},
+		}},
+	}
+	if d := spec.Validate(base); d != nil {
+		t.Fatalf("base invalid: %s", d.Error())
+	}
+
+	t.Run("surviving card blocks deletion", func(t *testing.T) {
+		cand := cloneSpec(t, base)
+		cand.Resources = cand.Resources[:1] // delete Invoice, keep the aggregate card
+		deletions := AnalyzeDeletions(base, cand)
+		del := findDeletion(t, deletions, invoice.ID)
+		want := DeletionBlocker{
+			Kind: "dashboard_card", Entity: pageID,
+			Message: `dashboard card "Total sales" on page "home" still references Invoice`,
+		}
+		if len(del.Blockers) != 1 || del.Blockers[0] != want {
+			t.Fatalf("want aggregate-card blocker %+v, got %+v", want, del.Blockers)
+		}
+		if len(BlockedDeletions(deletions)) != 1 {
+			t.Error("BlockedDeletions must surface the aggregate-card dependency")
+		}
+		if spec.Validate(cand) == nil {
+			t.Error("a dangling aggregate-card reference must also fail spec validation")
+		}
+	})
+
+	for _, removePage := range []bool{false, true} {
+		name := "removing card clears blocker"
+		if removePage {
+			name = "removing page clears blocker"
+		}
+		t.Run(name, func(t *testing.T) {
+			cand := cloneSpec(t, base)
+			cand.Resources = cand.Resources[:1]
+			if removePage {
+				cand.Pages = nil
+			} else {
+				cand.Pages[0].Dashboard.AggregateCards = nil
+			}
+			if del := findDeletion(t, AnalyzeDeletions(base, cand), invoice.ID); del.Blocked() {
+				t.Fatalf("removed references must not block deletion: %+v", del.Blockers)
+			}
+			if d := spec.Validate(cand); d != nil {
+				t.Errorf("atomic deletion must leave a valid candidate: %s", d.Error())
+			}
+		})
+	}
+
+	t.Run("card for another resource does not block", func(t *testing.T) {
+		cand := cloneSpec(t, base)
+		cand.Resources = cand.Resources[1:]                     // delete Customer, keep Invoice and its card
+		cand.Resources[0].Fields = cand.Resources[0].Fields[1:] // remove Invoice.Customer too
+		if del := findDeletion(t, AnalyzeDeletions(base, cand), base.Resources[0].ID); del.Blocked() {
+			t.Fatalf("an unrelated aggregate card must not block deletion: %+v", del.Blockers)
+		}
+		if d := spec.Validate(cand); d != nil {
+			t.Errorf("atomic deletion must leave a valid candidate: %s", d.Error())
+		}
+	})
+}
+
 // TestAnalyzeDeletionsNilCandidateDeletesAll: a nil candidate deletes every
 // resource, and with nothing surviving to reference them, none is blocked.
 func TestAnalyzeDeletionsNilCandidateDeletesAll(t *testing.T) {
@@ -256,7 +324,7 @@ func TestAnalyzeDeletionsIsDeterministic(t *testing.T) {
 
 // TestDeletionBlockerCoverageAndOrder exercises the reference kinds and multi-
 // blocker cases the earlier tests leave implicit: two relationships targeting
-// the same resource, a RecentLists (not CountCards) dashboard card, and a page —
+// the same resource, recent-list and aggregate dashboard cards, and a page —
 // all binding one deleted resource — and asserts the blocker list is complete
 // and its order is stable across runs.
 func TestDeletionBlockerCoverageAndOrder(t *testing.T) {
@@ -285,6 +353,10 @@ func TestDeletionBlockerCoverageAndOrder(t *testing.T) {
 			{ID: spec.MustNewID(spec.KindPage), Slug: "targets", Label: "Targets", Type: spec.PageResourceTable, Resource: targetID},
 			{ID: spec.MustNewID(spec.KindPage), Slug: "home", Label: "Home", Type: spec.PageDashboard, Dashboard: &spec.DashboardConfig{
 				RecentLists: []spec.DashboardCard{{Label: "Recent Targets", Resource: targetID}},
+				AggregateCards: []spec.AggregateCard{
+					{Label: "Total Targets", Resource: targetID},
+					{Label: "Largest Target", Resource: targetID},
+				},
 			}},
 		},
 	}
@@ -303,8 +375,8 @@ func TestDeletionBlockerCoverageAndOrder(t *testing.T) {
 	if kinds["page"] != 1 {
 		t.Errorf("want 1 page blocker, got %d", kinds["page"])
 	}
-	if kinds["dashboard_card"] != 1 {
-		t.Errorf("want 1 dashboard_card blocker (from RecentLists), got %d", kinds["dashboard_card"])
+	if kinds["dashboard_card"] != 3 {
+		t.Errorf("want 3 dashboard_card blockers (recent list and aggregates), got %d", kinds["dashboard_card"])
 	}
 
 	// Blocker order is stable across runs (relationships in candidate field
@@ -316,7 +388,7 @@ func TestDeletionBlockerCoverageAndOrder(t *testing.T) {
 			t.Fatalf("run %d: blocker count changed %d -> %d", i, len(first), len(again))
 		}
 		for j := range first {
-			if again[j].Kind != first[j].Kind || again[j].Entity != first[j].Entity {
+			if again[j] != first[j] {
 				t.Fatalf("run %d: blocker order changed at %d", i, j)
 			}
 		}
@@ -324,5 +396,18 @@ func TestDeletionBlockerCoverageAndOrder(t *testing.T) {
 	// The two relationship blockers come first and in field order.
 	if first[0].Entity != f1 || first[1].Entity != f2 {
 		t.Errorf("relationship blockers must preserve candidate field order; got %s, %s", first[0].Entity, first[1].Entity)
+	}
+	if len(first) != 6 {
+		t.Fatalf("want 6 blockers, got %+v", first)
+	}
+	wantMessages := []string{
+		`dashboard card "Recent Targets" on page "home" still references Target`,
+		`dashboard card "Total Targets" on page "home" still references Target`,
+		`dashboard card "Largest Target" on page "home" still references Target`,
+	}
+	for i, want := range wantMessages {
+		if got := first[i+3].Message; got != want {
+			t.Errorf("dashboard blocker %d = %q, want %q", i, got, want)
+		}
 	}
 }

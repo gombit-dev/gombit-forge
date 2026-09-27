@@ -158,6 +158,15 @@ func blockersFor(candidate *spec.ProjectSpec, deleted *spec.Resource) []Deletion
 				})
 			}
 		}
+		for _, card := range p.Dashboard.AggregateCards {
+			if card.Resource == deleted.ID {
+				blockers = append(blockers, DeletionBlocker{
+					Kind:    "dashboard_card",
+					Entity:  p.ID,
+					Message: fmt.Sprintf("dashboard card %q on page %q still references %s", card.Label, p.Slug, deleted.CodeName),
+				})
+			}
+		}
 	}
 
 	return blockers
