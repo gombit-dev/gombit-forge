@@ -2,7 +2,7 @@
 
 Gombit Forge is a visual application builder that compiles a declarative
 `ProjectSpec` into an ordinary Gombit application. Module path
-`github.com/gombit-dev/gombit-forge`, Go 1.25.7.
+`github.com/gombit-dev/gombit-forge`, Go 1.26.0.
 
 The whole product fits in one sentence, and it is the test every feature must
 pass:
