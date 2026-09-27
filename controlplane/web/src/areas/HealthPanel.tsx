@@ -11,6 +11,13 @@ export function HealthPanel({ projectID, reloadKey }: { projectID: number; reloa
   const [health, setHealth] = useState<ProjectHealth | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Drop the previous project's health only when the project changes, so a
+  // switch never renders it while the new fetch is in flight. A same-project
+  // reload (reloadKey bump after an edit) keeps the last-good facets on screen.
+  useEffect(() => {
+    setHealth(null);
+  }, [projectID]);
+
   useEffect(() => {
     // Clear any prior error at the start of every load so a transient failure
     // cannot latch: a recovered fetch (after an edit bumps reloadKey, or a

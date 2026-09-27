@@ -2,7 +2,7 @@
 
 Gombit Forge is a visual application builder that compiles a declarative
 `ProjectSpec` into an ordinary Gombit application. Module path
-`github.com/gombit-dev/gombit-forge`, Go 1.25.7.
+`github.com/gombit-dev/gombit-forge`, Go 1.26.0.
 
 The whole product fits in one sentence, and it is the test every feature must
 pass:
@@ -228,8 +228,9 @@ The module path was renamed at v0.1.2 from
 advanced to v0.1.11, which added the declared server-side list
 filtering/sort/search (gombit #260) the generated list handlers consume, then to
 v0.1.12, which added the declared server-side numeric aggregate contract (gombit
-#273) the generated dashboard aggregate cards consume; the `controlplane` module
-requires v0.1.12 to match. Earlier notes describing the two module paths as an
+#273) the generated dashboard aggregate cards consume. The `controlplane` module
+tracks the latest release (v0.3.1) independently; the floor only moves when the
+generated code needs a newer contract. Earlier notes describing the two module paths as an
 unresolved question were an artifact of a stale v0.1.0 binary, not an open
 decision.
 
