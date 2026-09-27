@@ -24,7 +24,7 @@ round-trip representation, it is almost certainly wrong. See
 
 | Tool | Version | Needed for |
 | --- | --- | --- |
-| Go | 1.25.7 (`go.mod` is authoritative; auto-resolves via `GOTOOLCHAIN`) | everything |
+| Go | 1.26.0 (`go.mod` is authoritative; auto-resolves via `GOTOOLCHAIN`) | everything |
 | `gombit` CLI | ≥ v0.1.12 | the M0 end-to-end gate (scaffolds and runs a real app) |
 | Atlas | Community Edition | migration diffing in the e2e and control-plane tests |
 | Docker | any recent | throwaway Postgres for the e2e and control-plane tests |
@@ -34,7 +34,7 @@ The root module's unit tests need **none** of the external tools — only Go.
 Install the `gombit` CLI when you need the integration suites:
 
 ```bash
-go install github.com/gombit-dev/gombit/cmd/gombit@v0.1.12
+go install github.com/gombit-dev/gombit/cmd/gombit@v0.3.1
 ```
 
 ## Getting set up

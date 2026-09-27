@@ -1,7 +1,7 @@
 # Gombit Forge
 
 [![CI](https://github.com/gombit-dev/gombit-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/gombit-dev/gombit-forge/actions/workflows/ci.yml)
-[![Go 1.25+](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go)](https://go.dev/dl/)
+[![Go 1.26+](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go)](https://go.dev/dl/)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Built on Gombit](https://img.shields.io/badge/built%20on-Gombit-6f42c1)](https://github.com/gombit-dev/gombit)
 
@@ -110,7 +110,7 @@ free and never a code change (ADR-001).
 
 ## Running the repo
 
-**Prerequisites:** Go 1.25+ (auto-resolves via `GOTOOLCHAIN`). Seeing a model
+**Prerequisites:** Go 1.26+ (auto-resolves via `GOTOOLCHAIN`). Seeing a model
 become a real, migrating app also needs the
 [`gombit`](https://github.com/gombit-dev/gombit) CLI (**≥ v0.1.12**),
 [Atlas](https://atlasgo.io), and Docker.
