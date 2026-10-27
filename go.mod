@@ -3,7 +3,7 @@ module github.com/gombit-dev/gombit-forge
 go 1.26.0
 
 require (
-	github.com/shopspring/decimal v1.4.0
+	github.com/shopspring/decimal v1.6.0
 	gorm.io/gorm v1.31.2
 )
 
