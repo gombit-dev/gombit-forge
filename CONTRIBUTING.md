@@ -58,7 +58,7 @@ versions and drags Gombit into the Gombit-free compiler.
 ## Read these first
 
 The design docs describe intent, which has drifted from the code in both
-directions — much of the intended system now exists (F0–M3, M7), and some pieces
+directions — much of the intended system now exists (F0–M7), and some pieces
 never will (superseded by ADRs). **Read the code and check `gh issue list`**,
 not just the docs, before asserting how something works.
 
@@ -101,10 +101,12 @@ scope in a PR.
 
 ## Local checks
 
-`make all` is the gate CI runs; run it before you push.
+`make all` is the local gate; run it before you push. CI runs the same checks
+split into jobs (with `cp-test-short` instead of `cp-test`, plus the SPA and an
+informational `govulncheck`).
 
 ```bash
-make all           # fmt-check + vet + test + skills-check + control-plane targets
+make all           # fmt-check + vet + cp-vet + test + cp-test + skills-check
 make test          # go test ./... -count=1   (root module)
 make race          # go test ./... -race
 make cover         # coverage summary

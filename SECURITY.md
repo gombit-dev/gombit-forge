@@ -46,7 +46,9 @@ release.
   generated output is a vulnerability in Forge, not just the generated app;
 - the **control plane** (`controlplane/**`): cookie/session auth, org tenancy and
   the per-org role/capability matrix, invitation flow, project-revision
-  immutability and lineage, and the GitHub export / OAuth-connect path;
+  immutability and lineage, the GitHub export / OAuth-connect path, and the
+  Gombit Cloud client: the build worker, the deploy/preview/rollback routes
+  and their tenant scoping, and handling of the Cloud API token;
 - the editor SPA (`controlplane/web`);
 - anything that lets Forge become a runtime dependency of, or exfiltrate source
   from, a generated application.

@@ -26,9 +26,9 @@ add page       table · form · detail · dashboard
 an ordinary Gombit app you own — API · admin · React · migrations
 ```
 
-> **Status: pre-alpha.** The compiler, the control plane, and the editor are
-> built (F0–M3, M7); the Cloud build/deploy integration (M4–M6) is not. See
-> [Status](#status).
+> **Status: pre-alpha.** Every planned milestone (F0, M0–M7) is built: the
+> compiler, the control plane and editor, export, and the Gombit Cloud
+> build/preview/deploy integration. See [Status](#status).
 
 ## Why Forge
 
@@ -59,7 +59,9 @@ runtime:
 | **Pipeline** | `Compile(spec, module)` runs every stage into one **deterministic** file tree (`internal/compiler`) |
 | **Pages** | structured tables, forms, details, and dashboards — with server-side search, filter, sort, FK-embedded related records, recent lists, and numeric aggregate cards |
 | **Toolchain boundary** | a coarse, versioned seam to the Gombit CLI for scaffolding and migrations — never a per-entity subprocess (`internal/gombit`) |
-| **Control plane** | Forge-as-a-Gombit-app: cookie auth, org tenancy with roles, and immutable append-only project revisions (`controlplane/`) |
+| **Control plane** | Forge-as-a-Gombit-app: cookie auth, org tenancy with roles, immutable append-only project revisions, the authoring API, and a React editor (`controlplane/`) |
+| **Export** | the full application source as an async GitHub export job |
+| **Cloud client** | submits a frozen revision's source to Gombit Cloud and surfaces build logs, preview, deploy (with migration approval) and rollback — Cloud runs it, Forge doesn't |
 
 ## How it works
 
@@ -120,7 +122,7 @@ git clone https://github.com/gombit-dev/gombit-forge
 cd gombit-forge
 
 go test ./... -short   # fast unit tests, no external toolchain
-make all               # the full CI gate: fmt, vet, tests, skill-tree check
+make all               # fmt, vet, root + control-plane tests, skill-tree check (needs atlas + Docker)
 ```
 
 The compiler is proven end to end by the go/no-go test, which scaffolds a Gombit
@@ -134,8 +136,10 @@ go test ./internal/compiler -run TestM0EndToEnd -v
 
 ## Status
 
-**Pre-alpha, but further along than "pre-alpha" suggests.** F0, M0, M1, M2, M3
-and M7 are complete; only the Cloud-runtime integration (M4–M6) is unbuilt.
+**Pre-alpha, but further along than "pre-alpha" suggests.** Every milestone —
+F0 and M0–M7 — is complete. What's open is
+[bug fixes](https://github.com/gombit-dev/gombit-forge/issues?q=is%3Aopen+label%3Abug),
+several of them in the newest code, the Cloud deploy surface.
 
 - **Compiler — done and proven.** The **M0 go/no-go gate is cleared**: from a
   model, Forge generates a Gombit app that compiles, migrates on Postgres,
@@ -152,10 +156,14 @@ and M7 are complete; only the Cloud-runtime integration (M4–M6) is unbuilt.
   and committing a revision). A React **editor SPA** in `controlplane/web` drives
   it, and its Postgres schema ships as committed Atlas migrations. GitHub source
   export ships as an async job.
-- **Runtime (build / preview / deploy) — delegated, not yet integrated.** These
-  belong to Gombit Cloud ([ADR-005](docs/ADR-005.md)); Forge compiles a revision
-  and hands off the source. Wiring Forge to Cloud's build/preview/deploy APIs is
-  M4–M6, and waits on those APIs.
+- **Runtime (build / preview / deploy) — delegated to Gombit Cloud, and
+  integrated.** The runtime is Cloud's ([ADR-005](docs/ADR-005.md)); Forge is its
+  client (M4–M6). A deploy freezes a revision and queues a job — no request
+  builds — and a worker submits the compiled source to Cloud's build API. The
+  editor's Deploy tab shows build history and live build logs, creates preview
+  environments, deploys to an environment with the destructive-migration
+  approval, tails application logs, and rolls back. Set `GOMBIT_CLOUD_API_URL`
+  and `GOMBIT_CLOUD_API_TOKEN` to enable it; without them deploy is disabled.
 
 [`docs/DESIGN.md`](docs/DESIGN.md) is authoritative for scope and the roadmap;
 [`AGENTS.md`](AGENTS.md) is the single source kept current for what has shipped.

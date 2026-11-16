@@ -18,16 +18,16 @@ graph; `internal/gombit` is the project-level toolchain boundary and can
 scaffold an application shell; `internal/compiler/gen` generates GORM models,
 Huma handlers, route registration and admin registration into
 `internal/forge_generated/<resource>/`; `internal/compiler` is the pipeline —
-`Compile(spec)` builds the graph and runs every generator stage — models,
+`Compile(spec, module)` builds the graph and runs every generator stage — models,
 handlers, routes, admin, and the React CRUD frontend — into one deterministic
 file tree. `compiler.MigrationModels` derives the model set for migration
 generation, which the `internal/gombit` boundary drives through
 `gombit db makemigrations` (Forge does not diff schemas itself).
 
-**F0, M0, M1, M2, M3 and M7 are complete** (every non-epic issue closed); only
-M4–M6 remain, and those are Cloud-integration client work blocked on concrete
-Gombit Cloud APIs (see below). Verify with `gh issue list` and `git log` before
-claiming otherwise — this paragraph is the thing most likely to drift.
+**Every milestone — F0 and M0–M7 — is complete** (every milestone issue
+closed); what remains open is a batch of filed `bug` issues, several against the
+M4–M6 Cloud build/deploy surface. Verify with `gh issue list` and `git log`
+before claiming otherwise — this paragraph is the thing most likely to drift.
 
 The **compiler** (root module) is done and gated end to end. From a
 `ProjectSpec`, `compiler.Compile` builds the resolved graph and runs every
@@ -57,18 +57,23 @@ full **authoring API** (#39) — create-project plus resource/field/relationship
 behavior/page/navigation/branding edits, each minting stable IDs, validating,
 classifying the ABI transition and committing a new revision (a breaking
 transition is returned 409, never built, D8). A React editor SPA in
-`controlplane/web` (Vite + React + TS) drives that API. Identity and RBAC are
+`controlplane/web` (Vite + React + TS) drives that API, including a Deploy tab
+for the Cloud integration below. Identity and RBAC are
 Gombit's (`auth.User`, cookie session); the org role is tenancy Gombit can't
 express, not a second identity store (D12). `internal/project` imports the root
 module's `internal/spec` for canonicalization and hashing, so
 `controlplane/go.mod` requires the root module with a `replace … => ../`.
 
 The control plane's schema **is committed**: `internal/platform.Models()` is the
-model set (auth, org tenancy, Project/Revision, audit, plus the
-`Project.CloudProjectID` Cloud linkage) and `controlplane/database/migrations`
-holds the Atlas migrations that create it (`20260830074350_initial.sql` plus the
-github-connect and export-job follow-ups), authored via `gombit db makemigrations`
-per §14 — deployment migrates, never AutoMigrate (tests AutoMigrate only). #101
+model set (auth, org tenancy, Project/Revision, audit, the GitHub-connect and
+export-job tables, the cloud-build job queue, plus the `Project.CloudProjectID`
+Cloud linkage) and `controlplane/database/migrations` holds the Atlas migrations
+that create it (`20260830074350_initial.sql` plus the github-connect,
+export-job and cloud-build-job follow-ups), authored via `gombit db
+makemigrations` per §14 — deployment migrates, never AutoMigrate. Tests apply
+the same committed migrations (`internal/dbtest`), not AutoMigrate, because
+the cyclic FKs and the `project_revisions` append-only trigger are beyond what
+AutoMigrate can express. #101
 (migration), #39 (project API) and #40 (audit) are all **closed**; do not
 describe them as open.
 
@@ -76,13 +81,23 @@ The **runtime** — build, deploy, environments, managed database, secrets,
 domains — is Gombit Cloud's, not Forge's (ADR-005 D2/D6). Forge compiles a
 revision to an ordinary Gombit application and hands the source to Cloud;
 `Project.CloudProjectID` (#38, PR #100) is the whole of Forge's knowledge of its
-Cloud counterpart. **M4–M6 are the not-yet-built Cloud-client integration**
-(submit source + track build, preview, deploy) and are blocked on those concrete
-Cloud APIs; don't describe them as existing, and don't invent or mock a Cloud
-API to start them. Secrets are Cloud's too (ADR-005), never a Forge store. #182
-(dashboard numeric aggregate cards, split from M3 #54) shipped once gombit
-v0.1.12 landed the
-aggregate contract.
+Cloud counterpart. **M4–M6 shipped as a Cloud *client*, not a PaaS**:
+`internal/cloudclient` is a narrow HTTP client, one call per concrete Gombit
+Cloud §51 endpoint (create build, upload source, build state/logs,
+environments, deployments, rollback); `internal/cloudbuild` is the async
+build-job queue — `POST /projects/{id}/deploy` freezes a revision and enqueues,
+never builds (D8) — and `internal/buildworker` assembles the frozen revision's
+source, submits it to Cloud as Forge's service principal and mirrors Cloud's
+build state onto the job. The remaining routes (preview environments, deploy a
+build to an environment, deployment status/logs including the migration hold,
+rollback) are thin pass-throughs; Cloud owns the build, the deployment state
+machine, health and the migration gate. The Deploy tab in `controlplane/web`
+surfaces build history, live build logs, preview, deploy with the
+destructive-migration approval, and an app-log viewer. Cloud is configured by
+`GOMBIT_CLOUD_API_URL` + `GOMBIT_CLOUD_API_TOKEN`; without both, deploy is
+disabled. Don't grow a Forge-side runtime model (Environment, Build,
+Deployment) or mock a Cloud endpoint the §51 API doesn't have. Secrets are
+Cloud's too (ADR-005), never a Forge store.
 
 The repo is **two Go modules**. The root module
 (`github.com/gombit-dev/gombit-forge`) is the compiler and stays gombit-free —
@@ -229,13 +244,19 @@ advanced to v0.1.11, which added the declared server-side list
 filtering/sort/search (gombit #260) the generated list handlers consume, then to
 v0.1.12, which added the declared server-side numeric aggregate contract (gombit
 #273) the generated dashboard aggregate cards consume. The `controlplane` module
-tracks the latest release (v0.3.1) independently; the floor only moves when the
-generated code needs a newer contract. Earlier notes describing the two module paths as an
+pins its own Gombit version in `controlplane/go.mod`, bumped independently
+(Dependabot proposes the bumps) — read the pin there rather than trusting a
+number in prose; the floor only moves when the generated code needs a newer
+contract. Earlier notes describing the two module paths as an
 unresolved question were an artifact of a stale v0.1.0 binary, not an open
 decision.
 
-`internal/gombit` is the boundary. It exposes project-level operations only;
-migrations, OpenAPI and TypeScript client generation join it with #11 and #9.
+`internal/gombit` is the boundary. It exposes project-level operations only:
+`Version`, `Scaffold` and `MakeMigrations` (#11). OpenAPI and the TypeScript
+client are not boundary operations — the generated app produces them with
+Gombit's own toolchain (`gombit client generate` against its `/openapi.json`),
+and the generated pages consume that client rather than a Forge-written one
+(#9).
 The versioned generation *protocol* ADR-001 §68 describes is not built — the
 current transport is the CLI behind an injectable runner.
 
@@ -278,15 +299,21 @@ environment files from the comparison, or have a later stage own secret material
 ## Commands
 
 ```bash
-make all           # fmt-check + vet + test + skills-check — the CI gate
+make all           # fmt-check + vet + cp-vet + test + cp-test + skills-check
 make test          # go test ./... -count=1
 make race          # go test ./... -race
+make cp-test       # control-plane tests (needs atlas + Docker; cp-test-short skips boot)
+make web           # editor SPA: typecheck + build + unit tests
 make cover         # coverage summary
 make golden        # rewrite the canonical-JSON golden file (deliberate only)
 make skills-check  # .claude and .cursor skill trees must match byte for byte
 ```
 
-CI runs `fmt-check`, `vet`, `skills-check`, `test` and `race` on push and PR.
+CI does not run `make all` verbatim. On push to `main` and on every PR it runs
+`fmt-check`, `vet`, `skills-check`, `test` and `race` for the root module;
+`cp-vet`, `cp-build` and `cp-test-short` for the control plane; a `web` job
+(`web-install`, `web-check`, `web-build`, `web-test`); and an informational
+`govulncheck` job that does not gate the merge.
 
 The `.cursor/skills/` tree duplicates `.claude/skills/` because Cursor does not
 reliably follow symlinks. Edit both sides; `skills-check` fails the build if
@@ -296,7 +323,7 @@ they drift.
 
 - Verify before asserting. The design docs describe intent, which has drifted
   from the code in both directions — much of the intended system now exists
-  (F0–M3, M7), and some described pieces never will (superseded by ADRs). Read
+  (F0–M7), and some described pieces never will (superseded by ADRs). Read
   the code and check `gh issue list`; don't trust a doc's tense.
 - Automated review findings are claims, not facts. Reproduce a reported defect
   against the current code before fixing it, and confirm the new test actually

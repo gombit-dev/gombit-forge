@@ -22,10 +22,12 @@ walks that authoring loop.
 > go test ./internal/compiler -run TestM0EndToEnd -v
 > ```
 >
-> What's **not** built yet is the Cloud side — one-click build, preview, and
-> deploy (M4–M6), which wait on Gombit Cloud's APIs. Until then the loop ends at
-> a compiled, exportable app, not a hosted URL. This page shows the loop through
-> the HTTP API; the editor issues these same calls for you.
+> Running the app is Gombit Cloud's job, not Forge's. When the control plane is
+> configured with `GOMBIT_CLOUD_API_URL` and `GOMBIT_CLOUD_API_TOKEN`, the
+> editor's Deploy tab hands a revision to Cloud to build, preview, and deploy
+> ([§7](#7-build-and-deploy)). Without Cloud, the loop ends at a compiled,
+> exportable app. This page shows the loop through the HTTP API; the editor
+> issues these same calls for you.
 
 We'll build a tiny CRM — customers and invoices.
 
@@ -144,6 +146,34 @@ running (decision **D2**). Forge builds nothing Gombit already owns — routing,
 ORM, migrations, auth, admin, the OpenAPI and TypeScript client are all Gombit's;
 Forge only synthesizes the resource-specific code that consumes them
 ([ADR-004](ADR-004.md)).
+
+## 7. Build and deploy
+
+Forge doesn't run your app. Gombit Cloud does ([ADR-005](ADR-005.md)), and
+Forge is its client. A project linked to its Cloud counterpart deploys in two
+steps. First, build the current revision:
+
+```http
+POST /api/v1/projects/{id}/deploy
+```
+
+This returns `202` with a build job. No request performs a build: the job
+freezes the head revision, and a worker compiles the source and submits it to
+Cloud. Poll `GET /api/v1/build-jobs/{jobID}` until `status` is `succeeded`, or
+read its logs at `…/build-jobs/{jobID}/logs`. Then deploy the Cloud build to an
+environment:
+
+```http
+POST /api/v1/projects/{id}/environments/{envID}/deployments
+{ "build_id": "{cloud_build_id}" }
+```
+
+A deployment that would run a destructive migration comes back
+`blocked_pending_approval`, with a link where a human approves it in Cloud.
+`POST /api/v1/projects/{id}/preview-environments` creates a short-lived preview
+environment, and `…/environments/{envID}/rollback` restores the previous
+deployment. The editor's Deploy tab drives all of this: build history, live
+logs, preview, deploy, approval, and rollback.
 
 ## The whole idea
 
