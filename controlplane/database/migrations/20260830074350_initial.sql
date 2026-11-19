@@ -211,6 +211,12 @@ CONSTRAINT "fk_projects_organization" FOREIGN KEY ("organization_id") REFERENCES
 -- Out-of-band on purpose: GORM cannot express a trigger, so the desired schema
 -- `gombit db makemigrations` computes will not contain it and a later run may
 -- propose DROPping it. Keep the object (re-add the hunk if that happens).
+--
+-- Gombit cannot classify a function or a trigger, so its migration safety
+-- check (gombit db lint / check) needs them acknowledged: they create objects
+-- and touch no data.
+-- gombit:allow unclassified_sql:statement_46
+-- gombit:allow unclassified_sql:statement_47
 CREATE FUNCTION "forge_project_revisions_no_update"() RETURNS trigger AS $$
 BEGIN
   RAISE EXCEPTION 'project_revisions is append-only: UPDATE is not permitted (row id=%)', OLD.id

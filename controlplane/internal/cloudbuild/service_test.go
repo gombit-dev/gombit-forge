@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/cloudbuild"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/dbtest"
@@ -84,5 +85,39 @@ func TestServiceLifecycle(t *testing.T) {
 	}
 	if _, ok, err := svc.Claim(ctx); err != nil || ok {
 		t.Fatalf("expected an empty queue, got ok=%v err=%v", ok, err)
+	}
+}
+
+// TestLeaseExpiresAbandonedBuildJobs: a build job whose worker stopped renewing
+// its lease is failed with AbandonedReason; one still renewed is left alone.
+func TestLeaseExpiresAbandonedBuildJobs(t *testing.T) {
+	db := dbtest.DB(t)
+	now := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+	svc := cloudbuild.NewService(db, cloudbuild.WithLease(2*time.Minute), cloudbuild.WithClock(func() time.Time { return now }))
+	ctx := context.Background()
+
+	abandoned, _ := svc.Enqueue(ctx, 1, 10, 100, "prj_cloud")
+	live, _ := svc.Enqueue(ctx, 1, 11, 100, "prj_cloud")
+	if _, _, err := svc.Claim(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := svc.Claim(ctx); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(3 * time.Minute)
+	if err := svc.Renew(ctx, live.ID); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := svc.ExpireAbandoned(ctx); err != nil || n != 1 {
+		t.Fatalf("ExpireAbandoned = %d, %v; want 1", n, err)
+	}
+	if got, _, _ := svc.Get(ctx, abandoned.ID); got.Status != cloudbuild.StatusFailed || got.Error != cloudbuild.AbandonedReason {
+		t.Fatalf("abandoned job = %+v, want failed with the abandoned reason", got)
+	}
+	if got, _, _ := svc.Get(ctx, live.ID); got.Status != cloudbuild.StatusRunning {
+		t.Fatalf("renewed job status = %q, want running", got.Status)
+	}
+	if err := svc.SetCloudBuild(ctx, abandoned.ID, "bld_late"); err == nil {
+		t.Error("a late worker updated the abandoned job")
 	}
 }

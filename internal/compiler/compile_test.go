@@ -55,6 +55,11 @@ func sampleSpec(t *testing.T) *spec.ProjectSpec {
 				Fields: []*spec.Field{
 					{ID: id(spec.KindField), Label: "Customer", Type: spec.TypeBelongsTo, CodeName: "Customer", StorageName: "customer_id", Required: true, Target: customer},
 					{ID: invoiceTotal, Label: "Total", Type: spec.TypeDecimal, CodeName: "Total", StorageName: "total", Required: true},
+					// Optional date and datetime: the e2e creates an invoice
+					// without them, which must store NULL (gombit >= v0.8 refuses
+					// the zero time a non-pointer field would write).
+					{ID: id(spec.KindField), Label: "Issued on", Type: spec.TypeDate, CodeName: "IssuedOn", StorageName: "issued_on"},
+					{ID: id(spec.KindField), Label: "Paid at", Type: spec.TypeDatetime, CodeName: "PaidAt", StorageName: "paid_at"},
 				},
 			},
 		},

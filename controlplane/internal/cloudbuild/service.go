@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+
+	"github.com/gombit-dev/gombit-forge/controlplane/internal/joblease"
 )
 
 // ErrNoCloudProject is returned by Enqueue when the project has no Cloud project
@@ -19,13 +22,31 @@ var ErrNoCloudProject = errors.New("cloudbuild: project is not linked to a Gombi
 // Service is the cloud-build-job store: enqueue, claim (for the worker), record
 // the Cloud build it drives, reflect Cloud's state, and report terminal outcomes.
 type Service struct {
-	db *gorm.DB
+	db    *gorm.DB
+	lease time.Duration
+	now   func() time.Time
 }
 
+// Option configures a Service.
+type Option func(*Service)
+
+// WithLease sets how long a claim or renewal holds a job; the default is
+// joblease.DefaultLease.
+func WithLease(d time.Duration) Option { return func(s *Service) { s.lease = d } }
+
+// WithClock replaces the clock leases are stamped and checked with (tests).
+func WithClock(now func() time.Time) Option { return func(s *Service) { s.now = now } }
+
 // NewService builds the service over db.
-func NewService(db *gorm.DB) *Service {
-	return &Service{db: db}
+func NewService(db *gorm.DB, opts ...Option) *Service {
+	s := &Service{db: db, lease: joblease.DefaultLease, now: time.Now}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
+
+func (s *Service) leaseEnd() time.Time { return s.now().UTC().Add(s.lease) }
 
 // Enqueue creates a queued job that freezes revisionID for projectID, initiated
 // by userID, targeting the Cloud project cloudProjectID. The caller (the HTTP
@@ -83,8 +104,9 @@ func (s *Service) Claim(ctx context.Context) (BuildJob, bool, error) {
 		if res.Error != nil {
 			return res.Error
 		}
-		job.Status = StatusRunning
-		return tx.Model(&job).Update("status", StatusRunning).Error
+		end := s.leaseEnd()
+		job.Status, job.LeaseExpiresAt = StatusRunning, &end
+		return tx.Model(&job).Updates(map[string]any{"status": StatusRunning, "lease_expires_at": end}).Error
 	})
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return BuildJob{}, false, nil
@@ -153,6 +175,7 @@ func (s *Service) updateRunning(ctx context.Context, jobID uint, fields map[stri
 // RowsAffected == 0 and error rather than clobbering a recorded outcome — what
 // keeps a late or duplicate worker from overwriting a job's result.
 func (s *Service) finish(ctx context.Context, jobID uint, status Status, fields map[string]any) error {
+	fields["lease_expires_at"] = nil
 	res := s.db.WithContext(ctx).Model(&BuildJob{}).
 		Where("id = ? AND status = ?", jobID, StatusRunning).
 		Updates(fields)
@@ -164,3 +187,34 @@ func (s *Service) finish(ctx context.Context, jobID uint, status Status, fields 
 	}
 	return nil
 }
+
+// Renew extends a running job's lease (internal/joblease.Keep calls it while
+// the worker works the job). It fails once the job is no longer running, e.g.
+// because its lease lapsed and ExpireAbandoned failed it.
+func (s *Service) Renew(ctx context.Context, jobID uint) error {
+	res := s.db.WithContext(ctx).Model(&BuildJob{}).
+		Where("id = ? AND status = ?", jobID, StatusRunning).
+		Update("lease_expires_at", s.leaseEnd())
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return fmt.Errorf("cloudbuild: cannot renew job %d: not running", jobID)
+	}
+	return nil
+}
+
+// ExpireAbandoned fails every running job whose lease lapsed: its worker died
+// or was stopped mid-job, so nothing will finish it. It reports how many it
+// failed. A running job with no lease was claimed before leases existed, by a
+// worker that is gone, and is failed too. The job is not re-run (see
+// internal/joblease).
+func (s *Service) ExpireAbandoned(ctx context.Context) (int64, error) {
+	res := s.db.WithContext(ctx).Model(&BuildJob{}).
+		Where("status = ? AND (lease_expires_at IS NULL OR lease_expires_at < ?)", StatusRunning, s.now().UTC()).
+		Updates(map[string]any{"status": StatusFailed, "error": AbandonedReason, "lease_expires_at": nil})
+	return res.RowsAffected, res.Error
+}
+
+// AbandonedReason is the stored failure of a job ExpireAbandoned failed.
+const AbandonedReason = "the worker stopped before the build finished; deploy again"

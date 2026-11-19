@@ -74,7 +74,28 @@ func resolveType(field *graph.Field) (goMapping, error) {
 			"gen: no Go mapping for field type %q (field %s)",
 			field.Spec.Type, field.Spec.ID)
 	}
+	if nullableTime(field) {
+		mapping.goType = "*" + mapping.goType
+	}
 	return mapping, nil
+}
+
+// nullableTime reports whether a field is an optional date or datetime, which
+// is a *time.Time so that "no value" is NULL. A time.Time cannot be absent: a
+// create that left one blank wrote the zero time (year 1), which Gombit
+// refuses from v0.8 (database's timestamp range guard, a 422) and which was
+// never the user's value. Gombit's own resources make the same choice
+// (*time.Time, *types.Date). Optional integers and booleans stay plain values,
+// as they are in Gombit.
+//
+// The Go type is extension ABI (ADR-001 D9), so making such a field required,
+// or optional again, changes its type and is a breaking transition.
+func nullableTime(field *graph.Field) bool {
+	switch field.Spec.Type {
+	case spec.TypeDate, spec.TypeDatetime:
+		return !field.Spec.Required
+	}
+	return false
 }
 
 // gormTag builds the struct tag body for a field: the parts inside

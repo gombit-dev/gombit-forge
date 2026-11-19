@@ -71,7 +71,7 @@ func TestViewInterfaceAccessors(t *testing.T) {
 		"Email() string",
 		"Active() bool",
 		"Tier() string",
-		"Joined() time.Time",
+		"Joined() *time.Time", // optional: nil is "no value"
 	}
 	for _, sig := range want {
 		if !strings.Contains(body, sig) {

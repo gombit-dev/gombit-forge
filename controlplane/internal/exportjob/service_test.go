@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"gorm.io/gorm/clause"
 
@@ -186,5 +187,63 @@ func TestMarkRejectsNonRunning(t *testing.T) {
 	got, _, _ := svc.Get(ctx, job.ID)
 	if got.Status != exportjob.StatusSucceeded || got.Error != "" {
 		t.Errorf("terminal outcome clobbered by a late mark: %+v", got)
+	}
+}
+
+// TestLeaseExpiresAbandonedJobs: a claim leases the job, a renewal extends the
+// lease, and a job whose lease lapsed is failed with AbandonedReason. Its late
+// worker can then neither renew nor record an outcome. A job still under lease
+// is left alone.
+func TestLeaseExpiresAbandonedJobs(t *testing.T) {
+	db := dbtest.DB(t)
+	now := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+	svc := exportjob.NewService(db, exportjob.WithLease(2*time.Minute), exportjob.WithClock(func() time.Time { return now }))
+	ctx := context.Background()
+
+	abandoned, _ := svc.Enqueue(ctx, 1, 1, 1, "abandoned", false)
+	live, _ := svc.Enqueue(ctx, 1, 2, 1, "live", false)
+	if _, _, err := svc.Claim(ctx); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Minute)
+	if _, _, err := svc.Claim(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got, _, _ := svc.Get(ctx, live.ID)
+	if got.LeaseExpiresAt == nil || !got.LeaseExpiresAt.Equal(now.Add(2*time.Minute)) {
+		t.Fatalf("claimed lease = %v, want %v", got.LeaseExpiresAt, now.Add(2*time.Minute))
+	}
+
+	// The live job's worker renews; the abandoned one's does not.
+	now = now.Add(90 * time.Second) // abandoned's lease lapsed 30s ago
+	if err := svc.Renew(ctx, live.ID); err != nil {
+		t.Fatalf("renew: %v", err)
+	}
+	n, err := svc.ExpireAbandoned(ctx)
+	if err != nil || n != 1 {
+		t.Fatalf("ExpireAbandoned = %d, %v; want 1", n, err)
+	}
+	got, _, _ = svc.Get(ctx, abandoned.ID)
+	if got.Status != exportjob.StatusFailed || got.Error != exportjob.AbandonedReason || got.LeaseExpiresAt != nil {
+		t.Fatalf("abandoned job = %+v, want failed with the abandoned reason and no lease", got)
+	}
+	if got, _, _ := svc.Get(ctx, live.ID); got.Status != exportjob.StatusRunning {
+		t.Fatalf("renewed job status = %q, want still running", got.Status)
+	}
+
+	// The abandoned job's late worker is refused.
+	if err := svc.Renew(ctx, abandoned.ID); err == nil {
+		t.Error("renewing an expired job succeeded")
+	}
+	if err := svc.MarkSucceeded(ctx, abandoned.ID, "https://github.com/octo/late"); err == nil {
+		t.Error("a late worker overwrote the abandoned job's outcome")
+	}
+
+	// A finished job keeps no lease.
+	if err := svc.MarkSucceeded(ctx, live.ID, "https://github.com/octo/live"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _, _ := svc.Get(ctx, live.ID); got.LeaseExpiresAt != nil {
+		t.Fatalf("finished job lease = %v, want none", got.LeaseExpiresAt)
 	}
 }

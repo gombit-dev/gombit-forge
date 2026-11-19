@@ -173,6 +173,11 @@ func TestM0EndToEnd(t *testing.T) {
 	if invoice["total"] != "19.95" {
 		t.Errorf("invoice total = %v, want 19.95 (decimal round-trip)", invoice["total"])
 	}
+	// The optional date and datetime were left out, so they are NULL, not the
+	// zero time (which gombit >= v0.8 refuses on create with a 422).
+	if invoice["issued_on"] != nil || invoice["paid_at"] != nil {
+		t.Errorf("omitted optional date/datetime = %v / %v, want null", invoice["issued_on"], invoice["paid_at"])
+	}
 
 	// Server-side numeric aggregates (#182, gombit #273): Invoice.Total is
 	// declared aggregatable, so the generated list handler honors
@@ -189,6 +194,23 @@ func TestM0EndToEnd(t *testing.T) {
 	}
 	if fmt.Sprint(aggs["max:total"]) != "19.95" {
 		t.Errorf("aggregate max:total = %v, want 19.95", aggs["max:total"])
+	}
+
+	// A set optional date and datetime round-trip (created after the aggregate
+	// assertions, which count one invoice).
+	datedID := session.create(t, base+"/api/v1/invoices", map[string]any{
+		"customer_id": fkNum,
+		"total":       "5.00",
+		"issued_on":   "2026-11-19T00:00:00Z",
+		"paid_at":     "2026-11-20T10:30:00Z",
+	})
+	dated := session.get(t, base+"/api/v1/invoices/"+datedID)
+	// The same instants: the driver may render them in the server's zone.
+	for key, want := range map[string]string{"issued_on": "2026-11-19T00:00:00Z", "paid_at": "2026-11-20T10:30:00Z"} {
+		got, err := time.Parse(time.RFC3339, fmt.Sprint(dated[key]))
+		if wantT, _ := time.Parse(time.RFC3339, want); err != nil || !got.Equal(wantT) {
+			t.Errorf("%s read back as %v, want %s", key, dated[key], want)
+		}
 	}
 
 	// Admin works, and RegisterAll actually ran RegisterAdmin: the admin

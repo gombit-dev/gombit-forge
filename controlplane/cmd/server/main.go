@@ -30,6 +30,7 @@ import (
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/ghexport"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/githubconnect"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/githubexport"
+	"github.com/gombit-dev/gombit-forge/controlplane/internal/mail"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/org"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/platform"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/project"
@@ -49,10 +50,17 @@ func main() {
 		log.Fatal(err)
 	}
 
-	app, err := framework.New(
+	opts := []framework.Option{
 		framework.WithConfig(cfg),
 		framework.WithDatabase(db),
-	)
+	}
+	// Account email (verification, password reset, email change) goes out over
+	// SMTP when one is configured. Unset, Gombit logs each message outside
+	// production and, in production, sends nothing and says so at startup.
+	if mailer, ok := smtpMailer(); ok {
+		opts = append(opts, framework.WithAuthMailer(mailer))
+	}
+	app, err := framework.New(opts...)
 	if err != nil {
 		_ = db.Close()
 		log.Fatal(err)
@@ -109,6 +117,29 @@ func main() {
 	if err := framework.Run(app); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// smtpMailer reads the SMTP settings from the environment: FORGE_SMTP_ADDR
+// (host:port) and FORGE_MAIL_FROM are required, FORGE_SMTP_USERNAME and
+// FORGE_SMTP_PASSWORD optional. Mail is not part of Gombit's typed config, so,
+// like GitHub OAuth and Cloud, it is read here at the composition root. All
+// unset is "no mailer"; a partial or invalid config is logged and ignored,
+// rather than failing as a mystery when the first reset link never arrives.
+func smtpMailer() (*mail.SMTP, bool) {
+	m := &mail.SMTP{
+		Addr:     os.Getenv("FORGE_SMTP_ADDR"),
+		From:     os.Getenv("FORGE_MAIL_FROM"),
+		Username: os.Getenv("FORGE_SMTP_USERNAME"),
+		Password: os.Getenv("FORGE_SMTP_PASSWORD"),
+	}
+	if m.Addr == "" && m.From == "" && m.Username == "" && m.Password == "" {
+		return nil, false
+	}
+	if err := m.Validate(); err != nil {
+		log.Printf("smtp: misconfigured (%v); account email disabled", err)
+		return nil, false
+	}
+	return m, true
 }
 
 // githubOAuthConfig reads the GitHub OAuth app settings from the environment.

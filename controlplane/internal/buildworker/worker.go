@@ -23,6 +23,7 @@ import (
 
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/cloudbuild"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/cloudclient"
+	"github.com/gombit-dev/gombit-forge/controlplane/internal/joblease"
 	"github.com/gombit-dev/gombit-forge/internal/spec"
 )
 
@@ -33,6 +34,10 @@ type Jobs interface {
 	ReflectCloudStatus(ctx context.Context, jobID uint, cloudStatus string) error
 	MarkSucceeded(ctx context.Context, jobID uint, cloudStatus, artifactDigest string) error
 	MarkFailed(ctx context.Context, jobID uint, cloudStatus, sanitized string) error
+	// Renew extends the lease of the job being worked; ExpireAbandoned fails
+	// running jobs whose lease lapsed (internal/joblease).
+	Renew(ctx context.Context, jobID uint) error
+	ExpireAbandoned(ctx context.Context) (int64, error)
 }
 
 // Revisions resolves a frozen revision's spec (and an opaque provenance ref) by
@@ -94,6 +99,7 @@ type Worker struct {
 	poll         time.Duration // idle-queue poll interval
 	trackPoll    time.Duration // Cloud-build status poll interval
 	trackTimeout time.Duration // give-up budget for a single build
+	renewEvery   time.Duration // lease renewal interval while a job is worked
 	log          *slog.Logger
 }
 
@@ -102,6 +108,8 @@ type Options struct {
 	Poll         time.Duration
 	TrackPoll    time.Duration
 	TrackTimeout time.Duration
+	// RenewEvery is how often the lease of the job being worked is renewed.
+	RenewEvery time.Duration
 }
 
 // New builds a worker. A zero Poll defaults to 5s, TrackPoll to 3s, TrackTimeout
@@ -116,10 +124,14 @@ func New(jobs Jobs, revs Revisions, asm Assembler, cloud Cloud, opts Options, lo
 	if opts.TrackTimeout <= 0 {
 		opts.TrackTimeout = 20 * time.Minute
 	}
+	if opts.RenewEvery <= 0 {
+		opts.RenewEvery = joblease.DefaultRenewEvery
+	}
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Worker{jobs: jobs, revs: revs, asm: asm, cloud: cloud, poll: opts.Poll, trackPoll: opts.TrackPoll, trackTimeout: opts.TrackTimeout, log: log}
+	return &Worker{jobs: jobs, revs: revs, asm: asm, cloud: cloud, poll: opts.Poll, trackPoll: opts.TrackPoll,
+		trackTimeout: opts.TrackTimeout, renewEvery: opts.RenewEvery, log: log}
 }
 
 // RunOnce claims at most one job and processes it, reporting whether it did any
@@ -133,6 +145,14 @@ func (w *Worker) RunOnce(ctx context.Context) (bool, error) {
 	if !ok {
 		return false, nil
 	}
+	// Hold the job's lease while working it, so the queue can tell this job
+	// from one whose worker is gone. The lease stops before the outcome is
+	// written (process returns after it).
+	stop := joblease.Keep(ctx, w.renewEvery, func(c context.Context) error { return w.jobs.Renew(c, job.ID) },
+		func(err error) {
+			w.log.Error("buildworker: renewing the job lease failed", "job", job.ID, "error", err)
+		})
+	defer stop()
 	w.process(ctx, job)
 	return true, nil
 }
@@ -255,6 +275,19 @@ func (w *Worker) recordCtx(ctx context.Context) (context.Context, context.Cancel
 	return context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 }
 
+// expireAbandoned fails the jobs whose worker is gone, so they do not stay
+// running forever.
+func (w *Worker) expireAbandoned(ctx context.Context) {
+	n, err := w.jobs.ExpireAbandoned(ctx)
+	if err != nil {
+		w.log.Error("buildworker: expiring abandoned jobs failed", "error", err)
+		return
+	}
+	if n > 0 {
+		w.log.Warn("buildworker: failed jobs whose worker stopped before they finished", "count", n)
+	}
+}
+
 // Run drains and then polls the queue until ctx is cancelled. On each tick it
 // claims jobs until the queue is empty, so a backlog is worked without waiting a
 // full poll interval between jobs.
@@ -262,6 +295,7 @@ func (w *Worker) Run(ctx context.Context) {
 	ticker := time.NewTicker(w.poll)
 	defer ticker.Stop()
 	for {
+		w.expireAbandoned(ctx)
 		for {
 			did, err := w.RunOnce(ctx)
 			if err != nil {

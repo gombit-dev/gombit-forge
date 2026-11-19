@@ -64,8 +64,13 @@ func StartPostgres(t *testing.T) *Container {
 
 	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
-		if err := exec.CommandContext(ctx, "docker", "exec", id, "pg_isready", "-U", "postgres").Run(); err == nil {
-			time.Sleep(time.Second) // pg_isready can pass just before connections are accepted
+		// Probe over TCP, not the default Unix socket. The image's entrypoint
+		// first runs a temporary server for initdb that listens on the socket
+		// only, then stops it and starts the real one. A socket probe can pass
+		// against the temporary server, and the test then hits its shutdown
+		// (57P03 "the database system is starting up", or a reset connection).
+		// Only the real server listens on TCP, which is also what the DSN dials.
+		if err := exec.CommandContext(ctx, "docker", "exec", id, "pg_isready", "-h", "127.0.0.1", "-U", "postgres").Run(); err == nil {
 			return c
 		}
 		time.Sleep(500 * time.Millisecond)

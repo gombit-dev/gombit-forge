@@ -16,6 +16,7 @@ import (
 
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/exportjob"
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/ghexport"
+	"github.com/gombit-dev/gombit-forge/controlplane/internal/joblease"
 	"github.com/gombit-dev/gombit-forge/internal/spec"
 )
 
@@ -24,6 +25,10 @@ type Jobs interface {
 	Claim(ctx context.Context) (exportjob.ExportJob, bool, error)
 	MarkSucceeded(ctx context.Context, jobID uint, repoURL string) error
 	MarkFailed(ctx context.Context, jobID uint, sanitized string) error
+	// Renew extends the lease of the job being worked; ExpireAbandoned fails
+	// running jobs whose lease lapsed (internal/joblease).
+	Renew(ctx context.Context, jobID uint) error
+	ExpireAbandoned(ctx context.Context) (int64, error)
 }
 
 // Revisions resolves a frozen revision's spec (and an opaque provenance ref) by
@@ -49,11 +54,12 @@ const (
 
 // Worker claims and processes export jobs.
 type Worker struct {
-	jobs Jobs
-	revs Revisions
-	exp  Exporter
-	poll time.Duration
-	log  *slog.Logger
+	jobs  Jobs
+	revs  Revisions
+	exp   Exporter
+	poll  time.Duration
+	renew time.Duration
+	log   *slog.Logger
 }
 
 // New builds a worker. poll is how often Run checks an empty queue; a non-empty
@@ -66,8 +72,12 @@ func New(jobs Jobs, revs Revisions, exp Exporter, poll time.Duration, log *slog.
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Worker{jobs: jobs, revs: revs, exp: exp, poll: poll, log: log}
+	return &Worker{jobs: jobs, revs: revs, exp: exp, poll: poll, renew: joblease.DefaultRenewEvery, log: log}
 }
+
+// SetRenewEvery sets how often the lease of the job being worked is renewed;
+// the default is joblease.DefaultRenewEvery.
+func (w *Worker) SetRenewEvery(d time.Duration) { w.renew = d }
 
 // RunOnce claims at most one job and processes it, reporting whether it did any
 // work. A claim error is returned (Run logs and backs off on it); a job that
@@ -81,6 +91,14 @@ func (w *Worker) RunOnce(ctx context.Context) (bool, error) {
 	if !ok {
 		return false, nil
 	}
+	// Hold the job's lease while working it, so the queue can tell this job
+	// from one whose worker is gone. The lease stops before the outcome is
+	// written (process returns after it).
+	stop := joblease.Keep(ctx, w.renew, func(c context.Context) error { return w.jobs.Renew(c, job.ID) },
+		func(err error) {
+			w.log.Error("exportworker: renewing the job lease failed", "job", job.ID, "error", err)
+		})
+	defer stop()
 	w.process(ctx, job)
 	return true, nil
 }
@@ -123,6 +141,19 @@ func (w *Worker) recordCtx(ctx context.Context) (context.Context, context.Cancel
 	return context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 }
 
+// expireAbandoned fails the jobs whose worker is gone, so they do not stay
+// running forever.
+func (w *Worker) expireAbandoned(ctx context.Context) {
+	n, err := w.jobs.ExpireAbandoned(ctx)
+	if err != nil {
+		w.log.Error("exportworker: expiring abandoned jobs failed", "error", err)
+		return
+	}
+	if n > 0 {
+		w.log.Warn("exportworker: failed jobs whose worker stopped before they finished", "count", n)
+	}
+}
+
 // Run drains and then polls the queue until ctx is cancelled. On each tick it
 // claims jobs until the queue is empty, so a backlog is worked through without
 // waiting a full poll interval between jobs.
@@ -130,6 +161,7 @@ func (w *Worker) Run(ctx context.Context) {
 	ticker := time.NewTicker(w.poll)
 	defer ticker.Stop()
 	for {
+		w.expireAbandoned(ctx)
 		for {
 			did, err := w.RunOnce(ctx)
 			if err != nil {

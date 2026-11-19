@@ -25,6 +25,9 @@ type fakeJobs struct {
 	succeeded    map[uint]string // jobID -> repoURL
 	failed       map[uint]string // jobID -> stored reason
 	markCanceled bool            // true if any Mark* saw a cancelled ctx
+
+	renewed  map[uint]int // jobID -> lease renewals
+	expiries int          // ExpireAbandoned calls
 }
 
 func newFakeJobs(jobs ...exportjob.ExportJob) *fakeJobs {
@@ -63,6 +66,29 @@ func (f *fakeJobs) MarkFailed(ctx context.Context, jobID uint, sanitized string)
 	}
 	f.failed[jobID] = sanitized
 	return nil
+}
+
+func (f *fakeJobs) Renew(_ context.Context, jobID uint) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.renewed == nil {
+		f.renewed = map[uint]int{}
+	}
+	f.renewed[jobID]++
+	return nil
+}
+
+func (f *fakeJobs) ExpireAbandoned(context.Context) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.expiries++
+	return 0, nil
+}
+
+func (f *fakeJobs) leaseCounts(jobID uint) (renewals, expiries int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.renewed[jobID], f.expiries
 }
 
 func (f *fakeJobs) counts() (queued, done int, sawCanceledMark bool) {
@@ -247,4 +273,52 @@ func TestRunDrainsThenReturnsOnCancel(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not return after context cancellation")
 	}
+}
+
+// slowExporter blocks until release is closed, so the worker is mid-job.
+type slowExporter struct{ release chan struct{} }
+
+func (e slowExporter) ExportSpec(context.Context, uint, string, bool, *spec.ProjectSpec, string) (ghexport.Result, error) {
+	<-e.release
+	return ghexport.Result{RepoURL: "https://github.com/octo/my-app"}, nil
+}
+
+// The worker renews the lease of the job it is working until the job ends,
+// and expires abandoned jobs before it claims.
+func TestWorkerHoldsTheLeaseWhileWorking(t *testing.T) {
+	job := sampleJob()
+	jobs := newFakeJobs(job)
+	exp := slowExporter{release: make(chan struct{})}
+	w := exportworker.New(jobs, fakeRevs{sp: &spec.ProjectSpec{}}, exp, time.Hour, nil)
+	w.SetRenewEvery(5 * time.Millisecond)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { w.Run(ctx); close(done) }()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if r, _ := jobs.leaseCounts(job.ID); r >= 2 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(exp.release)
+	for {
+		if _, d, _ := jobs.counts(); d == 1 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	renewals, expiries := jobs.leaseCounts(job.ID)
+	if renewals < 2 || expiries < 1 {
+		t.Fatalf("renewals = %d, expiries = %d; want the lease renewed while working and abandoned jobs expired", renewals, expiries)
+	}
+	time.Sleep(20 * time.Millisecond)
+	if after, _ := jobs.leaseCounts(job.ID); after != renewals {
+		t.Fatalf("lease renewed %d more times after the job finished", after-renewals)
+	}
+	cancel()
+	<-done
 }

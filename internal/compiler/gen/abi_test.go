@@ -1,6 +1,7 @@
 package gen
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/gombit-dev/gombit-forge/internal/spec"
@@ -109,4 +110,48 @@ func resourceABIByID(t *testing.T, abi ABI, id string) ResourceABI {
 	}
 	t.Fatalf("resource %s not in ABI", id)
 	return ResourceABI{}
+}
+
+// TestOptionalTimeIsNullable: an optional date or datetime is a *time.Time in
+// the model and the extension ABI, so a blank one is NULL rather than the zero
+// time Gombit refuses (and which was never the user's value); a required one
+// stays a time.Time. Because the Go type is ABI, toggling required on such a
+// field is a breaking transition.
+func TestOptionalTimeIsNullable(t *testing.T) {
+	g, ids := buildGraph(t)
+	before, err := ExtensionABI(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := resourceABIByID(t, before, string(ids["customer"])).Fields[string(ids["joined"])]
+	if joined.Type != "*time.Time" {
+		t.Fatalf("optional datetime ABI type = %q, want *time.Time", joined.Type)
+	}
+	files, err := Models(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if src := modelSource(t, files, "customer"); !strings.Contains(src, "Joined *time.Time") {
+		t.Fatalf("customer model lacks `Joined *time.Time`:\n%s", src)
+	}
+
+	for _, f := range g.Resources[0].Fields {
+		if f.Spec.ID == ids["joined"] {
+			f.Spec.Required = true
+		}
+	}
+	after, err := ExtensionABI(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := resourceABIByID(t, after, string(ids["customer"])).Fields[string(ids["joined"])].Type; got != "time.Time" {
+		t.Fatalf("required datetime ABI type = %q, want time.Time", got)
+	}
+	tr, err := ClassifyTransition(before, after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr.Class != ClassBreaking {
+		t.Fatalf("making an optional datetime required = %s, want breaking (its Go type changes)", tr.Class)
+	}
 }

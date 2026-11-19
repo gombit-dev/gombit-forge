@@ -2,9 +2,10 @@
 //
 // The provider probes GET /me on mount: 200 means an authenticated session
 // (the cookie is valid), 401 means signed out. login() posts to /auth/login,
-// which sets the HttpOnly cookie; logout() clears it. No token ever touches JS
-// (DESIGN.md D5) — the browser carries the cookie, and this only tracks who the
-// current user is.
+// which sets the HttpOnly cookies; logout() clears them. No session token ever
+// touches JS (DESIGN.md D5) — the browser carries the cookies, and this only
+// tracks who the current user is. The one value JS reads is Gombit's CSRF
+// cookie, which is readable by design so the client can echo it (api/client).
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";

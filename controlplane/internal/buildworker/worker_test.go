@@ -25,6 +25,7 @@ type fakeJobs struct {
 	reflected []string
 	succeeded *terminal
 	failed    *terminal
+	renewals  int
 }
 
 func (f *fakeJobs) Claim(context.Context) (cloudbuild.BuildJob, bool, error) {
@@ -46,6 +47,11 @@ func (f *fakeJobs) MarkSucceeded(_ context.Context, _ uint, status, digest strin
 	f.succeeded = &terminal{status: status, digest: digest}
 	return nil
 }
+func (f *fakeJobs) Renew(context.Context, uint) error {
+	f.renewals++
+	return nil
+}
+func (f *fakeJobs) ExpireAbandoned(context.Context) (int64, error) { return 0, nil }
 func (f *fakeJobs) MarkFailed(_ context.Context, _ uint, status, reason string) error {
 	f.failed = &terminal{status: status, reason: reason}
 	return nil

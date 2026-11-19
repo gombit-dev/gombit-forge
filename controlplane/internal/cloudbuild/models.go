@@ -64,7 +64,10 @@ type BuildJob struct {
 	Status         Status `gorm:"size:20;not null;index"`
 	// Error is a sanitized failure reason, set on failure — never a raw toolchain
 	// or transport error, which can leak paths or token material.
-	Error     string `gorm:"type:text"`
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	Error string `gorm:"type:text"`
+	// LeaseExpiresAt is when a running job's claim lapses unless its worker
+	// renews it (internal/joblease). Null on a job that is not running.
+	LeaseExpiresAt *time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
