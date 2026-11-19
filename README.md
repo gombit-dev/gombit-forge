@@ -114,7 +114,7 @@ free and never a code change (ADR-001).
 
 **Prerequisites:** Go 1.26+ (auto-resolves via `GOTOOLCHAIN`). Seeing a model
 become a real, migrating app also needs the
-[`gombit`](https://github.com/gombit-dev/gombit) CLI (**≥ v0.1.12**),
+[`gombit`](https://github.com/gombit-dev/gombit) CLI (**≥ v0.8.0**),
 [Atlas](https://atlasgo.io), and Docker.
 
 ```bash

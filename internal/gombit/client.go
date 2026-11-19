@@ -18,7 +18,7 @@ const (
 
 // Auth is an authentication mode Gombit can scaffold.
 //
-// Verified against gombit v0.1.5: scaffold.validAuths is exactly
+// Verified against gombit v0.1.5 and again at v0.9.0: scaffold.validAuths is exactly
 // {jwt, cookie}, and `--auth none` is refused with "auth must be one of jwt,
 // cookie". There is no unmounted-auth flag, and an empty --auth defaults to
 // jwt rather than to none. So this type has no None: representing a mode the

@@ -33,8 +33,26 @@ We'll build a tiny CRM — customers and invoices.
 
 ## 1. A project
 
-Everything lives in a project, inside an organization you belong to. After
-signing in (cookie session), create one:
+The control plane uses Gombit's cookie session auth, which protects every
+state-changing request with a double-submit CSRF token. Fetch a token first,
+send it as `X-CSRF-Token` on every `POST`, `PATCH`, `PUT` and `DELETE`, and
+fetch a fresh one after signing in:
+
+```http
+GET /api/v1/auth/csrf
+POST /api/v1/auth/login
+{ "email": "you@example.com", "password": "…" }
+```
+
+(Create the first account with `gombit createsuperuser` in `controlplane/`.)
+
+Everything lives in a project, inside an organization you belong to. Create the
+organization, then a project in it:
+
+```http
+POST /api/v1/organizations
+{ "name": "Acme", "slug": "acme" }
+```
 
 ```http
 POST /api/v1/organizations/{orgID}/projects
@@ -63,7 +81,10 @@ POST /api/v1/projects/{id}/resources
 { "label": "Customer", "label_plural": "Customers" }
 ```
 
-Do the same for `Invoice`. Renaming later (`PATCH …/resources/{id}`) changes only
+Do the same for `Invoice`. The edit returns the new revision, not the minted
+ID: read IDs back from the spec (`GET /api/v1/projects/{id}/spec`, see
+[§6](#6-what-you-get)), where each resource and field carries its `id`. The
+`{customerID}`-style placeholders below are those IDs. Renaming later (`PATCH …/resources/{id}`) changes only
 the label; the ID and the generated code symbol never move. **Identity is the ID,
 never the name** — that is what lets you relabel freely without breaking anything.
 
@@ -98,13 +119,15 @@ POST /api/v1/projects/{id}/resources/{invoiceID}/relationships
 ## 5. Behavior and screens
 
 Choose what each resource allows and exposes — CRUD toggles, admin visibility,
-and which fields are searchable, filterable, sortable, or aggregatable:
+and which fields are searchable, filterable, sortable, or aggregatable
+(`searchable_fields`, `filterable_fields`, `sortable_fields`,
+`aggregatable_fields`, each a list of field IDs):
 
 ```http
 PATCH /api/v1/projects/{id}/resources/{customerID}/behavior
 { "create_enabled": true, "update_enabled": true, "delete_enabled": true,
   "admin_visible": true,
-  "searchable_fields": ["{emailID}"], "filterable_fields": ["{tierID}"] }
+  "searchable_fields": ["{emailID}"] }
 ```
 
 Then add screens — structured pages, not a freeform canvas: a **table**, a
