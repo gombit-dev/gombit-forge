@@ -34,11 +34,18 @@ jobs:
         run: make race
 
       # The control plane is a separate nested module (it imports Gombit), so
-      # root ./... never covers it. Build, vet and test it explicitly.
+      # root ./... never covers it. Build, vet and test it explicitly. Its go.mod
+      # follows Gombit's go directive (1.26.9 for v0.9.0), newer than the root
+      # module's toolchain setup-go installed above, so let the go command fetch
+      # the one it asks for.
       - name: Control plane — vet
+        env:
+          GOTOOLCHAIN: auto
         run: make cp-vet
 
       - name: Control plane — build
+        env:
+          GOTOOLCHAIN: auto
         run: make cp-build
 
       # -short here, like the M0 e2e gate: the boot test drives a throwaway
@@ -46,6 +53,8 @@ jobs:
       # cold container up inside the test is too slow/flaky for the merge gate.
       # `make cp-test` (no -short) runs it locally where the image is warm.
       - name: Control plane — test (short)
+        env:
+          GOTOOLCHAIN: auto
         run: make cp-test-short
 
   # The Forge editor SPA (controlplane/web) is a separate npm project the Go
