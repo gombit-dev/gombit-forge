@@ -24,9 +24,11 @@ import (
 // server-side list filtering/sort/search the generated list handlers consume
 // (gombit #260), then to v0.1.12, which added the declared server-side numeric
 // aggregate contract (gombit #273) the generated dashboard aggregate cards
-// consume; an older toolchain builds a tree whose list pages cannot honor the
-// spec's search/filter/sort or reduce a numeric field server-side (ADR-004 D5).
-var MinimumVersion = Version{Major: 0, Minor: 1, Patch: 12}
+// consume, and then to v0.8.0, whose database.Search takes the request context
+// and returns an error (it refuses a NUL byte or invalid UTF-8 with a 422): the
+// generated list handlers call that signature, so a tree an older toolchain
+// scaffolds no longer compiles (ADR-004 D5).
+var MinimumVersion = Version{Major: 0, Minor: 8, Patch: 0}
 
 // ModulePath is the Go module generated applications depend on.
 const ModulePath = "github.com/gombit-dev/gombit"

@@ -79,7 +79,7 @@ export function {{.Component}}() {
 {{- range .CountCards}}
       try {
         const listed = await unwrap(await client.GET("{{.CollectionPath}}", { params: { query: { per_page: 1 } } }));
-        next.push(listed.meta?.total ?? 0);
+        next.push(listed?.meta?.total ?? 0);
       } catch {
         next.push(null);
       }
@@ -102,7 +102,7 @@ export function {{.Component}}() {
 {{- range .AggregateCards}}
       try {
         const listed = await unwrap(await client.GET("{{.CollectionPath}}", { params: { query: { aggregate: "{{.AggKey}}", per_page: 1 } } }));
-        next.push(listed.meta?.aggregates?.["{{.AggKey}}"] ?? "0");
+        next.push(listed?.meta?.aggregates?.["{{.AggKey}}"] ?? "0");
       } catch {
         next.push(null);
       }
@@ -126,7 +126,7 @@ export function {{.Component}}() {
           await client.GET("{{.CollectionPath}}", { params: { query: { ordering: "{{.OrderParam}}", per_page: {{.Limit}} } } }),
         );
         if (!cancelled) {
-          setRecent{{.Index}}(Array.isArray(listed.data) ? listed.data : []);
+          setRecent{{.Index}}(Array.isArray(listed?.data) ? listed?.data : []);
         }
       } catch {
         // A failed recent-list fetch leaves the section empty.
@@ -256,9 +256,9 @@ export function {{.Component}}() {
         if (cancelled) {
           return;
         }
-        const data = Array.isArray(listed.data) ? listed.data : [];
+        const data = Array.isArray(listed?.data) ? listed?.data : [];
         setRows(data);
-        setTotal(listed.meta?.total ?? data.length);
+        setTotal(listed?.meta?.total ?? data.length);
         setStatus(data.length === 0 ? {{js (printf "No %s yet." .Title)}} : "");
       } catch (err: unknown) {
         if (cancelled) {
@@ -452,7 +452,7 @@ export function {{.Component}}() {
         if (cancelled) {
           return;
         }
-        setRecord(got.data ?? null);
+        setRecord(got?.data ?? null);
         setStatus("");
       } catch (err: unknown) {
         if (cancelled) {
@@ -478,7 +478,7 @@ export function {{.Component}}() {
           await client.GET("{{.CollectionPath}}", { params: { query: { "{{.FKParam}}": id, per_page: RELATED_PAGE_SIZE } } }),
         );
         if (!cancelled) {
-          setRelated{{.Index}}(Array.isArray(listed.data) ? listed.data : []);
+          setRelated{{.Index}}(Array.isArray(listed?.data) ? listed?.data : []);
         }
       } catch {
         // A failed related fetch leaves the section empty; the record still shows.
@@ -628,7 +628,7 @@ export function {{.Component}}() {
       try {
         const listed = await unwrap(await client.GET("{{.TargetPath}}", { params: { query: { per_page: 100 } } }));
         if (!cancelled) {
-          const rows = Array.isArray(listed.data) ? listed.data : [];
+          const rows = Array.isArray(listed?.data) ? listed?.data : [];
           set{{.OptionsVar}}(rows.map((r: Record<string, unknown>) => ({ id: String(r.id), label: String(r["{{.DisplayField}}"] ?? r.id) })));
         }
       } catch {
@@ -653,10 +653,10 @@ export function {{.Component}}() {
         const got = await unwrap(
           await client.GET("{{.CollectionPath}}/{id}", { params: { path: { id } } }),
         );
-        if (cancelled || !got.data) {
+        if (cancelled || !got?.data) {
           return;
         }
-        const record = got.data;
+        const record = got?.data;
         reset({
 {{- range .Fields}}
           {{.JSONName}}: (record["{{.JSONName}}"] ?? emptyValues.{{.JSONName}}) as {{.TSType}},

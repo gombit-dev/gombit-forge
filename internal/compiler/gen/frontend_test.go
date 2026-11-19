@@ -563,7 +563,7 @@ func TestFrontendTablePaginates(t *testing.T) {
 	}
 	for _, want := range []string{
 		`per_page: PAGE_SIZE`,
-		`listed.meta?.total`,
+		`listed?.meta?.total`,
 		`aria-label="Pagination"`,
 		`disabled={page <= 1}`,
 		`disabled={page >= pageCount}`,
@@ -993,7 +993,7 @@ func TestFrontendDashboard(t *testing.T) {
 		`className="count-cards"`,
 		`{ "Customers" }`,
 		`client.GET("/api/v1/customers", { params: { query: { per_page: 1 } } })`,
-		`listed.meta?.total ?? 0`,
+		`listed?.meta?.total ?? 0`,
 	} {
 		if !strings.Contains(dash, want) {
 			t.Errorf("dashboard must contain %q", want)
@@ -1182,9 +1182,9 @@ func TestFrontendDashboardAggregateCards(t *testing.T) {
 		`import { useApiClient } from "../../api/client";`,
 		`const [aggregates, setAggregates] = useState<(string | null)[]>([null, null, ]);`,
 		`client.GET("/api/v1/invoices", { params: { query: { aggregate: "sum:total", per_page: 1 } } })`,
-		`listed.meta?.aggregates?.["sum:total"] ?? "0"`,
+		`listed?.meta?.aggregates?.["sum:total"] ?? "0"`,
 		`client.GET("/api/v1/invoices", { params: { query: { aggregate: "max:line_count", per_page: 1 } } })`,
-		`listed.meta?.aggregates?.["max:line_count"] ?? "0"`,
+		`listed?.meta?.aggregates?.["max:line_count"] ?? "0"`,
 		`className="aggregate-cards"`,
 		`{ "Total invoiced" }`,
 		`{aggregates[0] ?? "…"}`,

@@ -93,7 +93,7 @@ type Handler struct {
 func (h *Handler) list(ctx context.Context, input *list{{.Type}}Input) (*list{{.Type}}Output, error) {
 	page, perPage := contract.ClampPage(input.Page, input.PerPage)
 	q := h.DB.WithContext(ctx).Model(&{{.Type}}{})
-{{- if or .Filters .SortColumns}}
+{{- if or .Filters .SearchColumns .SortColumns}}
 	var err error
 {{- end}}
 {{- range .Filters}}
@@ -102,7 +102,9 @@ func (h *Handler) list(ctx context.Context, input *list{{.Type}}Input) (*list{{.
 	}
 {{- end}}
 {{- if .SearchColumns}}
-	q = database.Search(q, []string{ {{range .SearchColumns}}"{{.}}", {{end}}}, input.Search)
+	if q, err = database.Search(ctx, q, []string{ {{range .SearchColumns}}"{{.}}", {{end}}}, input.Search); err != nil {
+		return nil, err
+	}
 {{- end}}
 
 	// Filters and search are applied before COUNT so the total reflects the
@@ -155,7 +157,7 @@ func (h *Handler) list(ctx context.Context, input *list{{.Type}}Input) (*list{{.
 }
 
 func (h *Handler) get(ctx context.Context, input *get{{.Type}}Input) (*get{{.Type}}Output, error) {
-	id, err := strconv.ParseUint(input.ID, 10, 64)
+	id, err := strconv.ParseUint(input.ID, 10, 63)
 	if err != nil {
 		return nil, contract.WithContext(ctx, contract.NotFound("{{.SingularID}} not found"))
 	}
@@ -176,13 +178,17 @@ func (h *Handler) create(ctx context.Context, input *create{{.Type}}Input) (*cre
 	if err := h.DB.WithContext(ctx).Create(&row).Error; err != nil {
 		return nil, database.MapPersistError(ctx, err, "{{.SingularID}} already exists", "create {{.SingularID}}")
 	}
+	// Respond with the stored row, as get would return it.
+	if err := h.DB.WithContext(ctx).First(&row, row.ID).Error; err != nil {
+		return nil, database.MapLoadError(ctx, err, "{{.SingularID}} not found", "reload created {{.SingularID}}")
+	}
 	return &create{{.Type}}Output{Body: contract.Data[{{.Data}}]{Data: to{{.Data}}(row)}}, nil
 }
 {{- end}}
 {{- if .Update}}
 
 func (h *Handler) update(ctx context.Context, input *update{{.Type}}Input) (*update{{.Type}}Output, error) {
-	id, err := strconv.ParseUint(input.ID, 10, 64)
+	id, err := strconv.ParseUint(input.ID, 10, 63)
 	if err != nil {
 		return nil, contract.WithContext(ctx, contract.NotFound("{{.SingularID}} not found"))
 	}
@@ -196,13 +202,17 @@ func (h *Handler) update(ctx context.Context, input *update{{.Type}}Input) (*upd
 	if err := h.DB.WithContext(ctx).Save(&row).Error; err != nil {
 		return nil, database.MapPersistError(ctx, err, "{{.SingularID}} already exists", "update {{.SingularID}}")
 	}
+	// Respond with the stored row, as get would return it.
+	if err := h.DB.WithContext(ctx).First(&row, row.ID).Error; err != nil {
+		return nil, database.MapLoadError(ctx, err, "{{.SingularID}} not found", "reload updated {{.SingularID}}")
+	}
 	return &update{{.Type}}Output{Body: contract.Data[{{.Data}}]{Data: to{{.Data}}(row)}}, nil
 }
 {{- end}}
 {{- if .Delete}}
 
 func (h *Handler) delete(ctx context.Context, input *delete{{.Type}}Input) (*delete{{.Type}}Output, error) {
-	id, err := strconv.ParseUint(input.ID, 10, 64)
+	id, err := strconv.ParseUint(input.ID, 10, 63)
 	if err != nil {
 		return nil, contract.WithContext(ctx, contract.NotFound("{{.SingularID}} not found"))
 	}

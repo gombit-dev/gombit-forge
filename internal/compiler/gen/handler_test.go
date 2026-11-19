@@ -266,7 +266,7 @@ func TestListHandlerEmitsDeclaredQuerySurface(t *testing.T) {
 	wants := []string{
 		`database.FilterEq(ctx, q, "price", database.FilterInt64, input.Price)`,
 		`database.FilterEq(ctx, q, "vendor_id", database.FilterUint, input.VendorID)`,
-		`database.Search(q, []string{"name", "sku"}, input.Search)`,
+		`database.Search(ctx, q, []string{"name", "sku"}, input.Search)`,
 		`database.Ordering(ctx, q, input.Ordering, []string{"name", "price"}, "id")`,
 		// Price is declared aggregatable (#182): the list gains an ?aggregate=
 		// param, the ListMeta envelope, and the ParseAggregates/Aggregate wiring
