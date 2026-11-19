@@ -19,46 +19,98 @@ func validMigrateRequest(dir string) MakeMigrationsRequest {
 	}
 }
 
+// migrateCLI is a CLI whose toolchain reports version, recording its calls.
+func migrateCLI(version string) (*recorder, *CLI) {
+	rec := &recorder{outputs: map[string]string{"version": "gombit:   " + version + "\n"}}
+	return rec, &CLI{Binary: "gombit", Run: rec.run}
+}
+
+// makemigrationsCall returns the one `db makemigrations` invocation, after
+// the version probe.
+func makemigrationsCall(t *testing.T, rec *recorder) string {
+	t.Helper()
+	if len(rec.calls) != 2 || rec.calls[0][1] != "version" {
+		t.Fatalf("expected the version probe then one coarse invocation, got %v", rec.calls)
+	}
+	return strings.Join(rec.calls[1], " ")
+}
+
 func TestMakeMigrationsArgs(t *testing.T) {
-	rec := &recorder{}
-	cli := &CLI{Binary: "gombit", Run: rec.run}
+	rec, cli := migrateCLI("v0.8.0")
 
 	if err := cli.MakeMigrations(context.Background(), validMigrateRequest("/tmp/app")); err != nil {
 		t.Fatalf("make migrations: %v", err)
 	}
-	if len(rec.calls) != 1 {
-		t.Fatalf("expected one coarse invocation, got %d", len(rec.calls))
-	}
 
-	got := strings.Join(rec.calls[0], " ")
+	got := makemigrationsCall(t, rec)
 	want := "gombit db makemigrations initial --driver postgres " +
 		"--model example.com/app/internal/forge_generated/customer.Customer " +
 		"--model example.com/app/internal/forge_generated/invoice.Invoice"
 	if got != want {
 		t.Errorf("argv:\n got: %s\nwant: %s", got, want)
 	}
-	if rec.dirs[0] != "/tmp/app" {
-		t.Errorf("command must run in the app dir, got %q", rec.dirs[0])
+	if rec.dirs[1] != "/tmp/app" {
+		t.Errorf("command must run in the app dir, got %q", rec.dirs[1])
+	}
+}
+
+// TestMakeMigrationsAddsFrameworkSchemaModels pins the v0.9.0 auth tables onto
+// the request: `gombit new` v0.9.0 leaves them out of the scaffold's
+// migration registry, and a Forge app never AutoMigrates, so without them the
+// app's schema lacks auth_totp_factors and every login is a 500.
+func TestMakeMigrationsAddsFrameworkSchemaModels(t *testing.T) {
+	rec, cli := migrateCLI("v0.9.0")
+
+	req := validMigrateRequest("/tmp/app")
+	// One already declared: it must not be passed twice.
+	req.Models = append(req.Models, Model{ImportPath: ModulePath + "/auth", TypeName: "AuditEvent"})
+	if err := cli.MakeMigrations(context.Background(), req); err != nil {
+		t.Fatalf("make migrations: %v", err)
+	}
+
+	got := makemigrationsCall(t, rec)
+	want := "gombit db makemigrations initial --driver postgres " +
+		"--model example.com/app/internal/forge_generated/customer.Customer " +
+		"--model example.com/app/internal/forge_generated/invoice.Invoice " +
+		"--model github.com/gombit-dev/gombit/auth.AuditEvent " +
+		"--model github.com/gombit-dev/gombit/auth.OneTimeToken " +
+		"--model github.com/gombit-dev/gombit/auth.TOTPFactor " +
+		"--model github.com/gombit-dev/gombit/auth.RecoveryCode " +
+		"--model github.com/gombit-dev/gombit/auth.IdentityLink"
+	if got != want {
+		t.Errorf("argv:\n got: %s\nwant: %s", got, want)
+	}
+	if len(req.Models) != 3 {
+		t.Errorf("the caller's request must not be modified, got %d models", len(req.Models))
+	}
+}
+
+func TestMakeMigrationsRefusesUnsupportedToolchain(t *testing.T) {
+	rec, cli := migrateCLI("v0.7.1")
+
+	if err := cli.MakeMigrations(context.Background(), validMigrateRequest("/tmp/app")); err == nil {
+		t.Fatal("expected an unsupported toolchain to be refused")
+	}
+	if len(rec.calls) != 1 {
+		t.Errorf("only the version probe may run, got %v", rec.calls)
 	}
 }
 
 func TestMakeMigrationsCustomDir(t *testing.T) {
-	rec := &recorder{}
-	cli := &CLI{Binary: "gombit", Run: rec.run}
+	rec, cli := migrateCLI("v0.8.0")
 
 	req := validMigrateRequest("/tmp/app")
 	req.MigrationDir = "db/migrations"
 	if err := cli.MakeMigrations(context.Background(), req); err != nil {
 		t.Fatalf("make migrations: %v", err)
 	}
-	if !strings.Contains(strings.Join(rec.calls[0], " "), "--dir db/migrations") {
-		t.Errorf("custom migration dir not passed: %v", rec.calls[0])
+	if got := makemigrationsCall(t, rec); !strings.Contains(got, "--dir db/migrations") {
+		t.Errorf("custom migration dir not passed: %v", got)
 	}
 }
 
 func TestMakeMigrationsForgetModels(t *testing.T) {
-	rec := &recorder{}
-	cli := &CLI{Binary: "gombit", Run: rec.run}
+	rec, cli := migrateCLI("v0.8.0")
 
 	req := validMigrateRequest("/tmp/app")
 	req.ForgetModels = []Model{
@@ -67,13 +119,12 @@ func TestMakeMigrationsForgetModels(t *testing.T) {
 	if err := cli.MakeMigrations(context.Background(), req); err != nil {
 		t.Fatalf("make migrations: %v", err)
 	}
-	got := strings.Join(rec.calls[0], " ")
+	got := makemigrationsCall(t, rec)
 	if !strings.Contains(got, "--forget-model example.com/app/internal/forge_generated/legacy.Legacy") {
 		t.Errorf("forget-model not passed: %s", got)
 	}
 	// A request that only forgets is valid.
-	rec2 := &recorder{}
-	cli2 := &CLI{Binary: "gombit", Run: rec2.run}
+	_, cli2 := migrateCLI("v0.8.0")
 	onlyForget := MakeMigrationsRequest{
 		Dir: "/tmp/app", Name: "drop", Driver: DatabasePostgres,
 		ForgetModels: req.ForgetModels,

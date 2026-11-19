@@ -115,6 +115,16 @@ func TestM0EndToEnd(t *testing.T) {
 	// Migration applied: the tables now exist.
 	assertTableExists(t, ctx, pg, "customers")
 	assertTableExists(t, ctx, pg, "invoices")
+	// The framework's own tables come from the migration too: a Forge app never
+	// AutoMigrates (§14), and createsuperuser below would create any missing
+	// auth table itself outside production, hiding the gap. v0.9.0 reads
+	// auth_totp_factors on every login and writes auth_one_time_tokens on
+	// registration.
+	if version.AtLeast(gombit.Version{Major: 0, Minor: 9, Patch: 0}) {
+		for _, table := range []string{"auth_one_time_tokens", "auth_audit_events", "auth_totp_factors", "auth_recovery_codes", "auth_identity_links"} {
+			assertTableExists(t, ctx, pg, table)
+		}
+	}
 
 	// --- build + boot -------------------------------------------------------
 	bin := filepath.Join(dir, "server")

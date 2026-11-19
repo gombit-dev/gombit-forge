@@ -270,7 +270,13 @@ unresolved question were an artifact of a stale v0.1.0 binary, not an open
 decision.
 
 `internal/gombit` is the boundary. It exposes project-level operations only:
-`Version`, `Scaffold` and `MakeMigrations` (#11). OpenAPI and the TypeScript
+`Version`, `Scaffold` and `MakeMigrations` (#11). `MakeMigrations` also
+declares the framework models the scaffold's migration registry omits for the
+detected toolchain (`frameworkSchemaModels`): `gombit new` v0.9.0 leaves its
+five new auth tables out of `models.json` while its AutoMigrate lists them, and
+a Forge app's schema is its migration alone. Outside production
+`gombit createsuperuser` AutoMigrates the auth tables itself, which is why the
+e2e asserts them right after `gombit db migrate`. OpenAPI and the TypeScript
 client are not boundary operations — the generated app produces them with
 Gombit's own toolchain (`gombit client generate` against its `/openapi.json`),
 and the generated pages consume that client rather than a Forge-written one

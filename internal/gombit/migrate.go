@@ -104,10 +104,25 @@ func (r MakeMigrationsRequest) Validate() error {
 // MakeMigrations generates a versioned Atlas migration from the declared models
 // (DESIGN.md §9 stage 13, §14). Forge never diffs schemas itself — Gombit and
 // Atlas own that (P4); this is the coarse project-level invocation.
+//
+// The request gains the framework models the scaffold's migration registry
+// omits for the detected toolchain (see frameworkSchemaModels), so the
+// migration carries the whole schema the generated app runs against.
 func (c *CLI) MakeMigrations(ctx context.Context, request MakeMigrationsRequest) error {
 	if err := request.Validate(); err != nil {
 		return err
 	}
+
+	detected, err := c.Version(ctx)
+	if err != nil {
+		return err
+	}
+	if !c.SkipVersionCheck {
+		if err := CheckSupported(detected); err != nil {
+			return err
+		}
+	}
+	request.Models = withModels(request.Models, frameworkSchemaModels(detected))
 
 	output, err := c.runner()(ctx, request.Dir, c.binary(), makeMigrationsArgs(request)...)
 	if err != nil {
@@ -115,6 +130,53 @@ func (c *CLI) MakeMigrations(ctx context.Context, request MakeMigrationsRequest)
 			request.Name, err, strings.TrimSpace(string(output)))
 	}
 	return nil
+}
+
+// frameworkSchemaModels returns the framework models a generated app's
+// migration must declare for toolchain version v, beyond what `gombit new`
+// records in the scaffold's migration registry.
+//
+// gombit v0.9.0 added five auth tables (one-time tokens for email
+// verification and password reset, the security audit trail, TOTP factors,
+// recovery codes and external identity links): auth.Models() returns them and
+// the scaffold's AutoMigrate lists them, but `gombit new` seeds
+// database/migrations/models.json and the bootstrap migration without them.
+// An ordinary Gombit app does not notice, because it AutoMigrates at start.
+// A Forge app never AutoMigrates (DESIGN.md §14); its schema is the migration
+// alone, so without these the tables are missing and every login is a 500
+// (the framework reads auth_totp_factors on each one). Declaring a model the
+// registry already holds changes nothing, so this stays correct once the
+// scaffold records them itself.
+func frameworkSchemaModels(v Version) []Model {
+	if !v.AtLeast(Version{Major: 0, Minor: 9, Patch: 0}) {
+		return nil
+	}
+	const auth = ModulePath + "/auth"
+	return []Model{
+		{ImportPath: auth, TypeName: "OneTimeToken"},
+		{ImportPath: auth, TypeName: "AuditEvent"},
+		{ImportPath: auth, TypeName: "TOTPFactor"},
+		{ImportPath: auth, TypeName: "RecoveryCode"},
+		{ImportPath: auth, TypeName: "IdentityLink"},
+	}
+}
+
+// withModels appends extra to models, skipping any already declared, and
+// keeps the declared order first so the command line stays deterministic.
+func withModels(models, extra []Model) []Model {
+	if len(extra) == 0 {
+		return models
+	}
+	seen := make(map[string]bool, len(models)+len(extra))
+	out := make([]Model, 0, len(models)+len(extra))
+	for _, model := range append(append([]Model(nil), models...), extra...) {
+		if seen[model.spec()] {
+			continue
+		}
+		seen[model.spec()] = true
+		out = append(out, model)
+	}
+	return out
 }
 
 // makeMigrationsArgs builds the argv for `gombit db makemigrations`.
