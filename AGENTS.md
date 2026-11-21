@@ -281,7 +281,12 @@ moves when the generated code needs a newer contract. Dependabot proposes those
 bumps, but a go.mod bump alone is not the upgrade. Run `gombit upgrade --to
 vX.Y.Z` in `controlplane/` and do what it lists: v0.9.0, for one, added auth
 tables that `auth.Models()` returns, which need a committed migration
-(`gombit db makemigrations … --model …`) before the control plane runs it. Earlier notes describing the two module paths as an
+(`gombit db makemigrations … --model …`) before the control plane runs it,
+and v0.10.0 added `refresh_tokens` columns that need one too (`gombit db
+plan` shows the change, `gombit db makemigrations upgrade_…` writes it). Run
+`go mod tidy` in `controlplane/` last: `gombit upgrade` and the `gombit db`
+commands add `ariga.io/atlas-provider-gorm` and its dependencies to `go.mod`
+for their schema loader, and the control plane commits the tidy module. Earlier notes describing the two module paths as an
 unresolved question were an artifact of a stale v0.1.0 binary, not an open
 decision.
 
@@ -290,7 +295,9 @@ decision.
 declares the framework models the scaffold's migration registry omits for the
 detected toolchain (`frameworkSchemaModels`): `gombit new` v0.9.0 leaves its
 five new auth tables out of `models.json` while its AutoMigrate lists them, and
-a Forge app's schema is its migration alone. Outside production
+a Forge app's schema is its migration alone. v0.10.0 records every framework
+model there itself (gombit #675), so this covers v0.9.x only and goes once
+`MinimumVersion` passes it. Outside production
 `gombit createsuperuser` AutoMigrates the auth tables itself, which is why the
 e2e asserts them right after `gombit db migrate`. OpenAPI and the TypeScript
 client are not boundary operations — the generated app produces them with

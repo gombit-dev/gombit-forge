@@ -34,7 +34,7 @@ The root module's unit tests need **none** of the external tools — only Go.
 Install the `gombit` CLI when you need the integration suites:
 
 ```bash
-go install github.com/gombit-dev/gombit/cmd/gombit@v0.9.0
+go install github.com/gombit-dev/gombit/cmd/gombit@v0.10.0
 ```
 
 ## Getting set up

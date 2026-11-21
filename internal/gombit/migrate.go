@@ -144,11 +144,13 @@ func (c *CLI) MakeMigrations(ctx context.Context, request MakeMigrationsRequest)
 // An ordinary Gombit app does not notice, because it AutoMigrates at start.
 // A Forge app never AutoMigrates (DESIGN.md §14); its schema is the migration
 // alone, so without these the tables are missing and every login is a 500
-// (the framework reads auth_totp_factors on each one). Declaring a model the
-// registry already holds changes nothing, so this stays correct once the
-// scaffold records them itself.
+// (the framework reads auth_totp_factors on each one).
+//
+// gombit v0.10.0 records every framework model in the registry itself
+// (gombit #675), so this applies to v0.9.x only, and goes once
+// MinimumVersion passes it.
 func frameworkSchemaModels(v Version) []Model {
-	if !v.AtLeast(Version{Major: 0, Minor: 9, Patch: 0}) {
+	if !v.AtLeast(Version{Major: 0, Minor: 9, Patch: 0}) || v.AtLeast(Version{Major: 0, Minor: 10, Patch: 0}) {
 		return nil
 	}
 	const auth = ModulePath + "/auth"

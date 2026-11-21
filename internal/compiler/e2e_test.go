@@ -125,6 +125,13 @@ func TestM0EndToEnd(t *testing.T) {
 			assertTableExists(t, ctx, pg, table)
 		}
 	}
+	// The schema chain agrees: the models, the migration directory and the
+	// migrated database, framework tables and columns included, before
+	// createsuperuser can AutoMigrate a gap away. gombit v0.9.0 errors on the
+	// check's model-registry layer here, fixed in gombit #675.
+	if version.AtLeast(gombit.Version{Major: 0, Minor: 10, Patch: 0}) {
+		assertSchemaChain(t, ctx, dir, env)
+	}
 
 	// --- build + boot -------------------------------------------------------
 	bin := filepath.Join(dir, "server")
@@ -579,5 +586,49 @@ func assertTableExists(t *testing.T, ctx context.Context, pg *pgContainer, table
 	}
 	if strings.TrimSpace(string(out)) != table {
 		t.Errorf("table %s was not created by the migration (got %q)", table, strings.TrimSpace(string(out)))
+	}
+}
+
+// assertSchemaChain runs `gombit db check` against the migrated database and
+// requires its schema layers to be ok: the migration directory, its safety,
+// the models against the migrations, nothing pending, and the database
+// against the migrations.
+//
+// The model-registry layer is not asserted. It compares models.json with the
+// AutoMigrate call in the scaffold's internal/platform/database.go, which a
+// Forge app keeps but never calls (the composition root migrates out of band,
+// DESIGN.md §14), so it reports the generated models as missing there. The
+// check exits non-zero for that, so only its report is read.
+func assertSchemaChain(t *testing.T, ctx context.Context, dir string, env []string) {
+	t.Helper()
+	cmd := exec.CommandContext(ctx, gombit.DefaultBinary, "db", "check", "--json")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), env...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	_ = cmd.Run()
+	var report struct {
+		Layers []struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+			Detail string `json:"detail"`
+		} `json:"layers"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("gombit db check --json: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+	status := map[string]string{}
+	for _, layer := range report.Layers {
+		status[layer.Name] = layer.Status + ": " + layer.Detail
+	}
+	for _, name := range []string{"migration directory", "migration safety", "models ↔ migrations", "pending migrations", "database schema"} {
+		got, ok := status[name]
+		if !ok {
+			t.Errorf("gombit db check reported no %q layer; got %v", name, status)
+			continue
+		}
+		if !strings.HasPrefix(got, "ok: ") {
+			t.Errorf("gombit db check %s = %s, want ok", name, got)
+		}
 	}
 }

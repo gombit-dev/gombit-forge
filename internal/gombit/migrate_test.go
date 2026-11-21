@@ -85,6 +85,27 @@ func TestMakeMigrationsAddsFrameworkSchemaModels(t *testing.T) {
 	}
 }
 
+// TestMakeMigrationsAddsNoFrameworkModelsFromV010: `gombit new` v0.10.0
+// records every framework model in the registry (gombit #675), so the request
+// is passed as declared, as it is before v0.9.0.
+func TestMakeMigrationsAddsNoFrameworkModelsFromV010(t *testing.T) {
+	for _, version := range []string{"v0.8.0", "v0.10.0", "v0.11.2", "v1.0.0"} {
+		t.Run(version, func(t *testing.T) {
+			rec, cli := migrateCLI(version)
+			if err := cli.MakeMigrations(context.Background(), validMigrateRequest("/tmp/app")); err != nil {
+				t.Fatalf("make migrations: %v", err)
+			}
+			got := makemigrationsCall(t, rec)
+			want := "gombit db makemigrations initial --driver postgres " +
+				"--model example.com/app/internal/forge_generated/customer.Customer " +
+				"--model example.com/app/internal/forge_generated/invoice.Invoice"
+			if got != want {
+				t.Errorf("argv:\n got: %s\nwant: %s", got, want)
+			}
+		})
+	}
+}
+
 func TestMakeMigrationsRefusesUnsupportedToolchain(t *testing.T) {
 	rec, cli := migrateCLI("v0.7.1")
 
