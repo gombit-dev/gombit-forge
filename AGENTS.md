@@ -107,7 +107,13 @@ works a job, and a job whose lease lapsed is failed with a reason the user sees,
 not re-run, because a half-done export or build has side effects outside the
 database. Gombit's jobs system is not used: its only durable driver is Redis.
 Account email goes out through `internal/mail` (SMTP, `FORGE_SMTP_ADDR` +
-`FORGE_MAIL_FROM`), the `auth.Mailer` Gombit's account lifecycle asks for. The
+`FORGE_MAIL_FROM`), the `auth.Mailer` Gombit's account lifecycle asks for. Its
+links open the editor's account pages (`controlplane/web/src/auth/AccountPages.tsx`):
+`/forgot-password` (linked from sign-in), `/reset-password`, `/verify-email`
+and `/confirm-email`, served signed in or out. The links exist only when the
+control plane sets `GOMBIT_AUTH_PASSWORD_RESET_URL`,
+`GOMBIT_AUTH_EMAIL_VERIFICATION_URL` and `GOMBIT_AUTH_EMAIL_CHANGE_URL` to
+those pages (`.env.example`); unset, the email carries a bare token. The
 editor SPA's client (`controlplane/web/src/api/client.ts`) echoes Gombit's
 `gombit_csrf` cookie as `X-CSRF-Token` on every state-changing request (login
 included) and refreshes an expired session once. Its unit tests mock `fetch`,
