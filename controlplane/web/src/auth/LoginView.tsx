@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { ApiError } from "../api/client";
 import { useSession } from "./session";
 
@@ -59,6 +60,7 @@ export function LoginView() {
         <button type="submit" disabled={pending}>
           {pending ? "Signing in…" : "Sign in"}
         </button>
+        <Link to="/forgot-password">Forgot password?</Link>
       </form>
     </main>
   );
