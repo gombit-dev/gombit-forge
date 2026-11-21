@@ -76,9 +76,10 @@ type ApplicationSourceRequest struct {
 // The steps compose Forge's existing pieces over the coarse Gombit boundary
 // rather than reimplementing any of them (P4/D12): the toolchain scaffolds the
 // canonical base tree; Compile + Materialize lay down the generated code;
-// CompositionRoot writes the Forge-owned main; README and forge.json are added;
-// the toolchain tidies modules and generates the migration; and Collect returns
-// the sanitized SourceFile set. The scratch directory is created and removed
+// CompositionRoot writes the Forge-owned main, and the scaffold's AutoMigrate
+// list gains the generated models (ApplyPlatformModels); README and forge.json
+// are added; the toolchain tidies modules and generates the migration; and
+// Collect returns the sanitized SourceFile set. The scratch directory is created and removed
 // here, so no caller manages a workspace.
 func BuildApplicationSource(ctx context.Context, tc SourceToolchain, req ApplicationSourceRequest) ([]SourceFile, error) {
 	if req.Spec == nil {
@@ -125,6 +126,16 @@ func BuildApplicationSource(ctx context.Context, tc SourceToolchain, req Applica
 	if err := writeRootFile(dir, CompositionRootPath, root); err != nil {
 		return nil, err
 	}
+	models, err := MigrationModelsForSpec(req.Spec, req.Module)
+	if err != nil {
+		return nil, fmt.Errorf("compiler: migration models: %w", err)
+	}
+	// The scaffold's AutoMigrate list, which the composition root never calls,
+	// names the generated models too, so the exported app's gombit tooling
+	// reads its whole schema.
+	if err := ApplyPlatformModels(dir, models); err != nil {
+		return nil, err
+	}
 	if err := WriteReadme(dir, req.Spec); err != nil {
 		return nil, fmt.Errorf("compiler: readme: %w", err)
 	}
@@ -136,10 +147,6 @@ func BuildApplicationSource(ctx context.Context, tc SourceToolchain, req Applica
 	// migration for the compiled model set.
 	if err := tc.Tidy(ctx, dir); err != nil {
 		return nil, fmt.Errorf("compiler: tidy: %w", err)
-	}
-	models, err := MigrationModelsForSpec(req.Spec, req.Module)
-	if err != nil {
-		return nil, fmt.Errorf("compiler: migration models: %w", err)
 	}
 	if err := tc.MakeMigrations(ctx, gombit.MakeMigrationsRequest{
 		Dir: dir, Name: "initial", Driver: gombit.DatabasePostgres, Models: models,
