@@ -307,6 +307,20 @@ and the generated pages consume that client rather than a Forge-written one
 The versioned generation *protocol* ADR-001 §68 describes is not built — the
 current transport is the CLI behind an injectable runner.
 
+Besides replacing the scaffold's `cmd/server/main.go` with the composition
+root, the assembled tree edits one scaffold file: `ApplyPlatformModels` adds
+the generated models to the `AutoMigrate` call in
+`internal/platform/database.go` (`BuildApplicationSource`, and the M0 e2e,
+which assembles the tree by hand). Nothing calls that function in a Forge app
+(§14). Gombit's tooling reads it as the app's model list:
+- `gombit db check` compares it with `models.json`, and reported every
+  generated model as drift before this edit.
+- `gombit make resource` adds to it.
+
+So an exported app passes `gombit db check` and takes `gombit make resource`
+like any Gombit app. Both e2e suites run `gombit db check` on the migrated
+database.
+
 ### Known hazard: the scaffold is not byte-reproducible
 
 `gombit new` writes a random `GOMBIT_JWT_SECRET` into `.env`, so scaffolding

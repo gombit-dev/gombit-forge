@@ -99,6 +99,9 @@ func TestExportBuildsAndRunsOutsideForge(t *testing.T) {
 	}
 	// Migrate, build and boot entirely from the extracted directory.
 	runCmd(t, ctx, exportDir, env, gombit.DefaultBinary, "db", "migrate")
+	// The exported app's gombit tooling sees one consistent schema chain,
+	// its AutoMigrate list included (ApplyPlatformModels).
+	runCmd(t, ctx, exportDir, env, gombit.DefaultBinary, "db", "check")
 
 	bin := filepath.Join(exportDir, "server")
 	runCmd(t, ctx, exportDir, nil, "go", "build", "-o", bin, "./cmd/server")

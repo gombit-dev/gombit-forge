@@ -22,6 +22,7 @@ func (f *fakeSourceToolchain) Scaffold(_ context.Context, req gombit.ScaffoldReq
 		"cmd/server/main.go":        "package main // scaffold placeholder — overwritten by the composition root\n",
 		"internal/web/static/.keep": "",
 		".env":                      "GOMBIT_JWT_SECRET=scaffold-secret\n",
+		PlatformDatabasePath:        scaffoldPlatformDatabase,
 	}
 	for path, content := range base {
 		if err := writeRootFile(req.Dir, path, []byte(content)); err != nil {
@@ -78,6 +79,10 @@ func TestBuildApplicationSource(t *testing.T) {
 	// The composition root overwrote the scaffold placeholder with the real main.
 	if root := string(byPath["cmd/server/main.go"].Content); !strings.Contains(root, "forge.RegisterAll(app)") {
 		t.Errorf("composition root not written over the scaffold placeholder:\n%s", root)
+	}
+	// The scaffold's AutoMigrate list names the generated models.
+	if db := string(byPath[PlatformDatabasePath].Content); !strings.Contains(db, "&customer.Customer{},\n\t\t&invoice.Invoice{},") {
+		t.Errorf("generated models not added to the scaffold's AutoMigrate:\n%s", db)
 	}
 	// Sanitization still applies to the assembled tree: the scaffold's .env secret
 	// is not shipped.
