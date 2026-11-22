@@ -189,8 +189,11 @@ type handler struct {
 	cloud    Cloud
 }
 
-// jobData is a build job as the API exposes it.
-type jobData struct {
+// buildJobData is a build job as the API exposes it.
+// Its name is distinct from exportjob's job type: Huma names the response
+// schema after the Go type, and the server mounts both route sets
+// (TestAllRoutesRegisterTogether).
+type buildJobData struct {
 	ID             uint   `json:"id"`
 	ProjectID      uint   `json:"project_id"`
 	Status         string `json:"status"`
@@ -200,8 +203,8 @@ type jobData struct {
 	Error          string `json:"error,omitempty" doc:"A sanitized failure reason, once the job has failed"`
 }
 
-func toJobData(j BuildJob) jobData {
-	return jobData{
+func toJobData(j BuildJob) buildJobData {
+	return buildJobData{
 		ID: j.ID, ProjectID: j.ProjectID, Status: string(j.Status),
 		CloudBuildID: j.CloudBuildID, CloudStatus: j.CloudStatus,
 		ArtifactDigest: j.ArtifactDigest, Error: j.Error,
@@ -214,7 +217,7 @@ type deployInput struct {
 
 type deployOutput struct {
 	Status int
-	Body   contract.Data[jobData]
+	Body   contract.Data[buildJobData]
 }
 
 func (h *handler) deploy(ctx context.Context, in *deployInput) (*deployOutput, error) {
@@ -251,7 +254,7 @@ func (h *handler) deploy(ctx context.Context, in *deployInput) (*deployOutput, e
 		}
 		return nil, contract.WithContext(ctx, contract.Internal("could not enqueue the deploy"))
 	}
-	return &deployOutput{Status: http.StatusAccepted, Body: contract.Data[jobData]{Data: toJobData(job)}}, nil
+	return &deployOutput{Status: http.StatusAccepted, Body: contract.Data[buildJobData]{Data: toJobData(job)}}, nil
 }
 
 type getInput struct {
@@ -259,7 +262,7 @@ type getInput struct {
 }
 
 type getOutput struct {
-	Body contract.Data[jobData]
+	Body contract.Data[buildJobData]
 }
 
 func (h *handler) get(ctx context.Context, in *getInput) (*getOutput, error) {
@@ -285,7 +288,7 @@ func (h *handler) get(ctx context.Context, in *getInput) (*getOutput, error) {
 	if _, err := h.resolveAuthorized(ctx, job.ProjectID, user.ID, org.CapProjectView); err != nil {
 		return nil, mapAuthErr(ctx, err, "build job")
 	}
-	return &getOutput{Body: contract.Data[jobData]{Data: toJobData(job)}}, nil
+	return &getOutput{Body: contract.Data[buildJobData]{Data: toJobData(job)}}, nil
 }
 
 type listInput struct {
@@ -293,7 +296,7 @@ type listInput struct {
 }
 
 type listOutput struct {
-	Body contract.Data[[]jobData]
+	Body contract.Data[[]buildJobData]
 }
 
 func (h *handler) list(ctx context.Context, in *listInput) (*listOutput, error) {
@@ -307,11 +310,11 @@ func (h *handler) list(ctx context.Context, in *listInput) (*listOutput, error) 
 	if err != nil {
 		return nil, contract.WithContext(ctx, contract.Internal("could not list the project's build jobs"))
 	}
-	out := make([]jobData, 0, len(jobs))
+	out := make([]buildJobData, 0, len(jobs))
 	for _, j := range jobs {
 		out = append(out, toJobData(j))
 	}
-	return &listOutput{Body: contract.Data[[]jobData]{Data: out}}, nil
+	return &listOutput{Body: contract.Data[[]buildJobData]{Data: out}}, nil
 }
 
 type logsInput struct {

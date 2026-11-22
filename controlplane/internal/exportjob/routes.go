@@ -77,8 +77,11 @@ type handler struct {
 	authz    Authorizer
 }
 
-// jobData is the export job as the API exposes it.
-type jobData struct {
+// exportJobData is the export job as the API exposes it.
+// Its name is distinct from cloudbuild's job type: Huma names the response
+// schema after the Go type, and the server mounts both route sets
+// (TestAllRoutesRegisterTogether).
+type exportJobData struct {
 	ID        uint   `json:"id"`
 	ProjectID uint   `json:"project_id"`
 	Status    string `json:"status"`
@@ -86,8 +89,8 @@ type jobData struct {
 	Error     string `json:"error,omitempty" doc:"A sanitized failure reason, once the export has failed"`
 }
 
-func toJobData(j ExportJob) jobData {
-	return jobData{ID: j.ID, ProjectID: j.ProjectID, Status: string(j.Status), RepoURL: j.RepoURL, Error: j.Error}
+func toJobData(j ExportJob) exportJobData {
+	return exportJobData{ID: j.ID, ProjectID: j.ProjectID, Status: string(j.Status), RepoURL: j.RepoURL, Error: j.Error}
 }
 
 type createInput struct {
@@ -103,7 +106,7 @@ type createInput struct {
 
 type createOutput struct {
 	Status int
-	Body   contract.Data[jobData]
+	Body   contract.Data[exportJobData]
 }
 
 func (h *handler) create(ctx context.Context, in *createInput) (*createOutput, error) {
@@ -139,7 +142,7 @@ func (h *handler) create(ctx context.Context, in *createInput) (*createOutput, e
 		}
 		return nil, contract.WithContext(ctx, contract.Internal("could not enqueue the export"))
 	}
-	return &createOutput{Status: http.StatusAccepted, Body: contract.Data[jobData]{Data: toJobData(job)}}, nil
+	return &createOutput{Status: http.StatusAccepted, Body: contract.Data[exportJobData]{Data: toJobData(job)}}, nil
 }
 
 type getInput struct {
@@ -147,7 +150,7 @@ type getInput struct {
 }
 
 type getOutput struct {
-	Body contract.Data[jobData]
+	Body contract.Data[exportJobData]
 }
 
 func (h *handler) get(ctx context.Context, in *getInput) (*getOutput, error) {
@@ -168,7 +171,7 @@ func (h *handler) get(ctx context.Context, in *getInput) (*getOutput, error) {
 	if !ok || job.UserID != user.ID {
 		return nil, contract.WithContext(ctx, contract.NotFound("export job not found"))
 	}
-	return &getOutput{Body: contract.Data[jobData]{Data: toJobData(job)}}, nil
+	return &getOutput{Body: contract.Data[exportJobData]{Data: toJobData(job)}}, nil
 }
 
 // loadAuthorized resolves and authorizes the project for the caller, mapping a
