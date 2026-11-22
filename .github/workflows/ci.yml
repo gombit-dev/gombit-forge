@@ -57,6 +57,61 @@ jobs:
           GOTOOLCHAIN: auto
         run: make cp-test-short
 
+  # The toolchain lane (`make e2e`): the tests that scaffold a real Gombit app,
+  # compile a spec into it, migrate it on Postgres, then build, boot and serve
+  # it, including its generated frontend. They need the gombit CLI, atlas,
+  # Docker and node, which `build` doesn't install, so they skip there. Here
+  # every tool is installed and FORGE_REQUIRE_TOOLCHAIN turns a missing one into
+  # a failure. gombit is the version the control plane pins, so a Gombit release
+  # that breaks generated apps fails the PR that moves that pin (dependabot's or
+  # an upgrade's).
+  e2e:
+    name: Toolchain end-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # Generated apps follow Gombit's go directive; let `go` fetch it.
+      GOTOOLCHAIN: auto
+      # The Atlas Community release gombit's own CI pins. atlasgo.sh reads
+      # ATLAS_VERSION; unset, it installs "latest", which has been a canary.
+      ATLAS_VERSION: v1.3.0
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: controlplane/go.mod
+          cache: true
+          # Keyed on both modules, so a gombit bump in the control plane saves
+          # a fresh cache holding the generated apps' new dependencies.
+          cache-dependency-path: |
+            go.sum
+            controlplane/go.sum
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Install gombit (the control plane's pin)
+        run: |
+          go install "github.com/gombit-dev/gombit/cmd/gombit@$(cd controlplane && go list -m -f '{{.Version}}' github.com/gombit-dev/gombit)"
+          gombit version
+
+      - name: Install Atlas
+        run: |
+          curl -sSf https://atlasgo.sh | CI=true sh -s -- --community
+          # Fail on anything but the pinned release (a canary, a newer one).
+          # Trim to the first line in the shell: piping into head can SIGPIPE.
+          reported="$(atlas version)"
+          installed="${reported%%$'\n'*}"
+          case "$installed" in
+            *" $ATLAS_VERSION") echo "$installed" ;;
+            *) echo "want Atlas $ATLAS_VERSION, got: $installed" >&2; exit 1 ;;
+          esac
+
+      - name: Toolchain tests
+        run: make e2e
+
   # The Forge editor SPA (controlplane/web) is a separate npm project the Go
   # gates never cover, so it gets its own job: typecheck, build and unit-test.
   web:

@@ -2,7 +2,6 @@ package gen
 
 import (
 	"context"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,6 +9,7 @@ import (
 	"github.com/gombit-dev/gombit-forge/internal/compiler/graph"
 	"github.com/gombit-dev/gombit-forge/internal/gombit"
 	"github.com/gombit-dev/gombit-forge/internal/spec"
+	"github.com/gombit-dev/gombit-forge/internal/toolchaintest"
 )
 
 const hooksModule = "example.com/app"
@@ -294,16 +294,14 @@ func TestGeneratedHooksCompileInGombitApp(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping gombit-app compile test in -short")
 	}
-	if _, err := exec.LookPath(gombit.DefaultBinary); err != nil {
-		t.Skipf("gombit not on PATH: %v", err)
-	}
+	toolchaintest.RequireBinaries(t, gombit.DefaultBinary)
 	cli := &gombit.CLI{}
 	version, err := cli.Version(context.Background())
 	if err != nil {
 		t.Fatalf("gombit version: %v", err)
 	}
 	if err := gombit.CheckSupported(version); err != nil {
-		t.Skipf("installed toolchain unsupported: %v", err)
+		toolchaintest.Skipf(t, "installed toolchain unsupported: %v", err)
 	}
 
 	const sampleModule = "example.com/sample"

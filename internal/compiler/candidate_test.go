@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
 	"github.com/gombit-dev/gombit-forge/internal/compiler/gen"
 	"github.com/gombit-dev/gombit-forge/internal/spec"
+	"github.com/gombit-dev/gombit-forge/internal/toolchaintest"
 )
 
 // fakeToolchain is a scripted Toolchain that records whether it was consulted,
@@ -311,9 +311,7 @@ func TestValidateBreakingNeedsWorkspaceAndModule(t *testing.T) {
 // dependency-free module: a good tree builds, a broken one fails with detail.
 // This is the only test that shells out to `go`.
 func TestGoToolchainTypechecks(t *testing.T) {
-	if _, err := exec.LookPath("go"); err != nil {
-		t.Skip("go not on PATH")
-	}
+	toolchaintest.RequireBinaries(t, "go")
 	tc := GoToolchain{}
 	if !tc.Available(context.Background()) {
 		t.Fatal("go is on PATH but Available reported false")

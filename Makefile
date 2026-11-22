@@ -13,7 +13,8 @@ WEB := controlplane/web
 
 .PHONY: all test lint fmt fmt-check vet tidy clean skills-check \
 	cp-build cp-vet cp-test cp-race \
-	web web-install web-check web-build web-test contract contract-check
+	web web-install web-check web-build web-test contract contract-check \
+	e2e
 
 # `all` is the Go merge gate; it deliberately does not run the web SPA (that
 # would put node on every Go dev's critical path). A frontend dev runs `make web`
@@ -25,6 +26,15 @@ test:
 
 race:
 	go test ./... -race -count=1
+
+# The toolchain lane: the tests that drive the real gombit CLI, atlas, Docker
+# and node (the M0, export, frontend and migration end-to-ends, and the
+# gombit-app compile tests). `make test` skips them where a tool is missing;
+# here FORGE_REQUIRE_TOOLCHAIN turns that skip into a failure, so a broken
+# install can't pass by running nothing. CI's `e2e` job runs this with the
+# gombit the control plane pins.
+e2e:
+	FORGE_REQUIRE_TOOLCHAIN=1 go test ./internal/compiler/... ./internal/gombit/... -count=1 -timeout 45m
 
 # Control-plane module (github.com/gombit-dev/gombit-forge/controlplane).
 cp-build:
