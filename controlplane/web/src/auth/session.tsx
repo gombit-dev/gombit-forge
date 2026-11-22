@@ -9,7 +9,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { ApiError, api } from "../api/client";
+import { ApiError, call, contract } from "../api/client";
 
 export interface User {
   id: number;
@@ -30,7 +30,7 @@ const SessionContext = createContext<Session | null>(null);
 
 async function fetchMe(): Promise<User | null> {
   try {
-    return await api.get<User>("/me");
+    return await call(contract.GET("/api/v1/me"));
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) {
       return null;
@@ -59,7 +59,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const login = useCallback(async (email: string, password: string) => {
-    await api.post("/auth/login", { email, password });
+    await call(contract.POST("/api/v1/auth/login", { body: { email, password } }));
     await refresh();
   }, [refresh]);
 
@@ -70,7 +70,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // cookie that the next /me probe signs straight back in — "I signed out but
     // I'm still signed in after a refresh". On failure the error propagates and
     // the session stays as it really is.
-    await api.post("/auth/logout");
+    await call(contract.POST("/api/v1/auth/logout"));
     setUser(null);
     setStatus("anonymous");
   }, []);

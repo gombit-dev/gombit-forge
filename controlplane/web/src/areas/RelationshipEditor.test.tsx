@@ -3,13 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RelationshipEditor } from "./RelationshipEditor";
 import type { SpecField, SpecResource } from "../api/projects";
+import { jsonResponse } from "../test/http";
 
 type Reply = { status: number; body?: unknown };
 function mockApi(routes: (url: string, init?: RequestInit) => Reply) {
   const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     const { status, body } = routes(url, init);
-    return { ok: status >= 200 && status < 300, status, statusText: "", json: async () => body } as Response;
+    return jsonResponse(status, body);
   });
   globalThis.fetch = fn as unknown as typeof fetch;
   return fn;

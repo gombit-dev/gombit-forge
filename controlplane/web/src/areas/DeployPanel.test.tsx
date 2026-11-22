@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DeployPanel } from "./DeployPanel";
+import { jsonResponse } from "../test/http";
 
 // mockApi answers control-plane paths from a handler, letting DeployPanel drive
 // the real API client over a stubbed fetch. Each POST records its body so a test
@@ -15,7 +16,7 @@ function mockApi(handler: (method: string, url: string, body: unknown) => Reply)
     const body = init?.body ? JSON.parse(init.body as string) : undefined;
     calls.push({ method, url, body });
     const { status, body: resBody } = handler(method, url, body);
-    return { ok: status >= 200 && status < 300, status, statusText: "", json: async () => resBody } as Response;
+    return jsonResponse(status, resBody);
   }) as unknown as typeof fetch;
   return calls;
 }

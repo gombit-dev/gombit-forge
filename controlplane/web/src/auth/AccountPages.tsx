@@ -15,7 +15,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { Link, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { ApiError, api } from "../api/client";
+import { ApiError, call, contract } from "../api/client";
 import { useSession } from "./session";
 
 /** The paths of the account pages, served whatever the session. */
@@ -111,7 +111,7 @@ export function ForgotPasswordView() {
     setError(null);
     setPending(true);
     try {
-      await api.post("/auth/password/forgot", { email });
+      await call(contract.POST("/api/v1/auth/password/forgot", { body: { email } }));
       setSent(true);
     } catch (err) {
       setError(errorText(err, "The request failed"));
@@ -173,7 +173,7 @@ export function ResetPasswordView() {
     }
     setPending(true);
     try {
-      await api.post("/auth/password/reset", { token, password });
+      await call(contract.POST("/api/v1/auth/password/reset", { body: { token, password } }));
       setDone(true);
       // The reset signs every session out, this browser's included.
       await refresh().catch(() => undefined);
@@ -232,7 +232,7 @@ export function ResetPasswordView() {
 }
 
 /**
- * TokenConfirmView posts a link's token to path when the user confirms, for
+ * TokenConfirmView posts a link's token with send when the user confirms, for
  * the links that need no other input.
  */
 function TokenConfirmView(props: {
@@ -240,7 +240,7 @@ function TokenConfirmView(props: {
   intro: string;
   action: string;
   pendingAction: string;
-  path: string;
+  send: (token: string) => Promise<unknown>;
   doneTitle: string;
   doneText: string;
 }) {
@@ -254,7 +254,7 @@ function TokenConfirmView(props: {
     setError(null);
     setPending(true);
     try {
-      await api.post(props.path, { token });
+      await props.send(token);
       setDone(true);
       // The signed-in user's email or its verification changed.
       await refresh().catch(() => undefined);
@@ -297,7 +297,7 @@ export function VerifyEmailView() {
       intro="Confirm that this address is yours."
       action="Verify email"
       pendingAction="Verifying…"
-      path="/auth/verify-email"
+      send={(token) => call(contract.POST("/api/v1/auth/verify-email", { body: { token } }))}
       doneTitle="Email verified"
       doneText="Your email address is verified."
     />
@@ -312,7 +312,7 @@ export function ConfirmEmailChangeView() {
       intro="Confirm the change to make this address your account's email."
       action="Confirm new email"
       pendingAction="Confirming…"
-      path="/auth/email/change/confirm"
+      send={(token) => call(contract.POST("/api/v1/auth/email/change/confirm", { body: { token } }))}
       doneTitle="Email changed"
       doneText="This address is now your account's email."
     />

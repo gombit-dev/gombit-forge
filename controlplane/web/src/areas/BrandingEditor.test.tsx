@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BrandingEditor } from "./BrandingEditor";
 import type { SpecBranding } from "../api/projects";
+import { jsonResponse } from "../test/http";
 
 function capturePut() {
   const calls: { method: string; url: string; body: unknown }[] = [];
@@ -12,7 +13,7 @@ function capturePut() {
       url: typeof input === "string" ? input : input.toString(),
       body: init?.body ? JSON.parse(init.body as string) : undefined,
     });
-    return { ok: true, status: 201, statusText: "", json: async () => ({ data: { id: 1, spec_hash: "h" } }) } as Response;
+    return jsonResponse(201, { data: { id: 1, spec_hash: "h" } });
   }) as unknown as typeof fetch;
   return calls;
 }

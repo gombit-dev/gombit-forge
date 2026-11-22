@@ -6,8 +6,9 @@ import {
   deleteField,
   updateField,
   EDITABLE_FIELD_TYPES,
+  isEditableFieldType,
+  type EditableFieldType,
   type FieldInput,
-  type FieldType,
   type SpecField,
 } from "../api/projects";
 
@@ -163,10 +164,9 @@ function FieldForm({
   onSubmit: (input: FieldInput) => Promise<boolean>;
   onCancel?: () => void;
 }) {
-  const startType: FieldType =
-    initial && EDITABLE_FIELD_TYPES.includes(initial.type) ? initial.type : "string";
+  const startType: EditableFieldType = initial && isEditableFieldType(initial.type) ? initial.type : "string";
   const [label, setLabel] = useState(initial?.label ?? "");
-  const [type, setType] = useState<FieldType>(startType);
+  const [type, setType] = useState<EditableFieldType>(startType);
   const [required, setRequired] = useState(initial?.required ?? false);
   const [unique, setUnique] = useState(initial?.unique ?? false);
   const [def, setDef] = useState(initial?.default ?? "");
@@ -182,7 +182,7 @@ function FieldForm({
       type,
       required,
       unique,
-      default: def.trim() === "" ? null : def,
+      default: def.trim() === "" ? undefined : def,
       enum_values:
         type === "enum"
           ? enumCsv
@@ -199,7 +199,7 @@ function FieldForm({
   return (
     <form className="field-form" aria-label={title} onSubmit={submit}>
       <input aria-label="Field label" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Field label" disabled={pending} required />
-      <select aria-label="Field type" value={type} onChange={(e) => setType(e.target.value as FieldType)} disabled={pending}>
+      <select aria-label="Field type" value={type} onChange={(e) => setType(e.target.value as EditableFieldType)} disabled={pending}>
         {EDITABLE_FIELD_TYPES.map((t) => (
           <option key={t} value={t}>
             {t}

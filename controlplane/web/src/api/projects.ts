@@ -1,4 +1,4 @@
-import { api } from "./client";
+import { call, contract } from "./client";
 
 // Control-plane resources the editor reads. These mirror the Go wire types
 // (contract.Data envelopes); only the fields the editor uses are typed.
@@ -73,7 +73,11 @@ export type FieldType =
   | "enum"
   | "belongs_to";
 
-export const EDITABLE_FIELD_TYPES: FieldType[] = [
+// The field types the fields endpoint takes; belongs_to fields are made by the
+// relationships endpoint instead.
+export type EditableFieldType = Exclude<FieldType, "belongs_to">;
+
+export const EDITABLE_FIELD_TYPES: EditableFieldType[] = [
   "string",
   "text",
   "integer",
@@ -83,6 +87,10 @@ export const EDITABLE_FIELD_TYPES: FieldType[] = [
   "date",
   "enum",
 ];
+
+export function isEditableFieldType(t: FieldType): t is EditableFieldType {
+  return (EDITABLE_FIELD_TYPES as FieldType[]).includes(t);
+}
 
 // The four structured MVP page types (DESIGN.md §4.4). There is deliberately no
 // freeform canvas (D6).
@@ -202,45 +210,92 @@ export interface ProjectHealth {
   diagnostics?: HealthDiagnostic[];
 }
 
-export const listOrganizations = () => api.get<Organization[]>("/organizations");
+// The contract marks every list nullable (Go encodes a nil slice as null); the
+// editor reads an empty list instead.
+const orEmpty = <T>(list: T[] | null | undefined): T[] => list ?? [];
 
-export const getProject = (projectID: number) => api.get<Project>(`/projects/${projectID}`);
+export const listOrganizations = async (): Promise<Organization[]> =>
+  orEmpty(await call(contract.GET("/api/v1/organizations")));
 
-export const getProjectHealth = (projectID: number) => api.get<ProjectHealth>(`/projects/${projectID}/health`);
+export const getProject = (projectID: number): Promise<Project> =>
+  call(contract.GET("/api/v1/projects/{projectID}", { params: { path: { projectID: String(projectID) } } }));
 
-export const addResource = (projectID: number, label: string, labelPlural: string) =>
-  api.post<RevisionRef>(`/projects/${projectID}/resources`, { label, label_plural: labelPlural });
+export const getProjectHealth = async (projectID: number): Promise<ProjectHealth> => {
+  const h = await call(
+    contract.GET("/api/v1/projects/{projectID}/health", { params: { path: { projectID: String(projectID) } } }),
+  );
+  return { ...h, facets: orEmpty(h.facets), diagnostics: orEmpty(h.diagnostics) };
+};
 
-export const renameResource = (projectID: number, resourceID: string, label: string, labelPlural: string) =>
-  api.patch<RevisionRef>(`/projects/${projectID}/resources/${encodeURIComponent(resourceID)}`, {
-    label,
-    label_plural: labelPlural,
-  });
+export const addResource = (projectID: number, label: string, labelPlural: string): Promise<RevisionRef> =>
+  call(
+    contract.POST("/api/v1/projects/{projectID}/resources", {
+      params: { path: { projectID: String(projectID) } },
+      body: { label, label_plural: labelPlural },
+    }),
+  );
 
-export const deleteResource = (projectID: number, resourceID: string) =>
-  api.delete<DeleteResult>(`/projects/${projectID}/resources/${encodeURIComponent(resourceID)}`);
+export const renameResource = (
+  projectID: number,
+  resourceID: string,
+  label: string,
+  labelPlural: string,
+): Promise<RevisionRef> =>
+  call(
+    contract.PATCH("/api/v1/projects/{projectID}/resources/{resourceID}", {
+      params: { path: { projectID: String(projectID), resourceID } },
+      body: { label, label_plural: labelPlural },
+    }),
+  );
+
+export const deleteResource = async (projectID: number, resourceID: string): Promise<DeleteResult> => {
+  const r = await call(
+    contract.DELETE("/api/v1/projects/{projectID}/resources/{resourceID}", {
+      params: { path: { projectID: String(projectID), resourceID } },
+    }),
+  );
+  return { ...r, blockers: r.blockers ?? undefined };
+};
 
 // FieldInput is what the field editor sends; the backend mints the symbol.
 export interface FieldInput {
   label: string;
-  type: FieldType;
+  type: EditableFieldType;
   required?: boolean;
   unique?: boolean;
-  default?: string | null;
+  // Omitted for no default (the contract has no null here; the control plane
+  // reads an absent default and a null one alike).
+  default?: string;
   enum_values?: EnumValue[];
 }
 
-const fieldPath = (projectID: number, resourceID: string) =>
-  `/projects/${projectID}/resources/${encodeURIComponent(resourceID)}/fields`;
+export const addField = (projectID: number, resourceID: string, input: FieldInput): Promise<RevisionRef> =>
+  call(
+    contract.POST("/api/v1/projects/{projectID}/resources/{resourceID}/fields", {
+      params: { path: { projectID: String(projectID), resourceID } },
+      body: input,
+    }),
+  );
 
-export const addField = (projectID: number, resourceID: string, input: FieldInput) =>
-  api.post<RevisionRef>(fieldPath(projectID, resourceID), input);
+export const updateField = (
+  projectID: number,
+  resourceID: string,
+  fieldID: string,
+  input: FieldInput,
+): Promise<RevisionRef> =>
+  call(
+    contract.PATCH("/api/v1/projects/{projectID}/resources/{resourceID}/fields/{fieldID}", {
+      params: { path: { projectID: String(projectID), resourceID, fieldID } },
+      body: input,
+    }),
+  );
 
-export const updateField = (projectID: number, resourceID: string, fieldID: string, input: FieldInput) =>
-  api.patch<RevisionRef>(`${fieldPath(projectID, resourceID)}/${encodeURIComponent(fieldID)}`, input);
-
-export const deleteField = (projectID: number, resourceID: string, fieldID: string) =>
-  api.delete<RevisionRef>(`${fieldPath(projectID, resourceID)}/${encodeURIComponent(fieldID)}`);
+export const deleteField = (projectID: number, resourceID: string, fieldID: string): Promise<RevisionRef> =>
+  call(
+    contract.DELETE("/api/v1/projects/{projectID}/resources/{resourceID}/fields/{fieldID}", {
+      params: { path: { projectID: String(projectID), resourceID, fieldID } },
+    }),
+  );
 
 // RelationshipInput describes a belongs_to relationship to create. The has_many
 // side is derived by the compiler from inverse_label.
@@ -251,13 +306,23 @@ export interface RelationshipInput {
   required?: boolean;
 }
 
-export const addRelationship = (projectID: number, resourceID: string, input: RelationshipInput) =>
-  api.post<RevisionRef>(`/projects/${projectID}/resources/${encodeURIComponent(resourceID)}/relationships`, input);
+export const addRelationship = (projectID: number, resourceID: string, input: RelationshipInput): Promise<RevisionRef> =>
+  call(
+    contract.POST("/api/v1/projects/{projectID}/resources/{resourceID}/relationships", {
+      params: { path: { projectID: String(projectID), resourceID } },
+      body: input,
+    }),
+  );
 
 // updateBehavior replaces the resource's whole behavior — the client must send
 // the complete object, not a delta (omitted settings reset).
-export const updateBehavior = (projectID: number, resourceID: string, behavior: ResourceBehavior) =>
-  api.patch<RevisionRef>(`/projects/${projectID}/resources/${encodeURIComponent(resourceID)}/behavior`, behavior);
+export const updateBehavior = (projectID: number, resourceID: string, behavior: ResourceBehavior): Promise<RevisionRef> =>
+  call(
+    contract.PATCH("/api/v1/projects/{projectID}/resources/{resourceID}/behavior", {
+      params: { path: { projectID: String(projectID), resourceID } },
+      body: behavior,
+    }),
+  );
 
 // PageInput is what the page editor sends; the backend mints the id and derives
 // the slug. resource is required for every type except dashboard.
@@ -267,11 +332,15 @@ export interface PageInput {
   resource?: string;
 }
 
-export const addPage = (projectID: number, input: PageInput) =>
-  api.post<RevisionRef>(`/projects/${projectID}/pages`, input);
+export const addPage = (projectID: number, input: PageInput): Promise<RevisionRef> =>
+  call(contract.POST("/api/v1/projects/{projectID}/pages", { params: { path: { projectID: String(projectID) } }, body: input }));
 
-export const deletePage = (projectID: number, pageID: string) =>
-  api.delete<RevisionRef>(`/projects/${projectID}/pages/${encodeURIComponent(pageID)}`);
+export const deletePage = (projectID: number, pageID: string): Promise<RevisionRef> =>
+  call(
+    contract.DELETE("/api/v1/projects/{projectID}/pages/{pageID}", {
+      params: { path: { projectID: String(projectID), pageID } },
+    }),
+  );
 
 // TableConfigInput is what the table-config editor sends. It replaces the whole
 // configuration, so the client sends the complete set, not a delta.
@@ -283,8 +352,13 @@ export interface TableConfigInput {
   page_size?: number;
 }
 
-export const updateTableConfig = (projectID: number, pageID: string, input: TableConfigInput) =>
-  api.patch<RevisionRef>(`/projects/${projectID}/pages/${encodeURIComponent(pageID)}/table`, input);
+export const updateTableConfig = (projectID: number, pageID: string, input: TableConfigInput): Promise<RevisionRef> =>
+  call(
+    contract.PATCH("/api/v1/projects/{projectID}/pages/{pageID}/table", {
+      params: { path: { projectID: String(projectID), pageID } },
+      body: input,
+    }),
+  );
 
 // The form layouts the editor offers (DESIGN.md §18).
 export type FormLayout = "single_column" | "two_column" | "section_groups";
@@ -297,10 +371,16 @@ export interface FormConfigInput {
   fields?: string[];
 }
 
-export const updateFormConfig = (projectID: number, pageID: string, input: FormConfigInput) =>
-  api.patch<RevisionRef>(`/projects/${projectID}/pages/${encodeURIComponent(pageID)}/form`, input);
+export const updateFormConfig = (projectID: number, pageID: string, input: FormConfigInput): Promise<RevisionRef> =>
+  call(
+    contract.PATCH("/api/v1/projects/{projectID}/pages/{pageID}/form", {
+      params: { path: { projectID: String(projectID), pageID } },
+      body: input,
+    }),
+  );
 
-export const listProjects = (orgID: number) => api.get<Project[]>(`/organizations/${orgID}/projects`);
+export const listProjects = async (orgID: number): Promise<Project[]> =>
+  orEmpty(await call(contract.GET("/api/v1/organizations/{orgID}/projects", { params: { path: { orgID: String(orgID) } } })));
 
 // NavItemInput is one navigation entry the editor sends. SetNavigation replaces
 // the whole ordered list, so the client sends the complete navigation.
@@ -311,8 +391,13 @@ export interface NavItemInput {
   url?: string;
 }
 
-export const setNavigation = (projectID: number, items: NavItemInput[]) =>
-  api.put<RevisionRef>(`/projects/${projectID}/navigation`, { items });
+export const setNavigation = (projectID: number, items: NavItemInput[]): Promise<RevisionRef> =>
+  call(
+    contract.PUT("/api/v1/projects/{projectID}/navigation", {
+      params: { path: { projectID: String(projectID) } },
+      body: { items },
+    }),
+  );
 
 // BrandingInput is what the branding editor sends. It replaces the whole
 // branding; an all-empty body clears it to the generated defaults.
@@ -323,9 +408,15 @@ export interface BrandingInput {
   appearance?: "" | Appearance;
 }
 
-export const setBranding = (projectID: number, input: BrandingInput) =>
-  api.put<RevisionRef>(`/projects/${projectID}/branding`, input);
+export const setBranding = (projectID: number, input: BrandingInput): Promise<RevisionRef> =>
+  call(contract.PUT("/api/v1/projects/{projectID}/branding", { params: { path: { projectID: String(projectID) } }, body: input }));
 
 // getProjectSpec returns the head revision's spec, or null when the project has
 // no revisions yet.
-export const getProjectSpec = (projectID: number) => api.get<ProjectSpec | null>(`/projects/${projectID}/spec`);
+// The spec is the ProjectSpec document itself, which the contract carries
+// untyped (the handler serves the stored JSON as is), so its type is the
+// editor's.
+export const getProjectSpec = (projectID: number): Promise<ProjectSpec | null> =>
+  call(
+    contract.GET("/api/v1/projects/{projectID}/spec", { params: { path: { projectID: String(projectID) } } }),
+  ) as Promise<ProjectSpec | null>;

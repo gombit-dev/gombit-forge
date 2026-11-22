@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DataArea } from "./DataArea";
+import { jsonResponse } from "../test/http";
 
 // mockApi answers each control-plane path from a table so DataArea drives the
 // real client over a stubbed fetch.
@@ -9,7 +10,7 @@ function mockApi(routes: (url: string) => { status: number; body?: unknown }) {
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
     const { status, body } = routes(url);
-    return { ok: status >= 200 && status < 300, status, statusText: "", json: async () => body } as Response;
+    return jsonResponse(status, body);
   }) as unknown as typeof fetch;
 }
 
@@ -90,7 +91,7 @@ describe("DataArea", () => {
       else if (url.endsWith("/projects/3/spec")) reply = await spec3.promise;
       else if (url.endsWith("/projects/4/spec")) reply = await spec4.promise;
       else reply = { status: 404, body: {} };
-      return { ok: reply.status >= 200 && reply.status < 300, status: reply.status, statusText: "", json: async () => reply.body } as Response;
+      return jsonResponse(reply.status, reply.body);
     }) as unknown as typeof fetch;
 
     render(<DataArea />);

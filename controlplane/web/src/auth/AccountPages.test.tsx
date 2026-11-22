@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { SessionProvider } from "./session";
+import { jsonResponse } from "../test/http";
 
 // The account pages are driven through the real App, session and client over a
 // fetch stub that records every call, as App.test.tsx does.
@@ -18,15 +19,7 @@ function mockApi(routes: (path: string, init?: RequestInit) => Reply): Call[] {
     calls.push({ path, method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : undefined });
     const { status, body } =
       path === "/auth/csrf" ? { status: 200, body: { data: { csrf_token: "csrf-1" } } } : routes(path, init);
-    return {
-      ok: status >= 200 && status < 300,
-      status,
-      statusText: "",
-      json: async () => body,
-      clone() {
-        return this;
-      },
-    } as Response;
+    return jsonResponse(status, body);
   }) as unknown as typeof fetch;
   return calls;
 }

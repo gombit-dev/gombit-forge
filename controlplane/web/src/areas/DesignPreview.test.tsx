@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DesignPreview } from "./DesignPreview";
+import { jsonResponse } from "../test/http";
 
 const ORG = { id: 7, name: "Acme", slug: "acme" };
 const PROJECT = { id: 3, organization_id: 7, name: "Acme CRM", slug: "acme-crm" };
@@ -44,7 +45,7 @@ function wire() {
     if (url.endsWith("/organizations")) body = { data: [ORG] };
     else if (url.endsWith(`/organizations/${ORG.id}/projects`)) body = { data: [PROJECT] };
     else if (url.endsWith(`/projects/${PROJECT.id}/spec`)) body = { data: SPEC };
-    return { ok: true, status: 200, statusText: "", json: async () => body } as Response;
+    return jsonResponse(200, body);
   }) as unknown as typeof fetch;
 }
 

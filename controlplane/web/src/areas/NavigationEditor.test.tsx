@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NavigationEditor } from "./NavigationEditor";
 import type { SpecNavItem, SpecPage } from "../api/projects";
+import { jsonResponse } from "../test/http";
 
 const PAGES: SpecPage[] = [
   { id: "pag_dash", slug: "home", label: "Home", type: "dashboard" },
@@ -19,7 +20,7 @@ function capturePut() {
       url: typeof input === "string" ? input : input.toString(),
       body: init?.body ? JSON.parse(init.body as string) : undefined,
     });
-    return { ok: true, status: 201, statusText: "", json: async () => ({ data: { id: 1, spec_hash: "h" } }) } as Response;
+    return jsonResponse(201, { data: { id: 1, spec_hash: "h" } });
   }) as unknown as typeof fetch;
   return calls;
 }

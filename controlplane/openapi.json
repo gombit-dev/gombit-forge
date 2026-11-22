@@ -1,0 +1,7057 @@
+{
+  "components": {
+    "schemas": {
+      "AcceptInvitationInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "description": "Invitation token from the invite link",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "type": "object"
+      },
+      "Actions": {
+        "additionalProperties": false,
+        "properties": {
+          "create": {
+            "type": "boolean"
+          },
+          "delete": {
+            "type": "boolean"
+          },
+          "detail": {
+            "type": "boolean"
+          },
+          "list": {
+            "type": "boolean"
+          },
+          "update": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "list",
+          "detail",
+          "create",
+          "update",
+          "delete"
+        ],
+        "type": "object"
+      },
+      "AddPageInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "description": "Human-readable page label",
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "resource": {
+            "description": "Bound resource stable ID; required for every type except dashboard",
+            "type": "string"
+          },
+          "type": {
+            "description": "MVP page type",
+            "enum": [
+              "resource_table",
+              "resource_form",
+              "resource_detail",
+              "dashboard"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "type"
+        ],
+        "type": "object"
+      },
+      "AddRelationshipInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "inverse_label": {
+            "description": "Derived has_many label on the target",
+            "type": "string"
+          },
+          "label": {
+            "description": "Relationship label on the owning resource",
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "target": {
+            "description": "Target resource stable ID",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "target"
+        ],
+        "type": "object"
+      },
+      "AppLogLine": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Cloud's stable per-line id, used by the tail to dedup the inclusive-since boundary",
+            "type": "string"
+          },
+          "instance_id": {
+            "description": "The runtime instance that emitted the line, when Cloud reports it",
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "stream": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "timestamp",
+          "message"
+        ],
+        "type": "object"
+      },
+      "AuthEmailChangeBody": {
+        "additionalProperties": false,
+        "properties": {
+          "current_password": {
+            "description": "The password the user has now",
+            "maxLength": 72,
+            "minLength": 1,
+            "type": "string"
+          },
+          "new_email": {
+            "description": "The address to change the account's email to",
+            "examples": [
+              "ada@new.example.com"
+            ],
+            "format": "email",
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "current_password",
+          "new_email"
+        ],
+        "type": "object"
+      },
+      "AuthEmailChangeConfirmBody": {
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "description": "The token from the confirmation message",
+            "examples": [
+              "9f2c..."
+            ],
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "type": "object"
+      },
+      "AuthEmailChangeRequested": {
+        "additionalProperties": false,
+        "properties": {
+          "sent": {
+            "description": "True when the confirmation link was mailed to the new address",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "sent"
+        ],
+        "type": "object"
+      },
+      "AuthMFAProofBody": {
+        "additionalProperties": false,
+        "properties": {
+          "current_password": {
+            "description": "The password the user has now",
+            "maxLength": 72,
+            "minLength": 1,
+            "type": "string"
+          },
+          "mfa_code": {
+            "description": "A code from the authenticator, or a recovery code",
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "current_password",
+          "mfa_code"
+        ],
+        "type": "object"
+      },
+      "AuthMFAStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "description": "True when a login needs a multi-factor code",
+            "type": "boolean"
+          },
+          "pending_enrollment": {
+            "description": "True while an enrollment awaits its confirming code",
+            "type": "boolean"
+          },
+          "recovery_codes_remaining": {
+            "description": "Unused recovery codes, while enabled",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enabled",
+          "pending_enrollment",
+          "recovery_codes_remaining"
+        ],
+        "type": "object"
+      },
+      "AuthMeta": {
+        "additionalProperties": false,
+        "properties": {
+          "bootstrap": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "bootstrap"
+        ],
+        "type": "object"
+      },
+      "AuthPasswordChangeBody": {
+        "additionalProperties": false,
+        "properties": {
+          "current_password": {
+            "description": "The password the user has now",
+            "maxLength": 72,
+            "minLength": 1,
+            "type": "string"
+          },
+          "keep_other_sessions": {
+            "description": "Keep the user's other sessions signed in (default: they are signed out)",
+            "type": "boolean"
+          },
+          "new_password": {
+            "description": "The new password",
+            "examples": [
+              "correct-horse-2"
+            ],
+            "maxLength": 72,
+            "minLength": 8,
+            "type": "string"
+          }
+        },
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "type": "object"
+      },
+      "AuthPasswordChangeResult": {
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          },
+          "other_sessions_revoked": {
+            "description": "True when every other session of the user was signed out; this one stays",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "other_sessions_revoked"
+        ],
+        "type": "object"
+      },
+      "AuthPasswordForgotBody": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "description": "The account's email",
+            "examples": [
+              "ada@example.com"
+            ],
+            "format": "email",
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "type": "object"
+      },
+      "AuthPasswordResetBody": {
+        "additionalProperties": false,
+        "properties": {
+          "password": {
+            "description": "The new password",
+            "examples": [
+              "correct-horse"
+            ],
+            "maxLength": 72,
+            "minLength": 8,
+            "type": "string"
+          },
+          "token": {
+            "description": "The token from the password reset message",
+            "examples": [
+              "9f2c..."
+            ],
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "password"
+        ],
+        "type": "object"
+      },
+      "AuthPasswordResetRequested": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted": {
+            "description": "Always true: the answer does not say whether the email is an account",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "accepted"
+        ],
+        "type": "object"
+      },
+      "AuthPasswordResetResult": {
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          },
+          "sessions_revoked": {
+            "description": "True when every session of the user was revoked: sign in again with the new password",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "sessions_revoked"
+        ],
+        "type": "object"
+      },
+      "AuthRecoveryCodes": {
+        "additionalProperties": false,
+        "properties": {
+          "recovery_codes": {
+            "description": "Single-use recovery codes, shown this once: each signs in once in place of an authenticator code",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "recovery_codes"
+        ],
+        "type": "object"
+      },
+      "AuthRevokeResult": {
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "description": "True when the sessions were revoked",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "type": "object"
+      },
+      "AuthSession": {
+        "additionalProperties": false,
+        "properties": {
+          "client_address": {
+            "description": "The client address the session signed in from: by default only its network (an IPv4 /24 or IPv6 /48), or the full address, or empty, as the server is configured; empty when unknown. Refreshes do not change it.",
+            "examples": [
+              "203.0.113.0/24"
+            ],
+            "type": "string"
+          },
+          "current": {
+            "description": "True for the session that made this request",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          },
+          "expires_at": {
+            "description": "When the session ends unless it refreshes first",
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "description": "Opaque session identifier, the same for the session's whole life: refreshing does not change it",
+            "examples": [
+              "3f6c2a9e0b7d41c58e2f6a1d9c4b7e20"
+            ],
+            "type": "string"
+          },
+          "last_refreshed_at": {
+            "description": "When the session last signed in or refreshed its tokens. Precision is roughly the access-token lifetime, not the last request.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "location": {
+            "description": "Where the session signed in from, as the application names it; empty unless the application looks locations up. Refreshes do not change it.",
+            "type": "string"
+          },
+          "user_agent": {
+            "description": "The User-Agent header of the request that signed in, as given, cut to 255 bytes; empty when unknown. Refreshes do not change it.",
+            "examples": [
+              "Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "last_refreshed_at",
+          "expires_at",
+          "current",
+          "user_agent",
+          "client_address",
+          "location"
+        ],
+        "type": "object"
+      },
+      "AuthTOTPConfirmBody": {
+        "additionalProperties": false,
+        "properties": {
+          "mfa_code": {
+            "description": "A code from the authenticator just set up",
+            "examples": [
+              "123456"
+            ],
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "mfa_code"
+        ],
+        "type": "object"
+      },
+      "AuthTOTPEnrollBody": {
+        "additionalProperties": false,
+        "properties": {
+          "current_password": {
+            "description": "The password the user has now",
+            "maxLength": 72,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "current_password"
+        ],
+        "type": "object"
+      },
+      "AuthTOTPEnrollment": {
+        "additionalProperties": false,
+        "properties": {
+          "otpauth_uri": {
+            "description": "The otpauth:// URI, to show as a QR code",
+            "examples": [
+              "otpauth://totp/Gombit:ada@example.com?..."
+            ],
+            "type": "string"
+          },
+          "secret": {
+            "description": "The TOTP secret, base32, to type into an authenticator app",
+            "examples": [
+              "JBSWY3DPEHPK3PXP"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "secret",
+          "otpauth_uri"
+        ],
+        "type": "object"
+      },
+      "AuthUserState": {
+        "additionalProperties": false,
+        "properties": {
+          "disabled": {
+            "description": "True when the account is disabled",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          },
+          "id": {
+            "description": "The user's id",
+            "examples": [
+              42
+            ],
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "disabled"
+        ],
+        "type": "object"
+      },
+      "AuthVerificationResult": {
+        "additionalProperties": false,
+        "properties": {
+          "sent": {
+            "description": "True when a new verification message was sent",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "sent"
+        ],
+        "type": "object"
+      },
+      "AuthVerifyEmailBody": {
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "description": "The token from the verification message",
+            "examples": [
+              "9f2c..."
+            ],
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "type": "object"
+      },
+      "BlockerData": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "description": "relationship, page or dashboard_card",
+            "type": "string"
+          },
+          "message": {
+            "description": "Why the delete is blocked",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "message"
+        ],
+        "type": "object"
+      },
+      "BuildJobData": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_digest": {
+            "description": "The content-addressed artifact digest, once the build has succeeded",
+            "type": "string"
+          },
+          "cloud_build_id": {
+            "description": "The Gombit Cloud build id, once the worker has created it",
+            "type": "string"
+          },
+          "cloud_status": {
+            "description": "The last Cloud build state observed (Cloud's own vocabulary)",
+            "type": "string"
+          },
+          "error": {
+            "description": "A sanitized failure reason, once the job has failed",
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "project_id": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "status"
+        ],
+        "type": "object"
+      },
+      "Capabilities": {
+        "additionalProperties": false,
+        "properties": {
+          "create": {
+            "type": "boolean"
+          },
+          "delete": {
+            "type": "boolean"
+          },
+          "update": {
+            "type": "boolean"
+          },
+          "view": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "view",
+          "create",
+          "update",
+          "delete"
+        ],
+        "type": "object"
+      },
+      "Catalog": {
+        "additionalProperties": false,
+        "properties": {
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ModelMeta"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "models"
+        ],
+        "type": "object"
+      },
+      "CatalogAux": {
+        "additionalProperties": false,
+        "properties": {
+          "auth": {
+            "$ref": "#/components/schemas/AuthMeta"
+          }
+        },
+        "type": "object"
+      },
+      "Choice": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "label"
+        ],
+        "type": "object"
+      },
+      "Cookie": {
+        "additionalProperties": false,
+        "properties": {
+          "Domain": {
+            "type": "string"
+          },
+          "Expires": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "HttpOnly": {
+            "type": "boolean"
+          },
+          "MaxAge": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "Name": {
+            "type": "string"
+          },
+          "Partitioned": {
+            "type": "boolean"
+          },
+          "Path": {
+            "type": "string"
+          },
+          "Quoted": {
+            "type": "boolean"
+          },
+          "Raw": {
+            "type": "string"
+          },
+          "RawExpires": {
+            "type": "string"
+          },
+          "SameSite": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "Secure": {
+            "type": "boolean"
+          },
+          "Unparsed": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "Value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "Name",
+          "Value",
+          "Quoted",
+          "Path",
+          "Domain",
+          "Expires",
+          "RawExpires",
+          "MaxAge",
+          "Secure",
+          "HttpOnly",
+          "SameSite",
+          "Partitioned",
+          "Raw",
+          "Unparsed"
+        ],
+        "type": "object"
+      },
+      "CreateDeploymentInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "build_id": {
+            "description": "The Gombit Cloud build id to deploy (from a succeeded build job's cloud_build_id)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "build_id"
+        ],
+        "type": "object"
+      },
+      "CreateInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "Name of the GitHub repository to create",
+            "type": "string"
+          },
+          "private": {
+            "description": "Create the repository as private",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "private"
+        ],
+        "type": "object"
+      },
+      "CreateOrganizationInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "Human-readable organization name",
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-safe unique key",
+            "maxLength": 120,
+            "minLength": 1,
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "slug"
+        ],
+        "type": "object"
+      },
+      "CreatePreviewEnvironmentInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "Optional environment name (lowercase slug); defaults to preview-r\u003crevision\u003e for the current revision",
+            "type": "string"
+          },
+          "ttl_seconds": {
+            "description": "Optional preview lifetime in seconds; defaults to one week, capped by Cloud",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "CreateProjectInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "Human-readable project name",
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-safe unique key within the org",
+            "maxLength": 120,
+            "minLength": 1,
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "slug"
+        ],
+        "type": "object"
+      },
+      "CredentialsBody": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "description": "Account email",
+            "examples": [
+              "ada@example.com"
+            ],
+            "format": "email",
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "password": {
+            "description": "Account password",
+            "examples": [
+              "correct-horse"
+            ],
+            "maxLength": 72,
+            "minLength": 8,
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "type": "object"
+      },
+      "CsrfResult": {
+        "additionalProperties": false,
+        "properties": {
+          "csrf_token": {
+            "description": "Anti-CSRF token. Send verbatim as X-CSRF-Token on POST/PUT/PATCH/DELETE requests.",
+            "examples": [
+              "3a1c...b2.9e4f...c1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "csrf_token"
+        ],
+        "type": "object"
+      },
+      "DataAuthEmailChangeRequested": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AuthEmailChangeRequested"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataAuthMFAStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AuthMFAStatus"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataAuthPasswordChangeResult": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AuthPasswordChangeResult"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataAuthPasswordResetRequested": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AuthPasswordResetRequested"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataAuthPasswordResetResult": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AuthPasswordResetResult"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataAuthRecoveryCodes": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AuthRecoveryCodes"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataAuthRevokeResult": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AuthRevokeResult"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataAuthTOTPEnrollment": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AuthTOTPEnrollment"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataAuthUserState": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AuthUserState"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataAuthVerificationResult": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AuthVerificationResult"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataBuildJobData": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/BuildJobData"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataCsrfResult": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CsrfResult"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataDeleteResourceResult": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/DeleteResourceResult"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataDeleteResult": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/DeleteResult"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataDeploymentData": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/DeploymentData"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataEnvironmentData": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/EnvironmentData"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataExportJobData": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ExportJobData"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataHealthData": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/HealthData"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataInvitationData": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/InvitationData"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataListAppLogLine": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/AppLogLine"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataListAuthSession": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/AuthSession"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataListBuildJobData": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/BuildJobData"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataListEnvironmentData": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/EnvironmentData"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataListLogLine": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/LogLine"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataListMemberData": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/MemberData"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataListOrganizationData": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/OrganizationData"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataListProjectData": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectData"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataLogoutResult": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/LogoutResult"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataMemberData": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/MemberData"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataMetaCatalogCatalogAux": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Catalog"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/CatalogAux"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataMetaListRowPageMeta": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "meta": {
+            "$ref": "#/components/schemas/PageMeta"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataModelMeta": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ModelMeta"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataOrganizationData": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/OrganizationData"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataProjectData": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ProjectData"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataPublicUser": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PublicUser"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataRawMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {}
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataRevisionData": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RevisionData"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataRow": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "additionalProperties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DataUploadGrant": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/UploadGrant"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "DeleteResourceResult": {
+        "additionalProperties": false,
+        "properties": {
+          "blockers": {
+            "description": "Dependencies that must be resolved first",
+            "items": {
+              "$ref": "#/components/schemas/BlockerData"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "committed": {
+            "description": "Whether the deletion was applied",
+            "type": "boolean"
+          },
+          "had_extension": {
+            "description": "Whether the resource carried custom code archived at build time",
+            "type": "boolean"
+          },
+          "revision_id": {
+            "description": "The revision recording the deletion, when committed",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "committed",
+          "had_extension"
+        ],
+        "type": "object"
+      },
+      "DeleteResult": {
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "type": "object"
+      },
+      "DeploymentBlock": {
+        "additionalProperties": false,
+        "properties": {
+          "approval_url": {
+            "description": "Cloud-generated deep link where a human approves the migration",
+            "type": "string"
+          },
+          "code": {
+            "description": "Why the deployment is held (e.g. migration_approval_required)",
+            "type": "string"
+          },
+          "migration_id": {
+            "description": "The migration a human must approve in Cloud",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "migration_id"
+        ],
+        "type": "object"
+      },
+      "DeploymentData": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_digest": {
+            "type": "string"
+          },
+          "block": {
+            "$ref": "#/components/schemas/DeploymentBlock",
+            "description": "Set only when Status is blocked_pending_approval"
+          },
+          "build_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "restores_deployment_id": {
+            "description": "For a rollback, the earlier deployment whose build this restores",
+            "type": "string"
+          },
+          "rolled_back_from_id": {
+            "description": "For a rollback, the deployment that was current when the rollback was requested",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "environment_id",
+          "build_id",
+          "status"
+        ],
+        "type": "object"
+      },
+      "DiagnosticData": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "description": "Stable diagnostic code",
+            "type": "string"
+          },
+          "entity": {
+            "description": "Stable ID of the offending entity",
+            "type": "string"
+          },
+          "message": {
+            "description": "What is wrong",
+            "type": "string"
+          },
+          "path": {
+            "description": "Where the problem is",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "EnumValueBody": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "description": "Human-readable enum label",
+            "type": "string"
+          },
+          "value": {
+            "description": "Stored enum value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "type": "object"
+      },
+      "EnvironmentData": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_at": {
+            "description": "When an ephemeral preview lapses; empty for a persistent environment",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "description": "The Cloud environment kind (e.g. persistent, ephemeral)",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "state": {
+            "description": "Reclamation lifecycle state, set only for an ephemeral preview",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "ErrorBody": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "fields": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "type": "object"
+          },
+          "message": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "ErrorEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorBody"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "ExportJobData": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "description": "A sanitized failure reason, once the export has failed",
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "project_id": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "repo_url": {
+            "description": "The created repository URL, once the export has succeeded",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "status"
+        ],
+        "type": "object"
+      },
+      "FacetData": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "Spec, Extension ABI or Runtime Build",
+            "type": "string"
+          },
+          "status": {
+            "description": "ok, failed or unknown",
+            "enum": [
+              "ok",
+              "failed",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "summary": {
+            "description": "One-line human summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "status",
+          "summary"
+        ],
+        "type": "object"
+      },
+      "FieldBody": {
+        "additionalProperties": false,
+        "properties": {
+          "default": {
+            "description": "Literal default, null for none",
+            "type": "string"
+          },
+          "enum_values": {
+            "description": "Permitted values when type is enum",
+            "items": {
+              "$ref": "#/components/schemas/EnumValueBody"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "label": {
+            "description": "Human-readable field label",
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "type": {
+            "description": "MVP field type",
+            "enum": [
+              "string",
+              "text",
+              "integer",
+              "decimal",
+              "boolean",
+              "datetime",
+              "date",
+              "enum"
+            ],
+            "type": "string"
+          },
+          "unique": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "label",
+          "type"
+        ],
+        "type": "object"
+      },
+      "FieldMeta": {
+        "additionalProperties": false,
+        "properties": {
+          "accept": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "choices": {
+            "items": {
+              "$ref": "#/components/schemas/Choice"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "default": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "max_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "max_length": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "maximum": {
+            "type": "string"
+          },
+          "minimum": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "pattern": {
+            "type": "string"
+          },
+          "readonly": {
+            "type": "boolean"
+          },
+          "related": {
+            "$ref": "#/components/schemas/Relation"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "type": {
+            "type": "string"
+          },
+          "writeonly": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "required",
+          "readonly"
+        ],
+        "type": "object"
+      },
+      "HealthData": {
+        "additionalProperties": false,
+        "properties": {
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/DiagnosticData"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "facets": {
+            "items": {
+              "$ref": "#/components/schemas/FacetData"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "facets"
+        ],
+        "type": "object"
+      },
+      "InvitationData": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "description": "Invited email address",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "When the invitation stops being acceptable",
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "description": "Invitation identifier",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "role": {
+            "description": "Forge-level role the invitee will receive",
+            "type": "string"
+          },
+          "token": {
+            "description": "One-time invitation token (shown only here)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "role",
+          "token",
+          "expires_at"
+        ],
+        "type": "object"
+      },
+      "InviteMemberInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "description": "Email address to invite",
+            "format": "email",
+            "type": "string"
+          },
+          "role": {
+            "description": "Forge-level role to grant",
+            "enum": [
+              "owner",
+              "admin",
+              "member"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "role"
+        ],
+        "type": "object"
+      },
+      "Item": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "description": "Navigation label",
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "page": {
+            "description": "Target page stable ID (for a page entry)",
+            "type": "string"
+          },
+          "target": {
+            "description": "Navigation target kind",
+            "enum": [
+              "page",
+              "external"
+            ],
+            "type": "string"
+          },
+          "url": {
+            "description": "External URL (for an external entry)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "target"
+        ],
+        "type": "object"
+      },
+      "LogLine": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "stream": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "timestamp",
+          "message"
+        ],
+        "type": "object"
+      },
+      "LoginBody": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "description": "Account email",
+            "examples": [
+              "ada@example.com"
+            ],
+            "format": "email",
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "mfa_code": {
+            "description": "For an account with multi-factor authentication: a code from its authenticator, or one of its recovery codes. Without it, such an account's login is a 422 on mfa_code.",
+            "examples": [
+              "123456"
+            ],
+            "maxLength": 32,
+            "type": "string"
+          },
+          "password": {
+            "description": "Account password",
+            "examples": [
+              "correct-horse"
+            ],
+            "maxLength": 72,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "type": "object"
+      },
+      "LogoutResult": {
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "description": "True when the refresh token was revoked or already invalid",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "type": "object"
+      },
+      "MemberData": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Membership identifier",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "role": {
+            "description": "Forge-level role in the organization",
+            "type": "string"
+          },
+          "user_id": {
+            "description": "Gombit user identifier",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "role"
+        ],
+        "type": "object"
+      },
+      "ModelMeta": {
+        "additionalProperties": false,
+        "properties": {
+          "actions": {
+            "$ref": "#/components/schemas/Actions"
+          },
+          "can": {
+            "$ref": "#/components/schemas/Capabilities"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/FieldMeta"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "filter": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "list": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "ordering": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "permissions": {
+            "$ref": "#/components/schemas/Permissions"
+          },
+          "pk": {
+            "type": "string"
+          },
+          "plural": {
+            "type": "string"
+          },
+          "search": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "singular": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "singular",
+          "plural",
+          "pk",
+          "fields",
+          "list",
+          "search",
+          "filter",
+          "ordering",
+          "actions",
+          "permissions",
+          "can"
+        ],
+        "type": "object"
+      },
+      "OrganizationData": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Organization identifier",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "name": {
+            "description": "Human-readable organization name",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-safe unique organization key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "slug"
+        ],
+        "type": "object"
+      },
+      "PageMeta": {
+        "additionalProperties": false,
+        "properties": {
+          "page": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "per_page": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "total": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "page",
+          "per_page",
+          "total"
+        ],
+        "type": "object"
+      },
+      "Permissions": {
+        "additionalProperties": false,
+        "properties": {
+          "create": {
+            "type": "string"
+          },
+          "delete": {
+            "type": "string"
+          },
+          "update": {
+            "type": "string"
+          },
+          "view": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "view",
+          "create",
+          "update",
+          "delete"
+        ],
+        "type": "object"
+      },
+      "ProjectData": {
+        "additionalProperties": false,
+        "properties": {
+          "head_revision_id": {
+            "description": "Current revision, null until the first is created",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "description": "Project identifier",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "name": {
+            "description": "Human-readable project name",
+            "type": "string"
+          },
+          "organization_id": {
+            "description": "Owning organization",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "slug": {
+            "description": "URL-safe project key, unique within the org",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "organization_id",
+          "name",
+          "slug"
+        ],
+        "type": "object"
+      },
+      "PublicUser": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "description": "Normalized email",
+            "examples": [
+              "ada@example.com"
+            ],
+            "format": "email",
+            "type": "string"
+          },
+          "email_verified": {
+            "description": "True once the user has confirmed they own email (POST /auth/verify-email)",
+            "examples": [
+              false
+            ],
+            "type": "boolean"
+          },
+          "id": {
+            "description": "User identifier",
+            "examples": [
+              1
+            ],
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "email_verified"
+        ],
+        "type": "object"
+      },
+      "Relation": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "label_field": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "kind",
+          "label_field"
+        ],
+        "type": "object"
+      },
+      "ResourceBody": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "description": "Human-readable singular label",
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "label_plural": {
+            "description": "Human-readable plural label",
+            "maxLength": 120,
+            "type": "string"
+          }
+        },
+        "required": [
+          "label"
+        ],
+        "type": "object"
+      },
+      "RevisionData": {
+        "additionalProperties": false,
+        "properties": {
+          "abi_class": {
+            "description": "ABI classification of the accepted transition",
+            "type": "string"
+          },
+          "id": {
+            "description": "Revision identifier",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "parent_revision_id": {
+            "description": "Revision this one descended from",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "project_id": {
+            "description": "Owning project",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "spec_hash": {
+            "description": "SHA-256 of the canonical spec",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "spec_hash"
+        ],
+        "type": "object"
+      },
+      "SetBrandingInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "accent_color": {
+            "description": "Primary accent color as a hex color",
+            "type": "string"
+          },
+          "app_name": {
+            "description": "Application name",
+            "maxLength": 120,
+            "type": "string"
+          },
+          "appearance": {
+            "description": "Appearance mode",
+            "enum": [
+              "",
+              "light",
+              "dark",
+              "system"
+            ],
+            "type": "string"
+          },
+          "logo_ref": {
+            "description": "Logo reference (URL or asset)",
+            "maxLength": 2048,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "SetNavigationInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "description": "The complete ordered navigation; replaces the existing navigation",
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "UpdateBehaviorInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "admin_visible": {
+            "type": "boolean"
+          },
+          "aggregatable_fields": {
+            "description": "Numeric field IDs a dashboard aggregate card may sum/avg/min/max",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "create_enabled": {
+            "type": "boolean"
+          },
+          "delete_enabled": {
+            "type": "boolean"
+          },
+          "filterable_fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "list_fields": {
+            "description": "Field IDs shown in the list view, in order",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "searchable_fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "sortable_fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "update_enabled": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "UpdateFormConfigInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "fields": {
+            "description": "Ordered field IDs; must belong to the bound resource",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "label": {
+            "description": "Human-readable page label",
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "layout": {
+            "description": "Form layout",
+            "enum": [
+              "",
+              "single_column",
+              "two_column",
+              "section_groups"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "label"
+        ],
+        "type": "object"
+      },
+      "UpdateTableConfigInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "columns": {
+            "description": "Ordered column field IDs; must belong to the bound resource",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "filters": {
+            "description": "Exact-match filter field IDs; each must be one the resource declares filterable",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "label": {
+            "description": "Human-readable page label",
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "page_size": {
+            "description": "Rows per page; 0 uses the default",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "search": {
+            "description": "Whether the table offers search; requires the resource to declare searchable_fields",
+            "type": "boolean"
+          },
+          "title": {
+            "description": "Table heading; defaults to the label when empty",
+            "maxLength": 120,
+            "type": "string"
+          }
+        },
+        "required": [
+          "label"
+        ],
+        "type": "object"
+      },
+      "UploadGrant": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "description": "The file's key; submit it as the field's value once uploaded.",
+            "type": "string"
+          },
+          "upload": {
+            "$ref": "#/components/schemas/UploadRequest",
+            "description": "Send the file's bytes with this request, before it expires."
+          }
+        },
+        "required": [
+          "key",
+          "upload"
+        ],
+        "type": "object"
+      },
+      "UploadGrantRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "content_type": {
+            "description": "The file's media type.",
+            "type": "string"
+          },
+          "filename": {
+            "description": "The file's name, kept for display.",
+            "type": "string"
+          },
+          "size": {
+            "description": "The file's exact length in bytes.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "size",
+          "content_type"
+        ],
+        "type": "object"
+      },
+      "UploadRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expires": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "method": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "method",
+          "url",
+          "headers",
+          "expires"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "cookieAuth": {
+        "description": "HttpOnly session cookie set by POST /auth/login. State-changing requests must also echo the gombit_csrf cookie value as the X-CSRF-Token header; see docs/auth-cookie.md.",
+        "in": "cookie",
+        "name": "gombit_access",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "title": "Gombit",
+    "version": "0.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/admin/meta": {
+      "get": {
+        "operationId": "admin-meta-list",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataMetaCatalogCatalogAux"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List registered admin models",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/api/v1/admin/meta/{slug}": {
+      "get": {
+        "operationId": "admin-meta-get",
+        "parameters": [
+          {
+            "description": "Registered model slug",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "Registered model slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataModelMeta"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get one registered admin model",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/api/v1/admin/resources/{slug}": {
+      "get": {
+        "operationId": "admin-resource-list",
+        "parameters": [
+          {
+            "description": "Registered model slug",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "Registered model slug",
+              "type": "string"
+            }
+          },
+          {
+            "description": "1-based page",
+            "explode": false,
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "description": "1-based page",
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Page size",
+            "explode": false,
+            "in": "query",
+            "name": "per_page",
+            "schema": {
+              "description": "Page size",
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Search term applied to Options.Search",
+            "explode": false,
+            "in": "query",
+            "name": "search",
+            "schema": {
+              "description": "Search term applied to Options.Search",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Field from Options.Ordering; prefix with - for DESC",
+            "explode": false,
+            "in": "query",
+            "name": "ordering",
+            "schema": {
+              "description": "Field from Options.Ordering; prefix with - for DESC",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataMetaListRowPageMeta"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List admin resources",
+        "tags": [
+          "Admin"
+        ]
+      },
+      "post": {
+        "operationId": "admin-resource-create",
+        "parameters": [
+          {
+            "description": "Registered model slug",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "Registered model slug",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": {},
+                "description": "Writable field values keyed by registered field names",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataRow"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Create an admin resource",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/api/v1/admin/resources/{slug}/uploads/{field}": {
+      "post": {
+        "operationId": "admin-resource-upload",
+        "parameters": [
+          {
+            "description": "Registered model slug",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "Registered model slug",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A file or image field of the model",
+            "in": "path",
+            "name": "field",
+            "required": true,
+            "schema": {
+              "description": "A file or image field of the model",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadGrantRequest",
+                "description": "The file to upload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataUploadGrant"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Grant an upload for a file field",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/api/v1/admin/resources/{slug}/{id}": {
+      "delete": {
+        "operationId": "admin-resource-delete",
+        "parameters": [
+          {
+            "description": "Registered model slug",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "Registered model slug",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Primary key value",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Primary key value",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataDeleteResult"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Delete an admin resource",
+        "tags": [
+          "Admin"
+        ]
+      },
+      "get": {
+        "operationId": "admin-resource-get",
+        "parameters": [
+          {
+            "description": "Registered model slug",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "Registered model slug",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Primary key value",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Primary key value",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataRow"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get an admin resource",
+        "tags": [
+          "Admin"
+        ]
+      },
+      "patch": {
+        "operationId": "admin-resource-update",
+        "parameters": [
+          {
+            "description": "Registered model slug",
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "description": "Registered model slug",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Primary key value",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Primary key value",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": {},
+                "description": "Writable field values keyed by registered field names",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataRow"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Update an admin resource",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/api/v1/auth/csrf": {
+      "get": {
+        "operationId": "csrf",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "gombit_csrf",
+            "schema": {
+              "$ref": "#/components/schemas/Cookie"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataCsrfResult"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Issue a CSRF token to double-submit on state-changing requests",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/email/change": {
+      "post": {
+        "description": "Requires the current password (a wrong one is a 422 on current_password). Mails a confirmation link to the new address; the account's email changes only once it is confirmed. 409 when another account has the address; at most one message a minute, and too many wrong current passwords (429 with Retry-After either way).",
+        "operationId": "auth-request-email-change",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthEmailChangeBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataAuthEmailChangeRequested"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until another confirmation message may be requested",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Ask to change the signed-in user's email",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/email/change/confirm": {
+      "post": {
+        "description": "Consumes the token: it works once, and only while the account's email is the one the change was asked from. The new address becomes the account's email, verified. An unknown, expired, used or superseded token is a 422 on token; an address another account took meanwhile is a 409. Too many invalid tokens from one client address is a 429 (Retry-After).",
+        "operationId": "auth-confirm-email-change",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthEmailChangeConfirmBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataPublicUser"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until another attempt is accepted",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Confirm an email change with the token mailed to the new address",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "description": "Too many failed attempts for the email from this client address, from this address, or for the email is a 429 (Retry-After), the same whether or not the email is an account.",
+        "operationId": "login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataPublicUser"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until another attempt is accepted",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Log in and start an HttpOnly cookie session",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "operationId": "logout",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "gombit_refresh",
+            "schema": {
+              "$ref": "#/components/schemas/Cookie"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataLogoutResult"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Revoke the current session and clear cookies",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/mfa": {
+      "get": {
+        "operationId": "auth-mfa-status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataAuthMFAStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "The signed-in user's multi-factor authentication",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/mfa/disable": {
+      "post": {
+        "description": "Requires the current password and a code from the authenticator (or a recovery code): a stolen session and password alone do not remove the second factor. 409 while MFA is not enabled.",
+        "operationId": "auth-mfa-disable",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthMFAProofBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataAuthMFAStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until another attempt is accepted",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Turn multi-factor authentication off",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/mfa/recovery-codes": {
+      "post": {
+        "description": "Requires the current password and a code from the authenticator (or a recovery code): new codes are a second factor, so a stolen session and password alone do not mint them. The old recovery codes stop working; the new ones are shown this once. 409 while MFA is not enabled.",
+        "operationId": "auth-mfa-recovery-codes",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthMFAProofBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataAuthRecoveryCodes"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until another attempt is accepted",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Replace the recovery codes",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/mfa/totp": {
+      "post": {
+        "description": "Requires the current password (422 on current_password). Returns the secret and otpauth:// URI for an authenticator app; nothing changes for the login until POST /auth/mfa/totp/confirm gets a code from it. A new enrollment replaces one pending; 409 while MFA is enabled.",
+        "operationId": "auth-mfa-totp-enroll",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthTOTPEnrollBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataAuthTOTPEnrollment"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until another attempt is accepted",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Begin enrolling a TOTP authenticator",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/mfa/totp/confirm": {
+      "post": {
+        "description": "A code from the authenticator just set up (mfa_code) enables multi-factor authentication: from then on a login needs mfa_code. Every other session of the user ends (they were started on the password alone); this one stays. Returns the recovery codes, shown this once. A wrong code is a 422 on mfa_code; 409 with no enrollment pending.",
+        "operationId": "auth-mfa-totp-confirm",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthTOTPConfirmBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataAuthRecoveryCodes"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until another attempt is accepted",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Confirm a TOTP enrollment and enable MFA",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/password/change": {
+      "post": {
+        "description": "Requires the current password (a wrong one is a 422 on current_password). Signs out every other session of the user unless keep_other_sessions; this session stays. Outstanding password reset links stop working. Too many wrong current passwords is a 429 (Retry-After).",
+        "operationId": "auth-change-password",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthPasswordChangeBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataAuthPasswordChangeResult"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until another attempt is accepted",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Change the signed-in user's password",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/password/forgot": {
+      "post": {
+        "description": "202 with the same body whether or not the email is an account, answered before that is known: the message is sent in the background. 503 (Retry-After) when the server is taking no more reset requests for now, decided from request arrivals alone, also before the lookup. 429 (Retry-After) when this client address asked too often, also before the lookup. At most one message a minute per account; the link works once, until it expires.",
+        "operationId": "auth-request-password-reset",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthPasswordForgotBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataAuthPasswordResetRequested"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until another attempt is accepted",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Service Unavailable",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the server takes a password reset request again",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Mail a password reset link to an account",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/password/reset": {
+      "post": {
+        "description": "Consumes the token: it works once. Revokes every session of the user unless the app keeps them. An unknown, expired, used or superseded token, or one sent to an address the user no longer has, is a 422 on token. Too many invalid tokens from one client address is a 429 (Retry-After).",
+        "operationId": "auth-reset-password",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthPasswordResetBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataAuthPasswordResetResult"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until another attempt is accepted",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Set a new password with the token from a reset message",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/refresh": {
+      "post": {
+        "operationId": "refresh",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "gombit_refresh",
+            "schema": {
+              "$ref": "#/components/schemas/Cookie"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataPublicUser"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No refresh cookie, or a refresh token that is unknown, revoked, expired or reused, or whose user is gone.",
+            "headers": {
+              "Set-Cookie": {
+                "description": "Clears gombit_access and gombit_refresh (empty value, Max-Age=0), as logout does, unless another rotation already gave the refresh token a successor: that rotation's response sets the session's new cookies in the same browser.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Rotate the session cookies",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/register": {
+      "post": {
+        "description": "Too many registrations from this client address is a 429 (Retry-After), before the password is hashed.",
+        "operationId": "register",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CredentialsBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataPublicUser"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until another attempt is accepted",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Register a user",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/sessions": {
+      "delete": {
+        "operationId": "auth-revoke-sessions",
+        "parameters": [
+          {
+            "description": "others ends every session except the current one; all ends every session, the current one included",
+            "explode": false,
+            "in": "query",
+            "name": "scope",
+            "required": true,
+            "schema": {
+              "description": "others ends every session except the current one; all ends every session, the current one included",
+              "enum": [
+                "others",
+                "all"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataAuthRevokeResult"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Revoke every other session, or every session",
+        "tags": [
+          "Auth"
+        ]
+      },
+      "get": {
+        "operationId": "auth-list-sessions",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataListAuthSession"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List the user's active sessions",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/sessions/{id}": {
+      "delete": {
+        "description": "Returns 404 when the id names no active session: one that ended after it was listed (signed out, revoked or expired). A session keeps its id when it refreshes, so list again to see what is left.",
+        "operationId": "auth-revoke-session",
+        "parameters": [
+          {
+            "description": "Session id from GET /auth/sessions",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Session id from GET /auth/sessions",
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataAuthRevokeResult"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Revoke one session",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/users/{id}/disable": {
+      "post": {
+        "description": "Requires the auth.users.manage permission (a superuser has it), and a superuser to disable a superuser; no one disables their own account (409). Revokes every session of the user and voids their links, in one transaction; from then on the account cannot sign in, and no token issued to it works. Idempotent.",
+        "operationId": "auth-disable-user",
+        "parameters": [
+          {
+            "description": "The user's id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The user's id",
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataAuthUserState"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Disable a user's account",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/users/{id}/enable": {
+      "post": {
+        "description": "Requires the auth.users.manage permission (a superuser has it), and a superuser to enable a superuser. The user may sign in again; the sessions revoked when the account was disabled stay revoked. Idempotent.",
+        "operationId": "auth-enable-user",
+        "parameters": [
+          {
+            "description": "The user's id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The user's id",
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataAuthUserState"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Enable a disabled user's account",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/users/{id}/mfa/reset": {
+      "post": {
+        "description": "For a user who lost their authenticator and recovery codes; every session of the user ends with it (the lost device may hold one). Requires the auth.users.manage permission (a superuser has it), and a superuser to reset a superuser; an account turns its own off with POST /auth/mfa/disable (409). Idempotent.",
+        "operationId": "auth-mfa-reset",
+        "parameters": [
+          {
+            "description": "The user's id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "The user's id",
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataAuthMFAStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Remove a user's multi-factor authentication",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/verify-email": {
+      "post": {
+        "description": "Consumes the token: it works once. An unknown, expired, used or superseded token, or one sent to an address the user no longer has, is a 422 on token. Too many invalid tokens from one client address is a 429 (Retry-After).",
+        "operationId": "auth-verify-email",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthVerifyEmailBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataPublicUser"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until another attempt is accepted",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Verify the user's email address with the token mailed to it",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/auth/verify-email/resend": {
+      "post": {
+        "description": "Once delivered, the new token supersedes the earlier ones: only the latest works. At most one message a minute (429 with Retry-After); 409 when the email is already verified.",
+        "operationId": "auth-resend-email-verification",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataAuthVerificationResult"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until another verification message may be requested",
+                "required": true,
+                "schema": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Send a new email verification message",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/build-jobs/{jobID}": {
+      "get": {
+        "operationId": "get-build-job",
+        "parameters": [
+          {
+            "description": "Build job identifier",
+            "in": "path",
+            "name": "jobID",
+            "required": true,
+            "schema": {
+              "description": "Build job identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataBuildJobData"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get a Cloud build job's status",
+        "tags": [
+          "Deploy"
+        ]
+      }
+    },
+    "/api/v1/build-jobs/{jobID}/logs": {
+      "get": {
+        "description": "Relays the Cloud build's log lines (read from Cloud, not stored by Forge). Pass ?since=\u003cRFC3339\u003e to tail only newer lines. Empty until the worker has created the Cloud build.",
+        "operationId": "get-build-job-logs",
+        "parameters": [
+          {
+            "description": "Build job identifier",
+            "in": "path",
+            "name": "jobID",
+            "required": true,
+            "schema": {
+              "description": "Build job identifier",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only return log lines after this RFC3339 timestamp (for tailing)",
+            "explode": false,
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "description": "Only return log lines after this RFC3339 timestamp (for tailing)",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataListLogLine"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Read a build job's Cloud build logs",
+        "tags": [
+          "Deploy"
+        ]
+      }
+    },
+    "/api/v1/export-jobs/{jobID}": {
+      "get": {
+        "operationId": "get-export-job",
+        "parameters": [
+          {
+            "description": "Export job identifier",
+            "in": "path",
+            "name": "jobID",
+            "required": true,
+            "schema": {
+              "description": "Export job identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataExportJobData"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get an export job's status",
+        "tags": [
+          "Export"
+        ]
+      }
+    },
+    "/api/v1/integrations/github/callback": {
+      "get": {
+        "description": "GitHub redirects here with a code and state; the code is exchanged for a token and the connection stored.",
+        "operationId": "github-connect-callback",
+        "parameters": [
+          {
+            "description": "OAuth authorization code from GitHub",
+            "explode": false,
+            "in": "query",
+            "name": "code",
+            "schema": {
+              "description": "OAuth authorization code from GitHub",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Anti-CSRF state minted by the connect start",
+            "explode": false,
+            "in": "query",
+            "name": "state",
+            "schema": {
+              "description": "Anti-CSRF state minted by the connect start",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Found",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Complete the GitHub OAuth connect flow",
+        "tags": [
+          "GitHub"
+        ]
+      }
+    },
+    "/api/v1/integrations/github/connect": {
+      "get": {
+        "description": "Redirects the authenticated user to GitHub to authorize repository access.",
+        "operationId": "github-connect-start",
+        "responses": {
+          "302": {
+            "description": "Found",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Start the GitHub OAuth connect flow",
+        "tags": [
+          "GitHub"
+        ]
+      }
+    },
+    "/api/v1/invitations/accept": {
+      "post": {
+        "operationId": "accept-invitation",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptInvitationInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataMemberData"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Accept an invitation to join an organization",
+        "tags": [
+          "Organizations"
+        ]
+      }
+    },
+    "/api/v1/me": {
+      "get": {
+        "operationId": "get-me",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataPublicUser"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Return the authenticated user",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/v1/organizations": {
+      "get": {
+        "operationId": "list-organizations",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataListOrganizationData"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List the organizations the caller belongs to",
+        "tags": [
+          "Organizations"
+        ]
+      },
+      "post": {
+        "operationId": "create-organization",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrganizationInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataOrganizationData"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Create an organization",
+        "tags": [
+          "Organizations"
+        ]
+      }
+    },
+    "/api/v1/organizations/{orgID}/invitations": {
+      "post": {
+        "operationId": "invite-organization-member",
+        "parameters": [
+          {
+            "description": "Organization identifier",
+            "in": "path",
+            "name": "orgID",
+            "required": true,
+            "schema": {
+              "description": "Organization identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteMemberInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataInvitationData"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Invite a member to an organization",
+        "tags": [
+          "Organizations"
+        ]
+      }
+    },
+    "/api/v1/organizations/{orgID}/members": {
+      "get": {
+        "operationId": "list-organization-members",
+        "parameters": [
+          {
+            "description": "Organization identifier",
+            "in": "path",
+            "name": "orgID",
+            "required": true,
+            "schema": {
+              "description": "Organization identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataListMemberData"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List organization members",
+        "tags": [
+          "Organizations"
+        ]
+      }
+    },
+    "/api/v1/organizations/{orgID}/projects": {
+      "get": {
+        "operationId": "list-projects",
+        "parameters": [
+          {
+            "description": "Organization identifier",
+            "in": "path",
+            "name": "orgID",
+            "required": true,
+            "schema": {
+              "description": "Organization identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataListProjectData"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List an organization's projects",
+        "tags": [
+          "Projects"
+        ]
+      },
+      "post": {
+        "operationId": "create-project",
+        "parameters": [
+          {
+            "description": "Organization identifier",
+            "in": "path",
+            "name": "orgID",
+            "required": true,
+            "schema": {
+              "description": "Organization identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProjectInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataProjectData"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Create a project in an organization",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{projectID}": {
+      "get": {
+        "operationId": "get-project",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataProjectData"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get a project",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{projectID}/branding": {
+      "put": {
+        "description": "Replaces the whole branding; an all-empty body clears it to the generated defaults. ABI-neutral.",
+        "operationId": "set-branding",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetBrandingInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataRevisionData"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Set the project's branding (name, logo, accent color, appearance)",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{projectID}/build-jobs": {
+      "get": {
+        "operationId": "list-project-build-jobs",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataListBuildJobData"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List a project's Cloud build jobs (deploy history)",
+        "tags": [
+          "Deploy"
+        ]
+      }
+    },
+    "/api/v1/projects/{projectID}/deploy": {
+      "post": {
+        "description": "Freezes the project's head revision and enqueues an asynchronous Cloud build (source is assembled and submitted by a worker; no request performs a build). Returns 202 with a build-job id to poll.",
+        "operationId": "deploy-project",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataBuildJobData"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Deploy the project's current revision to Gombit Cloud",
+        "tags": [
+          "Deploy"
+        ]
+      }
+    },
+    "/api/v1/projects/{projectID}/environments": {
+      "get": {
+        "description": "Lists the environments of the project's linked Gombit Cloud project, so a human can pick where to deploy. Cloud owns the environments; Forge only surfaces them. 422 if the project is not linked to Cloud.",
+        "operationId": "list-project-environments",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataListEnvironmentData"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List the linked Cloud project's environments (deploy targets)",
+        "tags": [
+          "Deploy"
+        ]
+      }
+    },
+    "/api/v1/projects/{projectID}/environments/{envID}/deployments": {
+      "post": {
+        "description": "Asks Gombit Cloud to deploy an already-built artifact (by Cloud build id) to the chosen environment. Cloud runs the migration preflight and owns the deployment lifecycle; a destructive migration awaiting approval comes back as a created deployment in blocked_pending_approval with a block (Forge never approves — L10).",
+        "operationId": "deploy-build-to-environment",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Cloud environment identifier (one of the project's environments)",
+            "in": "path",
+            "name": "envID",
+            "required": true,
+            "schema": {
+              "description": "Cloud environment identifier (one of the project's environments)",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDeploymentInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataDeploymentData"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Deploy a Cloud build to one of the project's environments",
+        "tags": [
+          "Deploy"
+        ]
+      }
+    },
+    "/api/v1/projects/{projectID}/environments/{envID}/deployments/{deploymentID}": {
+      "get": {
+        "description": "Reads a deployment's current Cloud state, pass-through. When held on a destructive migration it carries a block with the Cloud-generated approval_url; the same deployment resumes once a human approves the migration in Cloud.",
+        "operationId": "get-environment-deployment",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Cloud environment identifier",
+            "in": "path",
+            "name": "envID",
+            "required": true,
+            "schema": {
+              "description": "Cloud environment identifier",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Cloud deployment identifier",
+            "in": "path",
+            "name": "deploymentID",
+            "required": true,
+            "schema": {
+              "description": "Cloud deployment identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataDeploymentData"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get a Cloud deployment's status (including a migration hold)",
+        "tags": [
+          "Deploy"
+        ]
+      }
+    },
+    "/api/v1/projects/{projectID}/environments/{envID}/deployments/{deploymentID}/logs": {
+      "get": {
+        "description": "Relays a deployment's application/runtime log lines (read from Cloud, not stored by Forge — ADR-005 §24). Pass ?since=\u003cRFC3339\u003e to tail only newer lines. Empty until the deployment's app has emitted logs.",
+        "operationId": "get-deployment-logs",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Cloud environment identifier",
+            "in": "path",
+            "name": "envID",
+            "required": true,
+            "schema": {
+              "description": "Cloud environment identifier",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Cloud deployment identifier",
+            "in": "path",
+            "name": "deploymentID",
+            "required": true,
+            "schema": {
+              "description": "Cloud deployment identifier",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only return log lines after this RFC3339 timestamp (for tailing)",
+            "explode": false,
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "description": "Only return log lines after this RFC3339 timestamp (for tailing)",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataListAppLogLine"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Read a deployment's application logs from Gombit Cloud",
+        "tags": [
+          "Deploy"
+        ]
+      }
+    },
+    "/api/v1/projects/{projectID}/environments/{envID}/rollback": {
+      "post": {
+        "description": "Asks Gombit Cloud to roll the environment back. Cloud creates a new forward deployment that re-deploys the earlier build (§92); Forge owns no rollback state. 409 if there is no previous healthy deployment to restore.",
+        "operationId": "rollback-environment",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Cloud environment identifier",
+            "in": "path",
+            "name": "envID",
+            "required": true,
+            "schema": {
+              "description": "Cloud environment identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataDeploymentData"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Roll a project's environment back to its previous healthy revision",
+        "tags": [
+          "Deploy"
+        ]
+      }
+    },
+    "/api/v1/projects/{projectID}/export/github": {
+      "post": {
+        "description": "Freezes the project's head revision and enqueues an asynchronous export to a new GitHub repository. Returns 202 with a job id to poll.",
+        "operationId": "create-export-job",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataExportJobData"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Queue a GitHub export of the project's current revision",
+        "tags": [
+          "Export"
+        ]
+      }
+    },
+    "/api/v1/projects/{projectID}/health": {
+      "get": {
+        "operationId": "get-project-health",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataHealthData"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get a project's three-state health (spec / ABI / build)",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{projectID}/navigation": {
+      "put": {
+        "description": "Replaces the whole navigation in authored order; the client sends the complete list, not a delta. ABI-neutral.",
+        "operationId": "set-navigation",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetNavigationInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataRevisionData"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Replace the project's ordered navigation (dashboard / resource list / external URL entries)",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{projectID}/pages": {
+      "post": {
+        "operationId": "add-page",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddPageInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataRevisionData"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Add a structured page (table, form, detail or dashboard); the backend derives its slug",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{projectID}/pages/{pageID}": {
+      "delete": {
+        "operationId": "delete-page",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page stable ID",
+            "in": "path",
+            "name": "pageID",
+            "required": true,
+            "schema": {
+              "description": "Page stable ID",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataRevisionData"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Delete a page (ABI-neutral; commits unless a nav entry still references it)",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{projectID}/pages/{pageID}/form": {
+      "patch": {
+        "description": "Replaces the page's form configuration; the client sends the complete configuration, not a delta. ABI-neutral.",
+        "operationId": "update-form-config",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page stable ID",
+            "in": "path",
+            "name": "pageID",
+            "required": true,
+            "schema": {
+              "description": "Page stable ID",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateFormConfigInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataRevisionData"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Configure a resource_form page (label, layout, field subset/order)",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{projectID}/pages/{pageID}/table": {
+      "patch": {
+        "description": "Replaces the page's table configuration: omitted columns/toggles reset to their defaults, so the client sends the complete configuration, not a delta. ABI-neutral.",
+        "operationId": "update-table-config",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page stable ID",
+            "in": "path",
+            "name": "pageID",
+            "required": true,
+            "schema": {
+              "description": "Page stable ID",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTableConfigInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataRevisionData"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Configure a resource_table page (label, title, columns, search, page size)",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{projectID}/preview-environments": {
+      "post": {
+        "description": "Asks Gombit Cloud to create a throwaway preview environment (with a TTL) for the project's current revision. Deploying a build into it — and redeploying on each preview rebuild — refreshes the preview; Cloud's promotion switches traffic to the new healthy revision atomically (L12/§23). 422 if the project is not linked to Cloud or has no revision to preview.",
+        "operationId": "create-preview-environment",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePreviewEnvironmentInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataEnvironmentData"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Create an ephemeral preview environment on the linked Cloud project",
+        "tags": [
+          "Deploy"
+        ]
+      }
+    },
+    "/api/v1/projects/{projectID}/resources": {
+      "post": {
+        "operationId": "add-resource",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResourceBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataRevisionData"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Add a resource from a label; the backend mints its code symbol",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{projectID}/resources/{resourceID}": {
+      "delete": {
+        "operationId": "delete-resource",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Resource stable ID",
+            "in": "path",
+            "name": "resourceID",
+            "required": true,
+            "schema": {
+              "description": "Resource stable ID",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataDeleteResourceResult"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Delete a resource after dependency analysis",
+        "tags": [
+          "Projects"
+        ]
+      },
+      "patch": {
+        "operationId": "rename-resource",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Resource stable ID",
+            "in": "path",
+            "name": "resourceID",
+            "required": true,
+            "schema": {
+              "description": "Resource stable ID",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResourceBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataRevisionData"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Rename a resource (labels only; ABI-neutral)",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{projectID}/resources/{resourceID}/behavior": {
+      "patch": {
+        "description": "Replaces the resource's whole behavior: an omitted toggle or field list resets to its zero value (off / empty), so the client must send the complete behavior, not a delta.",
+        "operationId": "update-resource-behavior",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Resource stable ID",
+            "in": "path",
+            "name": "resourceID",
+            "required": true,
+            "schema": {
+              "description": "Resource stable ID",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateBehaviorInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataRevisionData"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Set a resource's CRUD toggles, admin visibility and field selections",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{projectID}/resources/{resourceID}/fields": {
+      "post": {
+        "operationId": "add-field",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Resource stable ID",
+            "in": "path",
+            "name": "resourceID",
+            "required": true,
+            "schema": {
+              "description": "Resource stable ID",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FieldBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataRevisionData"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Add a field to a resource; the backend mints its code symbol",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{projectID}/resources/{resourceID}/fields/{fieldID}": {
+      "delete": {
+        "operationId": "delete-field",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Resource stable ID",
+            "in": "path",
+            "name": "resourceID",
+            "required": true,
+            "schema": {
+              "description": "Resource stable ID",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Field stable ID",
+            "in": "path",
+            "name": "fieldID",
+            "required": true,
+            "schema": {
+              "description": "Field stable ID",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataRevisionData"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Delete a field (ABI-breaking; returned for validation)",
+        "tags": [
+          "Projects"
+        ]
+      },
+      "patch": {
+        "operationId": "update-field",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Resource stable ID",
+            "in": "path",
+            "name": "resourceID",
+            "required": true,
+            "schema": {
+              "description": "Resource stable ID",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Field stable ID",
+            "in": "path",
+            "name": "fieldID",
+            "required": true,
+            "schema": {
+              "description": "Field stable ID",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FieldBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataRevisionData"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Update a field; a type change is ABI-breaking and returned for validation",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{projectID}/resources/{resourceID}/relationships": {
+      "post": {
+        "operationId": "add-relationship",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Owning resource stable ID",
+            "in": "path",
+            "name": "resourceID",
+            "required": true,
+            "schema": {
+              "description": "Owning resource stable ID",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddRelationshipInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataRevisionData"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Add a belongs_to relationship to another resource (has_many derived)",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{projectID}/revisions": {
+      "post": {
+        "description": "Validates the candidate and classifies the ABI transition against the current head. Never builds (D8): a breaking transition is returned as a 409 with its reasons rather than committed.",
+        "operationId": "submit-project-candidate",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "contentMediaType": "application/octet-stream",
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataRevisionData"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Submit a candidate spec; on a compatible transition records a new revision",
+        "tags": [
+          "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{projectID}/spec": {
+      "get": {
+        "operationId": "get-project-spec",
+        "parameters": [
+          {
+            "description": "Project identifier",
+            "in": "path",
+            "name": "projectID",
+            "required": true,
+            "schema": {
+              "description": "Project identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataRawMessage"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get a project's current (head revision) spec",
+        "tags": [
+          "Projects"
+        ]
+      }
+    }
+  }
+}

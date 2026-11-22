@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/gombit-dev/gombit/config"
+	"github.com/gombit-dev/gombit/database"
 	"github.com/gombit-dev/gombit/framework"
 
 	"github.com/gombit-dev/gombit-forge/controlplane/internal/buildworker"
@@ -44,12 +45,70 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	db, err := platform.OpenDatabase(cfg.Database)
 	if err != nil {
 		log.Fatal(err)
 	}
+	app, workers, err := newApp(cfg, db, featuresFromEnv())
+	if err != nil {
+		_ = db.Close()
+		log.Fatal(err)
+	}
+	var stops []func()
+	for _, start := range workers {
+		stops = append(stops, start())
+	}
+	app.OnStop(func(context.Context) error {
+		for _, stop := range stops {
+			stop() // before closing the DB the workers use
+		}
+		return db.Close()
+	})
+	if err := framework.Run(app); err != nil {
+		log.Fatal(err)
+	}
+}
 
+// features is the optional configuration the server reads from its
+// environment. A nil field leaves that feature off.
+type features struct {
+	mailer *mail.SMTP     // account email
+	github *githubFeature // GitHub connect and export
+	cloud  *cloudFeature  // Gombit Cloud build and deploy
+}
+
+type githubFeature struct {
+	cfg             githubexport.Config
+	successRedirect string
+}
+
+type cloudFeature struct {
+	baseURL, token string
+}
+
+func featuresFromEnv() features {
+	var f features
+	if m, ok := smtpMailer(); ok {
+		f.mailer = m
+	}
+	if cfg, redirect, ok := githubOAuthConfig(); ok {
+		f.github = &githubFeature{cfg: cfg, successRedirect: redirect}
+	}
+	if baseURL, token, ok := cloudConfig(); ok {
+		f.cloud = &cloudFeature{baseURL: baseURL, token: token}
+	}
+	return f
+}
+
+// worker starts a background loop and returns the function that stops it.
+type worker func() (stop func())
+
+// newApp builds the control plane on db: the framework app, every route set f
+// enables, and the workers those features run, returned unstarted. Building it
+// starts nothing and calls nothing outside the process, which is how the
+// OpenAPI document test builds it with every feature on: the committed document
+// is the API a fully configured server serves.
+func newApp(cfg config.Config, db *database.DB, f features) (*framework.App, []worker, error) {
 	opts := []framework.Option{
 		framework.WithConfig(cfg),
 		framework.WithDatabase(db),
@@ -57,74 +116,57 @@ func main() {
 	// Account email (verification, password reset, email change) goes out over
 	// SMTP when one is configured. Unset, Gombit logs each message outside
 	// production and, in production, sends nothing and says so at startup.
-	if mailer, ok := smtpMailer(); ok {
-		opts = append(opts, framework.WithAuthMailer(mailer))
+	if f.mailer != nil {
+		opts = append(opts, framework.WithAuthMailer(f.mailer))
 	}
+
+	// In cookie mode framework.New mounts the admin surface automatically, with
+	// no explicit wiring here (see the package doc).
 	app, err := framework.New(opts...)
 	if err != nil {
-		_ = db.Close()
-		log.Fatal(err)
+		return nil, nil, err
 	}
 
 	// Feature packages register explicitly (Gombit does not discover them by
 	// reflection). Tenancy is the first; the project API (#39) is the second.
 	if err := org.Register(app); err != nil {
-		_ = db.Close()
-		log.Fatal(err)
+		return nil, nil, err
 	}
 	if err := project.Register(app); err != nil {
-		_ = db.Close()
-		log.Fatal(err)
+		return nil, nil, err
 	}
+
+	var workers []worker
 	// GitHub repository export (#85) is optional: it registers only when the
 	// OAuth app credentials are configured, so the control plane runs fine
 	// without them. GitHub OAuth is not part of Gombit's typed config, so its
-	// settings are read from the environment here at the composition root, not
-	// inside a runtime package.
-	// stopWorker cancels the background export worker on shutdown; it stays a
-	// no-op unless the export feature registers below.
-	stopWorker := func() {}
-	if ghCfg, successRedirect, ok := githubOAuthConfig(); ok {
-		if err := githubconnect.Register(app, ghCfg, successRedirect); err != nil {
-			_ = db.Close()
-			log.Fatal(err)
+	// settings are read from the environment at the composition root
+	// (featuresFromEnv), not inside a runtime package.
+	if gh := f.github; gh != nil {
+		if err := githubconnect.Register(app, gh.cfg, gh.successRedirect); err != nil {
+			return nil, nil, err
 		}
-		if err := registerGitHubExport(app, ghCfg, &stopWorker); err != nil {
-			_ = db.Close()
-			log.Fatal(err)
+		w, err := registerGitHubExport(app, gh.cfg)
+		if err != nil {
+			return nil, nil, err
 		}
+		workers = append(workers, w)
 	}
-
 	// Cloud build/deploy (#103) is optional the same way: it registers only when
 	// the Gombit Cloud API URL + service token are configured, so the control
 	// plane runs fine without them (deploys are simply unavailable). Unset config
 	// means the feature is disabled — never a localhost fallback or a fallback
 	// identity.
-	stopBuildWorker := func() {}
-	if baseURL, token, ok := cloudConfig(); ok {
-		if err := registerCloudBuild(app, baseURL, token, &stopBuildWorker); err != nil {
-			_ = db.Close()
-			log.Fatal(err)
+	if c := f.cloud; c != nil {
+		w, err := registerCloudBuild(app, c.baseURL, c.token)
+		if err != nil {
+			return nil, nil, err
 		}
+		workers = append(workers, w)
 	}
-
-	app.OnStop(func(context.Context) error {
-		stopWorker()      // before closing the DB the workers use
-		stopBuildWorker() //
-		return db.Close()
-	})
-
-	if err := framework.Run(app); err != nil {
-		log.Fatal(err)
-	}
+	return app, workers, nil
 }
 
-// smtpMailer reads the SMTP settings from the environment: FORGE_SMTP_ADDR
-// (host:port) and FORGE_MAIL_FROM are required, FORGE_SMTP_USERNAME and
-// FORGE_SMTP_PASSWORD optional. Mail is not part of Gombit's typed config, so,
-// like GitHub OAuth and Cloud, it is read here at the composition root. All
-// unset is "no mailer"; a partial or invalid config is logged and ignored,
-// rather than failing as a mystery when the first reset link never arrives.
 func smtpMailer() (*mail.SMTP, bool) {
 	m := &mail.SMTP{
 		Addr:     os.Getenv("FORGE_SMTP_ADDR"),
@@ -190,47 +232,49 @@ func githubOAuthConfig() (cfg githubexport.Config, successRedirect string, ok bo
 // shutdown before closing the database the worker uses. The export stack shares
 // one projectspec.Source both as the worker's frozen-revision resolver and as
 // ghexport's head-spec source.
-func registerGitHubExport(app *framework.App, ghCfg githubexport.Config, stopWorker *func()) error {
+func registerGitHubExport(app *framework.App, ghCfg githubexport.Config) (worker, error) {
 	db := app.DB()
 	projectSvc := project.NewService(db)
-	src := projectspec.NewSource(projectSvc)
-	tokens := githubconnect.NewService(db, githubconnect.NewExchanger(ghCfg, nil))
-	pub := ghexport.NewPublisher(ghCfg, nil)
-
-	// Query the gombit toolchain version once for export provenance. Export needs
-	// the toolchain anyway; if it's unavailable the feature still wires and
-	// provenance records "unknown" rather than failing startup.
-	cli := &gombit.CLI{}
-	gombitVersion := "unknown"
-	if v, err := cli.Version(context.Background()); err == nil {
-		gombitVersion = v.String()
-	} else {
-		log.Printf("github export: gombit toolchain version unavailable (%v); provenance will record %q", err, gombitVersion)
-	}
-	exporter := ghexport.NewService(tokens, src, compiler.GombitToolchain{CLI: cli}, pub, gombitVersion)
-
 	jobs := exportjob.NewService(db)
 	if err := exportjob.Register(app, jobs, projectSvc, org.NewService(db)); err != nil {
-		return err
+		return nil, err
 	}
 
-	worker := exportworker.New(jobs, src, exporter, 0, nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() { worker.Run(ctx); close(done) }()
-	// stopWorker signals cancellation and then waits (bounded) for Run to return,
-	// so shutdown actually joins the worker before the DB it writes to is closed,
-	// rather than racing it. A worker mid-export past the deadline is abandoned —
-	// a full in-flight assembly can run for minutes and shutdown can't block on it.
-	*stopWorker = func() {
-		cancel()
-		select {
-		case <-done:
-		case <-time.After(10 * time.Second):
-			log.Printf("github export: worker did not stop within 10s; proceeding with shutdown")
+	return func() func() {
+		src := projectspec.NewSource(projectSvc)
+		tokens := githubconnect.NewService(db, githubconnect.NewExchanger(ghCfg, nil))
+		pub := ghexport.NewPublisher(ghCfg, nil)
+
+		// Query the gombit toolchain version once for export provenance. Export
+		// needs the toolchain anyway; if it's unavailable the feature still wires
+		// and provenance records "unknown" rather than failing startup.
+		cli := &gombit.CLI{}
+		gombitVersion := "unknown"
+		if v, err := cli.Version(context.Background()); err == nil {
+			gombitVersion = v.String()
+		} else {
+			log.Printf("github export: gombit toolchain version unavailable (%v); provenance will record %q", err, gombitVersion)
 		}
-	}
-	return nil
+		exporter := ghexport.NewService(tokens, src, compiler.GombitToolchain{CLI: cli}, pub, gombitVersion)
+
+		w := exportworker.New(jobs, src, exporter, 0, nil)
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() { w.Run(ctx); close(done) }()
+		// stop signals cancellation and then waits (bounded) for Run to return,
+		// so shutdown actually joins the worker before the DB it writes to is
+		// closed, rather than racing it. A worker mid-export past the deadline is
+		// abandoned: a full in-flight assembly can run for minutes and shutdown
+		// can't block on it.
+		return func() {
+			cancel()
+			select {
+			case <-done:
+			case <-time.After(10 * time.Second):
+				log.Printf("github export: worker did not stop within 10s; proceeding with shutdown")
+			}
+		}
+	}, nil
 }
 
 // cloudConfig reads the Gombit Cloud API settings from the environment. It
@@ -262,7 +306,7 @@ func cloudConfig() (baseURL, token string, ok bool) {
 //
 // It sets *stopWorker to the worker's cancel func so main can stop it on shutdown
 // before closing the database the worker uses.
-func registerCloudBuild(app *framework.App, baseURL, token string, stopWorker *func()) error {
+func registerCloudBuild(app *framework.App, baseURL, token string) (worker, error) {
 	db := app.DB()
 	jobs := cloudbuild.NewService(db)
 	projectSvc := project.NewService(db)
@@ -273,32 +317,33 @@ func registerCloudBuild(app *framework.App, baseURL, token string, stopWorker *f
 	// both the worker (submit/track) and the routes' build-log relay.
 	cloud := &cloudclient.Client{BaseURL: baseURL, Token: token, HTTP: &http.Client{Timeout: 10 * time.Minute}}
 	if err := cloudbuild.Register(app, jobs, projectSvc, org.NewService(db), cloud); err != nil {
-		return err
+		return nil, err
 	}
 
-	// Query the gombit toolchain version once for build provenance (the assembler
-	// needs the toolchain anyway); if unavailable, provenance records "unknown"
-	// rather than failing startup.
-	cli := &gombit.CLI{}
-	gombitVersion := "unknown"
-	if v, err := cli.Version(context.Background()); err == nil {
-		gombitVersion = v.String()
-	} else {
-		log.Printf("gombit cloud: gombit toolchain version unavailable (%v); provenance will record %q", err, gombitVersion)
-	}
-	asm := buildworker.NewSourceAssembler(compiler.GombitToolchain{CLI: cli}, gombitVersion)
-	worker := buildworker.New(jobs, projectspec.NewSource(projectSvc), asm, cloud, buildworker.Options{}, nil)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() { worker.Run(ctx); close(done) }()
-	*stopWorker = func() {
-		cancel()
-		select {
-		case <-done:
-		case <-time.After(10 * time.Second):
-			log.Printf("gombit cloud: build worker did not stop within 10s; proceeding with shutdown")
+	return func() func() {
+		// Query the gombit toolchain version once for build provenance (the
+		// assembler needs the toolchain anyway); if unavailable, provenance
+		// records "unknown" rather than failing startup.
+		cli := &gombit.CLI{}
+		gombitVersion := "unknown"
+		if v, err := cli.Version(context.Background()); err == nil {
+			gombitVersion = v.String()
+		} else {
+			log.Printf("gombit cloud: gombit toolchain version unavailable (%v); provenance will record %q", err, gombitVersion)
 		}
-	}
-	return nil
+		asm := buildworker.NewSourceAssembler(compiler.GombitToolchain{CLI: cli}, gombitVersion)
+		w := buildworker.New(jobs, projectspec.NewSource(projectSvc), asm, cloud, buildworker.Options{}, nil)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() { w.Run(ctx); close(done) }()
+		return func() {
+			cancel()
+			select {
+			case <-done:
+			case <-time.After(10 * time.Second):
+				log.Printf("gombit cloud: build worker did not stop within 10s; proceeding with shutdown")
+			}
+		}
+	}, nil
 }

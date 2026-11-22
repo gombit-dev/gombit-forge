@@ -3,13 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ResourceTree } from "./ResourceTree";
 import type { SpecResource } from "../api/projects";
+import { jsonResponse } from "../test/http";
 
 type Reply = { status: number; body?: unknown };
 function mockApi(routes: (url: string, init?: RequestInit) => Reply) {
   const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     const { status, body } = routes(url, init);
-    return { ok: status >= 200 && status < 300, status, statusText: "", json: async () => body } as Response;
+    return jsonResponse(status, body);
   });
   globalThis.fetch = fn as unknown as typeof fetch;
   return fn;
@@ -86,9 +87,9 @@ describe("ResourceTree", () => {
       if (url.endsWith("/projects/3/resources") && init?.method === "POST") {
         calls++;
         await gate; // hold the first request in flight
-        return { ok: true, status: 201, statusText: "", json: async () => ({ data: { id: 1, spec_hash: "x" } }) } as Response;
+        return jsonResponse(201, { data: { id: 1, spec_hash: "x" } });
       }
-      return { ok: false, status: 404, statusText: "", json: async () => ({}) } as Response;
+      return jsonResponse(404, {});
     }) as unknown as typeof fetch;
 
     render(<ResourceTree projectID={3} resources={[]} onChanged={vi.fn()} />);

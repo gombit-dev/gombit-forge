@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PagesArea } from "./PagesArea";
+import { jsonResponse } from "../test/http";
 
 const ORG = { id: 7, name: "Acme", slug: "acme" };
 const PROJECT = { id: 3, organization_id: 7, name: "Acme CRM", slug: "acme-crm" };
@@ -22,7 +23,7 @@ function wire(getSpec: () => { pages?: unknown[]; resources?: unknown[] }) {
     else if (url.endsWith(`/projects/${PROJECT.id}/spec`)) [status, body] = [200, { data: getSpec() }];
     else if (url.match(/\/projects\/3\/pages$/) && method === "POST") [status, body] = [201, { data: { id: 1, spec_hash: "h" } }];
     else if (url.match(/\/projects\/3\/pages\//) && method === "DELETE") [status, body] = [200, { data: { id: 2, spec_hash: "h" } }];
-    return { ok: status >= 200 && status < 300, status, statusText: "", json: async () => body } as Response;
+    return jsonResponse(status, body);
   }) as unknown as typeof fetch;
   return calls;
 }

@@ -1,12 +1,13 @@
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppLogViewer } from "./AppLogViewer";
+import { jsonResponse } from "../test/http";
 
 function mockApi(routes: (url: string) => { status: number; body?: unknown }) {
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
     const { status, body } = routes(url);
-    return { ok: status >= 200 && status < 300, status, statusText: "", json: async () => body } as Response;
+    return jsonResponse(status, body);
   }) as unknown as typeof fetch;
 }
 
@@ -43,13 +44,13 @@ describe("AppLogViewer", () => {
       let call = 0;
       globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
         const url = typeof input === "string" ? input : input.toString();
-        if (!url.includes("/deployments/dep_1/logs")) return { ok: false, status: 404, json: async () => ({}) } as Response;
+        if (!url.includes("/deployments/dep_1/logs")) return jsonResponse(404, {});
         call += 1;
         const A = { id: "log_a", timestamp: "2026-01-01T00:00:01Z", stream: "stdout", message: "first line", request_id: "" };
         const B = { id: "log_b", timestamp: "2026-01-01T00:00:02Z", stream: "stdout", message: "second line", request_id: "" };
         // Tick 1: [A]. Tick 2: [A (boundary, inclusive since), B].
         const data = call === 1 ? [A] : [A, B];
-        return { ok: true, status: 200, json: async () => ({ data }) } as Response;
+        return jsonResponse(200, { data });
       }) as unknown as typeof fetch;
 
       render(<AppLogViewer projectID={3} envID="env_prod" deploymentID="dep_1" stopped={false} />);

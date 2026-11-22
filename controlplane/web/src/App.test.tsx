@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { SessionProvider } from "./auth/session";
+import { jsonResponse } from "./test/http";
 
 // mockApi installs a fetch stub that answers each control-plane path from a
 // small table, so the tests drive the real components (App, shell, login) over
@@ -13,12 +14,7 @@ function mockApi(routes: (url: string, init?: RequestInit) => Reply) {
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     const { status, body } = routes(url, init);
-    return {
-      ok: status >= 200 && status < 300,
-      status,
-      statusText: "",
-      json: async () => body,
-    } as Response;
+    return jsonResponse(status, body);
   }) as unknown as typeof fetch;
 }
 

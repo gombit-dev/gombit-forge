@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api, ApiError, describeError } from "./client";
+import { ApiError, call, contract, describeError } from "./client";
 
 describe("describeError", () => {
   it("surfaces field diagnostics keyed to the offending path", () => {
@@ -21,6 +21,8 @@ describe("describeError", () => {
 });
 
 // --- CSRF and session refresh against a scripted control plane ---
+//
+// Through the typed client, the path every call takes (contract over send()).
 
 interface Call {
   url: string;
@@ -76,7 +78,7 @@ describe("CSRF double-submit", () => {
 
   it("bootstraps the token and echoes it on login", async () => {
     const calls = controlPlane(() => json(200, { data: { id: 1 } }));
-    await api.post("/auth/login", { email: "a@example.com", password: "pw" });
+    await call(contract.POST("/api/v1/auth/login", { body: { email: "a@example.com", password: "pw" } }));
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual(["GET /api/v1/auth/csrf", "POST /api/v1/auth/login"]);
     expect(calls[1].csrf).toBe("tok-1");
   });
@@ -84,14 +86,14 @@ describe("CSRF double-submit", () => {
   it("reuses the cookie instead of bootstrapping again", async () => {
     document.cookie = "gombit_csrf=existing; path=/";
     const calls = controlPlane(() => json(200, { data: {} }));
-    await api.post("/organizations", { name: "acme" });
+    await call(contract.POST("/api/v1/organizations", { body: { name: "Acme", slug: "acme" } }));
     expect(calls).toHaveLength(1);
     expect(calls[0].csrf).toBe("existing");
   });
 
   it("sends no token on a safe request", async () => {
     const calls = controlPlane(() => json(200, { data: [] }));
-    await api.get("/organizations");
+    await call(contract.GET("/api/v1/organizations"));
     expect(calls).toEqual([{ url: "/api/v1/organizations", method: "GET", csrf: null }]);
   });
 
@@ -102,24 +104,36 @@ describe("CSRF double-submit", () => {
     const inner = globalThis.fetch;
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       // The stale cookie is invalid server-side even though it matches.
-      if (!refused && String(input).endsWith("/projects")) {
+      if (!refused && String(input).endsWith("/organizations/1/projects")) {
         refused = true;
         calls.push({ url: String(input), method: "POST", csrf: new Headers(init?.headers).get("X-CSRF-Token") });
         return csrfRefusal();
       }
       return inner(input, init);
     }) as typeof fetch;
-    await api.post("/projects", { name: "p" });
+    await call(
+      contract.POST("/api/v1/organizations/{orgID}/projects", {
+        params: { path: { orgID: "1" } },
+        body: { name: "P", slug: "p" },
+      }),
+    );
     expect(calls.map((c) => `${c.method} ${c.url} ${c.csrf}`)).toEqual([
-      "POST /api/v1/projects stale",
+      "POST /api/v1/organizations/1/projects stale",
       "GET /api/v1/auth/csrf null",
-      "POST /api/v1/projects tok-1",
+      "POST /api/v1/organizations/1/projects tok-1",
     ]);
   });
 
   it("does not retry a 403 that is not the CSRF middleware's", async () => {
     const calls = controlPlane(() => json(403, { error: { code: "forbidden", message: "not a member" } }));
-    await expect(api.post("/organizations/1/projects", {})).rejects.toMatchObject({ status: 403 });
+    await expect(
+      call(
+        contract.POST("/api/v1/organizations/{orgID}/projects", {
+          params: { path: { orgID: "1" } },
+          body: { name: "P", slug: "p" },
+        }),
+      ),
+    ).rejects.toMatchObject({ status: 403 });
     expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
   });
 });
@@ -137,7 +151,7 @@ describe("session refresh", () => {
       }
       return expired ? json(401, { error: { code: "unauthorized", message: "expired" } }) : json(200, { data: { id: 7 } });
     });
-    await expect(api.get<{ id: number }>("/me")).resolves.toEqual({ id: 7 });
+    await expect(call(contract.GET("/api/v1/me"))).resolves.toEqual({ id: 7 });
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
       "GET /api/v1/me",
       "GET /api/v1/auth/csrf",
@@ -148,12 +162,14 @@ describe("session refresh", () => {
 
   it("does not refresh for an auth endpoint's own 401", async () => {
     const calls = controlPlane(() => json(401, { error: { code: "unauthorized", message: "invalid credentials" } }));
-    await expect(api.post("/auth/login", { email: "a", password: "b" })).rejects.toMatchObject({ status: 401 });
+    await expect(
+      call(contract.POST("/api/v1/auth/login", { body: { email: "a", password: "b" } })),
+    ).rejects.toMatchObject({ status: 401 });
     expect(calls.some((c) => c.url.endsWith("/auth/refresh"))).toBe(false);
   });
 
   it("surfaces the 401 when the refresh fails", async () => {
     controlPlane(() => json(401, { error: { code: "unauthorized", message: "no session" } }));
-    await expect(api.get("/me")).rejects.toMatchObject({ status: 401 });
+    await expect(call(contract.GET("/api/v1/me"))).rejects.toMatchObject({ status: 401 });
   });
 });

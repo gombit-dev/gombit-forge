@@ -113,11 +113,26 @@ links open the editor's account pages (`controlplane/web/src/auth/AccountPages.t
 and `/confirm-email`, served signed in or out. The links exist only when the
 control plane sets `GOMBIT_AUTH_PASSWORD_RESET_URL`,
 `GOMBIT_AUTH_EMAIL_VERIFICATION_URL` and `GOMBIT_AUTH_EMAIL_CHANGE_URL` to
-those pages (`.env.example`); unset, the email carries a bare token. The
-editor SPA's client (`controlplane/web/src/api/client.ts`) echoes Gombit's
-`gombit_csrf` cookie as `X-CSRF-Token` on every state-changing request (login
-included) and refreshes an expired session once. Its unit tests mock `fetch`,
-so a login against a real control plane is the check that it still works.
+those pages (`.env.example`); unset, the email carries a bare token.
+
+The control plane's API contract is committed as `controlplane/openapi.json`:
+the document a fully configured server serves, every optional route set on.
+`TestOpenAPIDocumentIsCommitted` (`cmd/server`) builds the app with `newApp`,
+as `main` does, and holds the file to it. The editor calls the API through the
+TypeScript client `gombit client generate` writes from it
+(`controlplane/web/src/api/generated`), so a path, parameter, body or response
+that drifts from the contract fails the editor's typecheck. After an API change
+run `make contract`, which regenerates both; CI's `web` job reruns the generator
+with the gombit the control plane pins and fails on any difference
+(`make contract-check`).
+- The typed client is `contract` in `controlplane/web/src/api/client.ts`, and
+  `call()` unwraps the D10 envelope into the editor's `ApiError`.
+- Its transport is that file's `send()`. It echoes Gombit's `gombit_csrf`
+  cookie as `X-CSRF-Token` on every state-changing request (login included),
+  and refreshes an expired session once.
+- The editor's unit tests stub `fetch` with real `Response`s
+  (`src/test/http.ts`), so a login against a real control plane is the check
+  that the transport still works.
 
 The repo is **two Go modules**. The root module
 (`github.com/gombit-dev/gombit-forge`) is the compiler and stays gombit-free —

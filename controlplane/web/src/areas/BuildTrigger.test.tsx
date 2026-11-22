@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BuildTrigger } from "./BuildTrigger";
+import { jsonResponse } from "../test/http";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -10,9 +11,9 @@ describe("BuildTrigger", () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
       if ((init?.method ?? "GET") === "POST" && url.endsWith("/projects/3/deploy")) {
-        return { ok: true, status: 202, json: async () => ({ data: { id: 7, project_id: 3, status: "queued" } }) } as Response;
+        return jsonResponse(202, { data: { id: 7, project_id: 3, status: "queued" } });
       }
-      return { ok: false, status: 404, json: async () => ({}) } as Response;
+      return jsonResponse(404, {});
     }) as unknown as typeof fetch;
 
     const started = vi.fn();
@@ -32,13 +33,13 @@ describe("BuildTrigger", () => {
         const url = typeof input === "string" ? input : input.toString();
         const method = init?.method ?? "GET";
         if (method === "GET" && url.endsWith("/projects/3")) {
-          return { ok: true, status: 200, json: async () => ({ data: { id: 3, head_revision_id: head } }) } as Response;
+          return jsonResponse(200, { data: { id: 3, head_revision_id: head } });
         }
         if (method === "POST" && url.endsWith("/projects/3/deploy")) {
           deploys += 1;
-          return { ok: true, status: 202, json: async () => ({ data: { id: 100 + deploys, project_id: 3, status: "queued" } }) } as Response;
+          return jsonResponse(202, { data: { id: 100 + deploys, project_id: 3, status: "queued" } });
         }
-        return { ok: false, status: 404, json: async () => ({}) } as Response;
+        return jsonResponse(404, {});
       }) as unknown as typeof fetch;
 
       const started = vi.fn();

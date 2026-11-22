@@ -1,4 +1,8 @@
-import { api } from "./client";
+import { call, contract } from "./client";
+
+// The contract marks every list nullable (Go encodes a nil slice as null); the
+// Deploy area reads an empty list instead.
+const orEmpty = <T>(list: T[] | null | undefined): T[] => list ?? [];
 
 // Cloud build/deploy resources the Deploy area reads. These mirror the Go wire
 // types (contract.Data envelopes); only the fields the UI uses are typed. The
@@ -34,16 +38,27 @@ export function isBuildTerminal(status: string): boolean {
 
 // triggerDeploy freezes the project's head revision and enqueues a Cloud build
 // (async — no request performs a build, D8). Returns the new build job to track.
-export const triggerDeploy = (projectID: number) => api.post<BuildJob>(`/projects/${projectID}/deploy`);
+export const triggerDeploy = (projectID: number): Promise<BuildJob> =>
+  call(contract.POST("/api/v1/projects/{projectID}/deploy", { params: { path: { projectID: String(projectID) } } }));
 
-export const listBuildJobs = (projectID: number) => api.get<BuildJob[]>(`/projects/${projectID}/build-jobs`);
+export const listBuildJobs = async (projectID: number): Promise<BuildJob[]> =>
+  orEmpty(
+    await call(contract.GET("/api/v1/projects/{projectID}/build-jobs", { params: { path: { projectID: String(projectID) } } })),
+  );
 
-export const getBuildJob = (jobID: number) => api.get<BuildJob>(`/build-jobs/${jobID}`);
+export const getBuildJob = (jobID: number): Promise<BuildJob> =>
+  call(contract.GET("/api/v1/build-jobs/{jobID}", { params: { path: { jobID: String(jobID) } } }));
 
 // getBuildJobLogs reads the job's Cloud build logs, optionally only those after
 // `since` (an RFC3339 timestamp) for tailing.
-export const getBuildJobLogs = (jobID: number, since?: string) =>
-  api.get<BuildLog[]>(`/build-jobs/${jobID}/logs${since ? `?since=${encodeURIComponent(since)}` : ""}`);
+export const getBuildJobLogs = async (jobID: number, since?: string): Promise<BuildLog[]> =>
+  orEmpty(
+    await call(
+      contract.GET("/api/v1/build-jobs/{jobID}/logs", {
+        params: { path: { jobID: String(jobID) }, query: since ? { since } : {} },
+      }),
+    ),
+  );
 
 // --- Deploy action (#105) ---
 //
@@ -136,33 +151,65 @@ export function isDeploymentBlocked(d: Deployment): boolean {
   return d.status === "blocked_pending_approval";
 }
 
-export const listEnvironments = (projectID: number) =>
-  api.get<Environment[]>(`/projects/${projectID}/environments`);
+export const listEnvironments = async (projectID: number): Promise<Environment[]> =>
+  orEmpty(
+    await call(contract.GET("/api/v1/projects/{projectID}/environments", { params: { path: { projectID: String(projectID) } } })),
+  );
 
 // createPreviewEnvironment asks Cloud to create an ephemeral preview environment
 // for the project's current revision. Name/TTL are optional (Cloud/Forge default
 // them). Deploying a build into the returned environment refreshes the preview;
 // Cloud promotes the new healthy revision atomically.
-export const createPreviewEnvironment = (projectID: number, opts?: { name?: string; ttl_seconds?: number }) =>
-  api.post<Environment>(`/projects/${projectID}/preview-environments`, opts ?? {});
+export const createPreviewEnvironment = (
+  projectID: number,
+  opts?: { name?: string; ttl_seconds?: number },
+): Promise<Environment> =>
+  call(
+    contract.POST("/api/v1/projects/{projectID}/preview-environments", {
+      params: { path: { projectID: String(projectID) } },
+      body: opts ?? {},
+    }),
+  );
 
 // deployBuild deploys a Cloud build (by cloud build id) to one of the project's
 // environments. Cloud runs the migration preflight and may return the created
 // deployment held in blocked_pending_approval with a block.
-export const deployBuild = (projectID: number, envID: string, buildID: string) =>
-  api.post<Deployment>(`/projects/${projectID}/environments/${envID}/deployments`, { build_id: buildID });
+export const deployBuild = (projectID: number, envID: string, buildID: string): Promise<Deployment> =>
+  call(
+    contract.POST("/api/v1/projects/{projectID}/environments/{envID}/deployments", {
+      params: { path: { projectID: String(projectID), envID } },
+      body: { build_id: buildID },
+    }),
+  );
 
-export const getDeployment = (projectID: number, envID: string, deploymentID: string) =>
-  api.get<Deployment>(`/projects/${projectID}/environments/${envID}/deployments/${deploymentID}`);
+export const getDeployment = (projectID: number, envID: string, deploymentID: string): Promise<Deployment> =>
+  call(
+    contract.GET("/api/v1/projects/{projectID}/environments/{envID}/deployments/{deploymentID}", {
+      params: { path: { projectID: String(projectID), envID, deploymentID } },
+    }),
+  );
 
 // getDeploymentLogs reads a deployment's application logs, optionally only those
 // after `since` (RFC3339) for tailing.
-export const getDeploymentLogs = (projectID: number, envID: string, deploymentID: string, since?: string) =>
-  api.get<DeploymentLog[]>(
-    `/projects/${projectID}/environments/${envID}/deployments/${deploymentID}/logs${since ? `?since=${encodeURIComponent(since)}` : ""}`,
+export const getDeploymentLogs = async (
+  projectID: number,
+  envID: string,
+  deploymentID: string,
+  since?: string,
+): Promise<DeploymentLog[]> =>
+  orEmpty(
+    await call(
+      contract.GET("/api/v1/projects/{projectID}/environments/{envID}/deployments/{deploymentID}/logs", {
+        params: { path: { projectID: String(projectID), envID, deploymentID }, query: since ? { since } : {} },
+      }),
+    ),
   );
 
 // rollbackEnvironment rolls an environment back to its previous healthy revision;
 // Cloud creates a new forward deployment restoring the earlier build (§92).
-export const rollbackEnvironment = (projectID: number, envID: string) =>
-  api.post<Deployment>(`/projects/${projectID}/environments/${envID}/rollback`, undefined);
+export const rollbackEnvironment = (projectID: number, envID: string): Promise<Deployment> =>
+  call(
+    contract.POST("/api/v1/projects/{projectID}/environments/{envID}/rollback", {
+      params: { path: { projectID: String(projectID), envID } },
+    }),
+  );

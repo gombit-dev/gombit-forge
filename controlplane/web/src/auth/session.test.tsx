@@ -2,14 +2,10 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionProvider, useSession } from "./session";
+import { jsonResponse } from "../test/http";
 
 function mockMe(reply: { status: number; body?: unknown }) {
-  globalThis.fetch = vi.fn(async () => ({
-    ok: reply.status >= 200 && reply.status < 300,
-    status: reply.status,
-    statusText: "",
-    json: async () => reply.body,
-  })) as unknown as typeof fetch;
+  globalThis.fetch = vi.fn(async () => jsonResponse(reply.status, reply.body)) as unknown as typeof fetch;
 }
 
 // probe renders the session status and user, so a test can read the provider's
@@ -68,9 +64,9 @@ describe("SessionProvider", () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.endsWith("/auth/logout")) {
-        return { ok: false, status: 500, statusText: "", json: async () => ({ error: { code: "internal" } }) } as Response;
+        return jsonResponse(500, { error: { code: "internal" } });
       }
-      return { ok: true, status: 200, statusText: "", json: async () => ({ data: { id: 5, email: "grace@example.test" } }) } as Response;
+      return jsonResponse(200, { data: { id: 5, email: "grace@example.test" } });
     }) as unknown as typeof fetch;
 
     function LogoutProbe() {

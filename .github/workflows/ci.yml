@@ -81,6 +81,22 @@ jobs:
 
       - name: Test
         run: make web-test
+
+      # The generated client must be what gombit generates from the committed
+      # contract (controlplane/openapi.json), with the gombit CLI the control
+      # plane pins. The contract itself is held to the code by the control
+      # plane's Go tests.
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: controlplane/go.mod
+          cache: false
+
+      - name: Generated client is current
+        env:
+          GOTOOLCHAIN: auto
+        run: |
+          go install "github.com/gombit-dev/gombit/cmd/gombit@$(cd controlplane && go list -m -f '{{.Version}}' github.com/gombit-dev/gombit)"
+          make contract-check
 # Informational, not a gate (mirrors gombit-docs' CI). The vulnerabilities
   # govulncheck surfaces are overwhelmingly in the pinned Go standard library
   # (fixed by a toolchain patch bump, not by any application change here);

@@ -13,6 +13,17 @@
 // it, and this client only reads the cookie and echoes it (D12). The session
 // cookies are HttpOnly; the access cookie is short-lived, so a 401 is retried
 // once after POST /auth/refresh rotates the session.
+//
+// The calls themselves go through `contract`, the typed client generated from
+// the control plane's OpenAPI document (controlplane/openapi.json, by
+// `gombit client generate` into ./generated): every path, parameter, body and
+// response is checked against the contract at typecheck. Its transport is this
+// file's send(), so the CSRF and refresh handling above is the same for every
+// call. /auth/csrf and /auth/refresh are session infrastructure and use fetch
+// directly, as Gombit's own scaffold does.
+
+import createClient from "openapi-fetch";
+import type { paths } from "./generated/schema";
 
 export const API_PREFIX = "/api/v1";
 
@@ -137,43 +148,6 @@ interface DataEnvelope<T> {
   data: T;
 }
 
-/**
- * request issues a call to the control plane and unwraps the { data } envelope.
- * A non-2xx response is thrown as an ApiError built from the { error } envelope.
- */
-export async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  let resp = await send(path, init);
-  // An expired access cookie is a 401 with a still-valid refresh cookie behind
-  // it: rotate once and retry. Not for the auth endpoints themselves, where a
-  // 401 is the answer (wrong credentials, no session).
-  if (resp.status === 401 && !path.startsWith("/auth/") && (await refreshSession())) {
-    resp = await send(path, init);
-  }
-
-  if (!resp.ok) {
-    let code = "error";
-    let message = resp.statusText || "request failed";
-    let fields: Record<string, string[]> | undefined;
-    try {
-      const body = (await resp.json()) as ErrorEnvelope;
-      if (body.error) {
-        code = body.error.code ?? code;
-        message = body.error.message ?? message;
-        fields = body.error.fields;
-      }
-    } catch {
-      // Non-JSON error body: keep the status text.
-    }
-    throw new ApiError(resp.status, code, message, fields);
-  }
-
-  if (resp.status === 204) {
-    return undefined as T;
-  }
-  const body = (await resp.json()) as DataEnvelope<T>;
-  return body.data;
-}
-
 // describeError turns an error into a message for the editor. For a validation
 // failure it surfaces the field-keyed diagnostics (path: message) so the problem
 // points at the offending entity rather than a generic "invalid" — the rest fall
@@ -191,13 +165,50 @@ export function describeError(err: unknown): string {
   return "Something went wrong";
 }
 
-export const api = {
-  get: <T>(path: string) => request<T>(path),
-  post: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) }),
-  patch: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: "PATCH", body: body === undefined ? undefined : JSON.stringify(body) }),
-  put: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: "PUT", body: body === undefined ? undefined : JSON.stringify(body) }),
-  delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
-};
+/**
+ * contract is the typed client over the control plane's OpenAPI document. Its
+ * paths carry the /api/v1 prefix, as the document does. openapi-fetch builds a
+ * Request for each call; contractFetch hands it to send(), which adds the
+ * session handling, and retries once after a refresh on a 401 (except for the
+ * auth endpoints themselves, where a 401 is the answer: wrong credentials, no
+ * session).
+ *
+ * Gombit's createGombitClient (./generated/client) is not used: it only adds a
+ * bearer token, and the editor authenticates with cookies.
+ */
+export const contract = createClient<paths>({
+  baseUrl: typeof window === "undefined" ? "" : window.location.origin,
+  fetch: (req: Request) => contractFetch(req),
+});
+
+async function contractFetch(req: Request): Promise<Response> {
+  const url = new URL(req.url);
+  const path = url.pathname.replace(API_PREFIX, "") + url.search;
+  const method = req.method.toUpperCase();
+  const body = method === "GET" || method === "HEAD" ? undefined : (await req.text()) || undefined;
+  const init: RequestInit = { method, body };
+  let resp = await send(path, init);
+  if (resp.status === 401 && !path.startsWith("/auth/") && (await refreshSession())) {
+    resp = await send(path, init);
+  }
+  return resp;
+}
+
+/**
+ * call awaits one contract call and returns the { data } envelope's payload,
+ * or undefined for a response with no body (204). A non-2xx response is thrown
+ * as an ApiError built from the { error } envelope.
+ */
+export async function call<T>(pending: Promise<{ data?: { data: T }; error?: unknown; response: Response }>): Promise<T> {
+  const { data, error, response } = await pending;
+  if (!response.ok) {
+    const envelope = (error ?? {}) as ErrorEnvelope;
+    throw new ApiError(
+      response.status,
+      envelope.error?.code ?? "error",
+      envelope.error?.message ?? (response.statusText || "request failed"),
+      envelope.error?.fields,
+    );
+  }
+  return data?.data as T;
+}

@@ -13,7 +13,7 @@ WEB := controlplane/web
 
 .PHONY: all test lint fmt fmt-check vet tidy clean skills-check \
 	cp-build cp-vet cp-test cp-race \
-	web web-install web-check web-build web-test
+	web web-install web-check web-build web-test contract contract-check
 
 # `all` is the Go merge gate; it deliberately does not run the web SPA (that
 # would put node on every Go dev's critical path). A frontend dev runs `make web`
@@ -60,6 +60,22 @@ web-build:
 
 web-test:
 	cd $(WEB) && npm run test
+
+# The control plane's API contract: controlplane/openapi.json (what a fully
+# configured server serves; TestOpenAPIDocumentIsCommitted holds it to the code)
+# and the editor's client generated from it (controlplane/web/src/api/generated).
+# `make contract` regenerates both after an API change. contract-check is the CI
+# gate for the client: it regenerates it with the gombit CLI the control plane
+# pins (go.mod) and fails on any difference.
+GOMBIT_VERSION = $(shell cd $(CONTROLPLANE) && go list -m -f '{{.Version}}' github.com/gombit-dev/gombit)
+
+contract:
+	cd $(CONTROLPLANE) && go test ./cmd/server -run TestOpenAPIDocumentIsCommitted -count=1 -update
+	cd $(WEB) && gombit client generate --spec ../openapi.json --out src/api/generated
+
+contract-check:
+	cd $(WEB) && gombit client generate --spec ../openapi.json --out src/api/generated >/dev/null
+	git diff --exit-code -- $(WEB)/src/api/generated
 
 cover:
 	go test ./... -coverprofile=coverage.out

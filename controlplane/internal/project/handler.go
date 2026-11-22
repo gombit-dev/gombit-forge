@@ -145,7 +145,7 @@ func (h *Handler) getProject(ctx context.Context, in *getProjectInput) (*getProj
 
 type facetData struct {
 	Name    string `json:"name" doc:"Spec, Extension ABI or Runtime Build"`
-	Status  string `json:"status" doc:"ok, failed or unknown"`
+	Status  string `json:"status" enum:"ok,failed,unknown" doc:"ok, failed or unknown"`
 	Summary string `json:"summary" doc:"One-line human summary"`
 }
 
