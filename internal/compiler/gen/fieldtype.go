@@ -29,8 +29,12 @@ var scalarMappings = map[spec.FieldType]goMapping{
 	spec.TypeInteger:  {goType: "int64"},
 	spec.TypeBoolean:  {goType: "bool"},
 	spec.TypeDatetime: {goType: "time.Time", importPath: "time"},
-	spec.TypeDate:     {goType: "time.Time", importPath: "time", gormType: "date"},
-	spec.TypeEnum:     {goType: "string"},
+	// A date is a calendar day, not an instant: Gombit's types.Date, whose JSON
+	// is "YYYY-MM-DD" (what a native date input produces and shows), as in
+	// Gombit's own resources. time.Time would carry a timestamp a date field
+	// never has, and accept only RFC 3339.
+	spec.TypeDate: {goType: "types.Date", importPath: gombitTypesImport, gormType: "date"},
+	spec.TypeEnum: {goType: "string"},
 
 	// Money must not be a float. shopspring/decimal is the ecosystem standard,
 	// implements sql.Scanner/driver.Valuer, and maps losslessly to Postgres
@@ -42,6 +46,9 @@ var scalarMappings = map[spec.FieldType]goMapping{
 		gormType:   "numeric",
 	},
 }
+
+// gombitTypesImport is Gombit's value-type package (types.Date).
+const gombitTypesImport = "github.com/gombit-dev/gombit/types"
 
 // stringColumnSize is the GORM size applied to plain string columns, matching
 // the convention Gombit's own resource generator uses.
@@ -81,12 +88,12 @@ func resolveType(field *graph.Field) (goMapping, error) {
 }
 
 // nullableTime reports whether a field is an optional date or datetime, which
-// is a *time.Time so that "no value" is NULL. A time.Time cannot be absent: a
-// create that left one blank wrote the zero time (year 1), which Gombit
-// refuses from v0.8 (database's timestamp range guard, a 422) and which was
-// never the user's value. Gombit's own resources make the same choice
-// (*time.Time, *types.Date). Optional integers and booleans stay plain values,
-// as they are in Gombit.
+// is a pointer (*types.Date, *time.Time) so that "no value" is NULL. A value
+// type cannot be absent: a create that left one blank wrote the zero value,
+// which Gombit refuses (database's timestamp range guard from v0.8, a 422; a
+// zero types.Date does not marshal) and which was never the user's value.
+// Gombit's own resources make the same choice. Optional integers and booleans
+// stay plain values, as they are in Gombit.
 //
 // The Go type is extension ABI (ADR-001 D9), so making such a field required,
 // or optional again, changes its type and is a breaking transition.

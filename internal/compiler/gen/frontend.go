@@ -371,7 +371,7 @@ type frontendField struct {
 	// unused by detail/form fields.
 	Sortable    bool
 	TSType      string // string | number | boolean
-	Input       string // text | number | checkbox | select
+	Input       string // text | number | checkbox | select | date
 	Placeholder string // format hint for text inputs (dates), or ""
 	Options     []spec.EnumValue
 	Required    bool
@@ -400,11 +400,8 @@ func displayFieldOf(target *graph.Resource) string {
 	return "id"
 }
 
-// rfc3339Placeholder is the format hint shown in a date/datetime text input.
-func rfc3339Placeholder(t spec.FieldType) string {
-	if t == spec.TypeDate {
-		return "YYYY-MM-DDT00:00:00Z"
-	}
+// rfc3339Placeholder is the format hint shown in a datetime text input.
+func rfc3339Placeholder(spec.FieldType) string {
 	return "YYYY-MM-DDTHH:MM:SSZ"
 }
 
@@ -719,14 +716,19 @@ func frontendFieldFor(field *graph.Field) frontendField {
 		f.TSType, f.Input, f.OmitEmpty = "string", "text", true
 	case spec.TypeBoolean:
 		f.TSType, f.Input = "boolean", "checkbox"
-	case spec.TypeDate, spec.TypeDatetime:
-		// The API carries these as time.Time, which marshals to RFC 3339 and
-		// only unmarshals from RFC 3339. A native date/datetime-local control
-		// produces "2026-08-29" / "2026-08-29T06:00", which the handler's
-		// json.Unmarshal rejects, and cannot display the "…Z" wire value. So
-		// the control is a text input holding the RFC 3339 string verbatim,
-		// which round-trips; Placeholder documents the format. OmitEmpty drives
-		// dropping an empty value from the request body on submit.
+	case spec.TypeDate:
+		// The API carries a date as types.Date, "YYYY-MM-DD" both ways: what a
+		// native date control produces and displays. types.Date rejects "", so
+		// an empty one is omitted from the request body on submit.
+		f.Input, f.OmitEmpty = "date", true
+	case spec.TypeDatetime:
+		// The API carries a datetime as time.Time, which marshals to RFC 3339
+		// and only unmarshals from RFC 3339. A native datetime-local control
+		// produces "2026-08-29T06:00", which the handler's json.Unmarshal
+		// rejects, and cannot display the "…Z" wire value. So the control is a
+		// text input holding the RFC 3339 string verbatim, which round-trips;
+		// Placeholder documents the format. OmitEmpty drives dropping an empty
+		// value from the request body on submit.
 		f.Input, f.Placeholder, f.OmitEmpty = "text", rfc3339Placeholder(field.Spec.Type), true
 	case spec.TypeEnum:
 		f.Input, f.Options = "select", field.Spec.EnumValues

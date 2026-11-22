@@ -567,9 +567,9 @@ export function {{.Component}}() {
 // with both create and update it loads on an id and chooses POST or PUT; with
 // only one, it is fixed to that operation, and the unused imports, load effect
 // and branch are omitted so the module stays lint-clean. Empty date/datetime
-// values with a wire type that rejects "" (time.Time, decimal.Decimal) are
-// dropped from the request body, since the API rejects
-// "" (only RFC 3339 or a missing/null key unmarshal). On success it navigates
+// values with a wire type that rejects "" (types.Date, time.Time,
+// decimal.Decimal) are dropped from the request body, since the API rejects ""
+// (only a valid value or a missing/null key unmarshal). On success it navigates
 // to the resource's first table page, or the app root when it has none.
 const formPageSrc = `{{.Banner}}
 import { useState{{if .NeedsEffect}}, useEffect{{end}} } from "react";
@@ -732,6 +732,8 @@ export function {{.Component}}() {
               <option key={o.id} value={o.id}>{o.label}</option>
             )){{"}"}}
           </select>
+{{- else if eq .Input "date"}}
+          <input type="date" {...register("{{.JSONName}}"{{if .Required}}, { required: {{js (printf "%s is required" .Label)}} }{{end}})} />
 {{- else if eq .Input "select"}}
           <select {...register("{{.JSONName}}"{{if .Required}}, { required: {{js (printf "%s is required" .Label)}} }{{end}})}>
             <option value="">—</option>

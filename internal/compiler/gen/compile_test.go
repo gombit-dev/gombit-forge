@@ -35,8 +35,19 @@ func TestGeneratedModelsCompile(t *testing.T) {
 	// These versions match this module's own go.mod (deps_test.go keeps them
 	// honest), so the generated app inherits them from the warm module cache
 	// rather than pulling anything novel (ADR-004 D3).
+	//
+	// A date field is Gombit's types.Date. This module stays gombit-free (it
+	// drives Gombit only through the CLI), so the module cache has no Gombit to
+	// build against offline: a stand-in module provides the package, and the
+	// models compile against its Date. The real types.Date is compiled by the
+	// gombit-app compile tests (handler_compile_test.go) and the e2e suites.
 	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/sample\n\ngo 1.25.7\n\nrequire (\n\t"+
-		depDecimal+"\n\t"+depGorm+"\n)\n")
+		depDecimal+"\n\t"+depGorm+"\n\tgithub.com/gombit-dev/gombit v0.0.0\n)\n\n"+
+		"replace github.com/gombit-dev/gombit => ./_gombit\n")
+	writeFile(t, filepath.Join(root, "_gombit", "go.mod"), "module github.com/gombit-dev/gombit\n\ngo 1.25.7\n")
+	writeFile(t, filepath.Join(root, "_gombit", "types", "date.go"),
+		"// Package types stands in for Gombit's types package in the model compile test.\npackage types\n\n"+
+			"// Date stands in for Gombit's calendar date.\ntype Date struct{}\n")
 
 	for _, file := range files {
 		writeFile(t, filepath.Join(root, filepath.FromSlash(file.Path)), string(file.Content))

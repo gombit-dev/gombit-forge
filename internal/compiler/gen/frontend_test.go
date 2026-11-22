@@ -311,9 +311,10 @@ func toggledFrontendGraph(t *testing.T, create, update, del bool) *graph.Graph {
 	return g
 }
 
-// TestFrontendDateFieldsRoundTrip guards the RFC 3339 representation: date and
-// datetime use a text input holding the wire string, not a native
-// date/datetime-local control that would corrupt the time.Time JSON.
+// TestFrontendDateFieldsRoundTrip guards each wire representation. A date is a
+// types.Date, "YYYY-MM-DD", which is what a native date control produces and
+// displays. A datetime is a time.Time in RFC 3339, so it stays a text input
+// holding the wire string: a native datetime-local control would corrupt it.
 func TestFrontendDateFieldsRoundTrip(t *testing.T) {
 	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
 	eventID := id(spec.KindResource)
@@ -345,12 +346,11 @@ func TestFrontendDateFieldsRoundTrip(t *testing.T) {
 	}
 	form := frontendFiles(t, g)["frontend/src/forge_generated/event/EditEventFormPage.tsx"]
 
-	// No native date controls, which cannot hold or produce RFC 3339.
-	if strings.Contains(form, `type="date"`) || strings.Contains(form, `type="datetime-local"`) {
-		t.Errorf("date fields must not use native date controls:\n%s", form)
+	if !strings.Contains(form, `<input type="date" {...register("day"`) {
+		t.Errorf("date field must be a native date input:\n%s", form)
 	}
-	if !strings.Contains(form, `<input type="text" placeholder="YYYY-MM-DDT00:00:00Z" {...register("day"`) {
-		t.Error("date field must be a text input with an RFC 3339 placeholder")
+	if strings.Contains(form, `type="datetime-local"`) {
+		t.Errorf("datetime field must not use a datetime-local control, which cannot hold RFC 3339:\n%s", form)
 	}
 	if !strings.Contains(form, `<input type="text" placeholder="YYYY-MM-DDTHH:MM:SSZ" {...register("at"`) {
 		t.Error("datetime field must be a text input with an RFC 3339 placeholder")
@@ -359,8 +359,8 @@ func TestFrontendDateFieldsRoundTrip(t *testing.T) {
 	if !strings.Contains(form, "day: string;") || !strings.Contains(form, "at: string;") {
 		t.Error("date/datetime form values must be strings")
 	}
-	// An empty date must be dropped from the request body: time.Time rejects
-	// "" but accepts a missing key.
+	// An empty date or datetime must be dropped from the request body:
+	// types.Date and time.Time reject "" but accept a missing key.
 	if !strings.Contains(form, `if (body.day === "") {`) || !strings.Contains(form, `delete (body as Partial<EventFormValues>).day;`) {
 		t.Errorf("empty date must be omitted from the request body:\n%s", form)
 	}

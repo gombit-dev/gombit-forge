@@ -93,6 +93,7 @@ type resourceView struct {
 	AggregateColumns []aggregateColumnView
 
 	NeedsTime    bool
+	NeedsTypes   bool // Gombit's types package (types.Date)
 	NeedsDecimal bool
 
 	// ImportBlock is the handler's complete `import (...)` block, built in Go
@@ -158,8 +159,11 @@ func newResourceView(resource *graph.Resource) resourceView {
 
 	for _, field := range resource.Fields {
 		mapping, _ := resolveType(field) // validated: never errors on a built graph
-		if mapping.importPath == "time" {
+		switch mapping.importPath {
+		case "time":
 			view.NeedsTime = true
+		case gombitTypesImport:
+			view.NeedsTypes = true
 		}
 		if strings.HasPrefix(mapping.goType, "decimal.") {
 			view.NeedsDecimal = true
@@ -214,6 +218,9 @@ func newResourceView(resource *graph.Resource) resourceView {
 	third := []string{
 		"github.com/gombit-dev/gombit/contract",
 		"github.com/gombit-dev/gombit/database",
+	}
+	if view.NeedsTypes {
+		third = append(third, gombitTypesImport)
 	}
 	if view.NeedsDecimal {
 		third = append(third, "github.com/shopspring/decimal")

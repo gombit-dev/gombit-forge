@@ -1,9 +1,11 @@
 package gen
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/gombit-dev/gombit-forge/internal/compiler/graph"
 	"github.com/gombit-dev/gombit-forge/internal/spec"
 )
 
@@ -153,5 +155,58 @@ func TestOptionalTimeIsNullable(t *testing.T) {
 	}
 	if tr.Class != ClassBreaking {
 		t.Fatalf("making an optional datetime required = %s, want breaking (its Go type changes)", tr.Class)
+	}
+}
+
+// TestDateIsTypesDate: a date field is Gombit's types.Date, a calendar day whose
+// JSON is "YYYY-MM-DD", in the model and the extension ABI; an optional one is
+// a *types.Date. A datetime stays a time.Time.
+func TestDateIsTypesDate(t *testing.T) {
+	id := func(k spec.Kind) spec.ID { return spec.MustNewID(k) }
+	due, shipped, at := id(spec.KindField), id(spec.KindField), id(spec.KindField)
+	orderID := id(spec.KindResource)
+	s := &spec.ProjectSpec{
+		SpecVersion: spec.SpecVersion,
+		Project:     spec.Project{ID: id(spec.KindProject), Name: "Acme", Slug: "acme"},
+		Database:    spec.Database{Driver: spec.DriverPostgres},
+		Auth:        spec.Auth{Mode: spec.AuthCookie},
+		Resources: []*spec.Resource{{
+			ID: orderID, Label: "Order", CodeName: "Order", StorageName: "orders",
+			Fields: []*spec.Field{
+				{ID: due, Label: "Due", Type: spec.TypeDate, CodeName: "Due", StorageName: "due", Required: true},
+				{ID: shipped, Label: "Shipped", Type: spec.TypeDate, CodeName: "Shipped", StorageName: "shipped"},
+				{ID: at, Label: "At", Type: spec.TypeDatetime, CodeName: "At", StorageName: "at", Required: true},
+			},
+		}},
+	}
+	if d := spec.Validate(s); d != nil {
+		t.Fatalf("fixture invalid: %s", d.Error())
+	}
+	g, err := graph.Build(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	abi, err := ExtensionABI(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := resourceABIByID(t, abi, string(orderID)).Fields
+	for fieldID, want := range map[spec.ID]string{due: "types.Date", shipped: "*types.Date", at: "time.Time"} {
+		if got := fields[string(fieldID)].Type; got != want {
+			t.Errorf("ABI type of %s = %q, want %q", fieldID, got, want)
+		}
+	}
+	files, err := Models(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := modelSource(t, files, "order")
+	if !strings.Contains(src, `"github.com/gombit-dev/gombit/types"`) {
+		t.Errorf("order model does not import Gombit's types:\n%s", src)
+	}
+	for _, want := range []string{`Due\s+types\.Date\s`, `Shipped\s+\*types\.Date\s`, `At\s+time\.Time\s`} {
+		if !regexp.MustCompile(want).MatchString(src) {
+			t.Errorf("order model lacks %s:\n%s", want, src)
+		}
 	}
 }

@@ -207,20 +207,22 @@ func TestM0EndToEnd(t *testing.T) {
 	}
 
 	// A set optional date and datetime round-trip (created after the aggregate
-	// assertions, which count one invoice).
+	// assertions, which count one invoice). A date is a calendar day,
+	// "YYYY-MM-DD" both ways (types.Date); a datetime an RFC 3339 instant.
 	datedID := session.create(t, base+"/api/v1/invoices", map[string]any{
 		"customer_id": fkNum,
 		"total":       "5.00",
-		"issued_on":   "2026-11-19T00:00:00Z",
+		"issued_on":   "2026-11-19",
 		"paid_at":     "2026-11-20T10:30:00Z",
 	})
 	dated := session.get(t, base+"/api/v1/invoices/"+datedID)
-	// The same instants: the driver may render them in the server's zone.
-	for key, want := range map[string]string{"issued_on": "2026-11-19T00:00:00Z", "paid_at": "2026-11-20T10:30:00Z"} {
-		got, err := time.Parse(time.RFC3339, fmt.Sprint(dated[key]))
-		if wantT, _ := time.Parse(time.RFC3339, want); err != nil || !got.Equal(wantT) {
-			t.Errorf("%s read back as %v, want %s", key, dated[key], want)
-		}
+	if dated["issued_on"] != "2026-11-19" {
+		t.Errorf("issued_on read back as %v, want 2026-11-19", dated["issued_on"])
+	}
+	// The same instant: the driver may render it in the server's zone.
+	paidAt, err := time.Parse(time.RFC3339, fmt.Sprint(dated["paid_at"]))
+	if want, _ := time.Parse(time.RFC3339, "2026-11-20T10:30:00Z"); err != nil || !paidAt.Equal(want) {
+		t.Errorf("paid_at read back as %v, want 2026-11-20T10:30:00Z", dated["paid_at"])
 	}
 
 	// Admin works, and RegisterAll actually ran RegisterAdmin: the admin
