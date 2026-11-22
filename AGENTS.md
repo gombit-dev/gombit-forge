@@ -131,8 +131,12 @@ with the gombit the control plane pins and fails on any difference
   cookie as `X-CSRF-Token` on every state-changing request (login included),
   and refreshes an expired session once.
 - The editor's unit tests stub `fetch` with real `Response`s
-  (`src/test/http.ts`), so a login against a real control plane is the check
-  that the transport still works.
+  (`src/test/http.ts`), so they can't prove the transport. The Playwright
+  suite does (`controlplane/web/e2e`, `make web-e2e`): in Chromium, against the
+  Go server on a migrated Postgres, it signs in through the editor's form,
+  reloads, adds a resource and a date field, checks the committed spec, and
+  signs out. It fails on any page error, any 5xx, and any 4xx other than the
+  signed-out session check's 401.
 
 The repo is **two Go modules**. The root module
 (`github.com/gombit-dev/gombit-forge`) is the compiler and stays gombit-free —
@@ -392,6 +396,7 @@ make test          # go test ./... -count=1
 make race          # go test ./... -race
 make cp-test       # control-plane tests (needs atlas + Docker; cp-test-short skips boot)
 make web           # editor SPA: typecheck + build + unit tests
+make web-e2e       # editor in Chromium against a real control plane (Docker, atlas, Playwright)
 make cover         # coverage summary
 make golden        # rewrite the canonical-JSON golden file (deliberate only)
 make skills-check  # .claude and .cursor skill trees must match byte for byte
@@ -400,8 +405,9 @@ make skills-check  # .claude and .cursor skill trees must match byte for byte
 CI does not run `make all` verbatim. On push to `main` and on every PR it runs
 `fmt-check`, `vet`, `skills-check`, `test` and `race` for the root module;
 `cp-vet`, `cp-build` and `cp-test-short` for the control plane; a `web` job
-(`web-install`, `web-check`, `web-build`, `web-test`); and an informational
-`govulncheck` job that does not gate the merge.
+(`web-install`, `web-check`, `web-build`, `web-test`, `contract-check`); a
+`web-e2e` job (`make web-e2e`, with Atlas and Playwright's Chromium installed);
+and an informational `govulncheck` job that does not gate the merge.
 
 The `.cursor/skills/` tree duplicates `.claude/skills/` because Cursor does not
 reliably follow symlinks. Edit both sides; `skills-check` fails the build if

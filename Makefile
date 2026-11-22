@@ -13,7 +13,7 @@ WEB := controlplane/web
 
 .PHONY: all test lint fmt fmt-check vet tidy clean skills-check \
 	cp-build cp-vet cp-test cp-race \
-	web web-install web-check web-build web-test contract contract-check
+	web web-install web-check web-build web-test web-e2e contract contract-check
 
 # `all` is the Go merge gate; it deliberately does not run the web SPA (that
 # would put node on every Go dev's critical path). A frontend dev runs `make web`
@@ -60,6 +60,14 @@ web-build:
 
 web-test:
 	cd $(WEB) && npm run test
+
+# The editor in a real browser against a real control plane (Playwright):
+# Postgres in Docker with the committed migrations, the Go server and the built
+# SPA. Needs Docker, atlas, Go, node and Playwright's Chromium (run
+# `npx playwright install chromium` in controlplane/web once). Extra arguments
+# for `playwright test` go in ARGS, e.g. make web-e2e ARGS=--headed.
+web-e2e:
+	bash $(WEB)/e2e/run.sh $(ARGS)
 
 # The control plane's API contract: controlplane/openapi.json (what a fully
 # configured server serves; TestOpenAPIDocumentIsCommitted holds it to the code)
