@@ -1,0 +1,25 @@
+{
+  // The TypeScript that runs under Node rather than in the browser: the
+  // Playwright suite and its config, and Vite's config. tsconfig.json covers
+  // src only, and Playwright and Vite strip these files' types without
+  // checking them, so `npm run typecheck` checks them with this.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    "moduleResolution": "bundler",
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+
+    "types": ["node"]
+  },
+  "include": ["e2e", "playwright.config.ts", "vite.config.ts"]
+}

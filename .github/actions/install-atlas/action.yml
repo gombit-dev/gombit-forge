@@ -1,0 +1,24 @@
+# The one place CI installs Atlas, so its pin lives in one place: the jobs that
+# migrate a real Postgres (the toolchain lane, the editor's Playwright suite)
+# use this action instead of copying the install.
+name: Install Atlas
+description: Install the pinned Atlas Community release, and fail on any other.
+runs:
+  using: composite
+  steps:
+    - name: Install Atlas
+      shell: bash
+      env:
+        # The Atlas Community release gombit's own CI pins. atlasgo.sh reads
+        # ATLAS_VERSION; unset, it installs "latest", which has been a canary.
+        ATLAS_VERSION: v1.3.0
+      run: |
+        curl -sSf https://atlasgo.sh | CI=true sh -s -- --community
+        # Fail on anything but the pinned release (a canary, a newer one).
+        # Trim to the first line in the shell: piping into head can SIGPIPE.
+        reported="$(atlas version)"
+        installed="${reported%%$'\n'*}"
+        case "$installed" in
+          *" $ATLAS_VERSION") echo "$installed" ;;
+          *) echo "want Atlas $ATLAS_VERSION, got: $installed" >&2; exit 1 ;;
+        esac

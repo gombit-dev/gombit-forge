@@ -142,7 +142,12 @@ runs `make cp-test-short`, which skips the boot tests.
 
 ```bash
 make web-check web-build web-test   # typecheck, build, unit-test controlplane/web
+make web-e2e                        # the editor in Chromium against a real control plane
 ```
+
+`make web-e2e` needs Docker, atlas, Go, node and Playwright's Chromium (`npx
+playwright install chromium` once, in `controlplane/web`). It runs the control
+plane on a throwaway Postgres and ignores your `controlplane/.env`.
 
 ### The skills, and why they are duplicated
 

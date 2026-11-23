@@ -132,11 +132,20 @@ with the gombit the control plane pins and fails on any difference
   and refreshes an expired session once.
 - The editor's unit tests stub `fetch` with real `Response`s
   (`src/test/http.ts`), so they can't prove the transport. The Playwright
-  suite does (`controlplane/web/e2e`, `make web-e2e`): in Chromium, against the
-  Go server on a migrated Postgres, it signs in through the editor's form,
-  reloads, adds a resource and a date field, checks the committed spec, and
-  signs out. It fails on any page error, any 5xx, and any 4xx other than the
-  signed-out session check's 401.
+  suite does (`controlplane/web/e2e`, `make web-e2e`). In Chromium, against the
+  Go server on a migrated Postgres, it:
+  - signs in through the editor's form and reloads;
+  - adds a resource and a date field, and checks the committed spec;
+  - signs out, and reloads to check the session is really gone.
+
+  It fails on any page or console error, any failed load, and any 4xx or 5xx
+  response, the SPA's own assets included. The one exception is the session
+  check's 401, and only while signed out. When a step fails, the failure lists
+  what went wrong on the page first. The server is a built binary started in an
+  empty directory, with every inherited `GOMBIT_*`, `FORGE_*` and `GITHUB_*`
+  variable unset, so neither a local `.env` nor the shell can change what it
+  runs against. `npm run typecheck` checks the suite and its config
+  (`tsconfig.node.json`).
 
 The repo is **two Go modules**. The root module
 (`github.com/gombit-dev/gombit-forge`) is the compiler and stays gombit-free —

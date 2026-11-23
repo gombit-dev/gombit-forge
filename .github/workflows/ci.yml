@@ -105,11 +105,6 @@ jobs:
     name: Editor end-to-end (Playwright)
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      # The control plane follows Gombit's go directive; let `go` fetch it.
-      GOTOOLCHAIN: auto
-      # The Atlas Community release gombit's own CI pins.
-      ATLAS_VERSION: v1.3.0
     steps:
       - uses: actions/checkout@v7
 
@@ -125,15 +120,7 @@ jobs:
           cache: npm
           cache-dependency-path: controlplane/web/package-lock.json
 
-      - name: Install Atlas
-        run: |
-          curl -sSf https://atlasgo.sh | CI=true sh -s -- --community
-          reported="$(atlas version)"
-          installed="${reported%%$'\n'*}"
-          case "$installed" in
-            *" $ATLAS_VERSION") echo "$installed" ;;
-            *) echo "want Atlas $ATLAS_VERSION, got: $installed" >&2; exit 1 ;;
-          esac
+      - uses: ./.github/actions/install-atlas
 
       - name: Install
         run: make web-install
