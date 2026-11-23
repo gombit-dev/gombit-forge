@@ -5,6 +5,10 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 // double-submit, the generated client's paths and bodies, and the server's
 // committed revisions all have to work together here.
 
+// Gombit's session cookies (auth.AccessCookieName, auth.RefreshCookieName).
+const accessCookie = "gombit_access";
+const refreshCookie = "gombit_refresh";
+
 type Seeded = {
   email: string;
   password: string;
@@ -64,8 +68,14 @@ test("sign in, add a resource and a date field, and sign out", async ({ page, pl
       "the Invoice resource has the date field",
     ).toBeTruthy();
 
-    // Signed out, the session check's 401 is expected again.
+    // The SPA never reads the session cookies' names, so nothing else notices
+    // if gombit renames one. Checking them here fails the test on a rename,
+    // rather than leave the expiry check below with nothing to look for.
     const signedInCookies = await page.context().cookies();
+    expect(signedInCookies.map((c) => c.name), "signed in, the browser holds both session cookies").toEqual(
+      expect.arrayContaining([accessCookie, refreshCookie]),
+    );
+    // Signed out, the session check's 401 is expected again.
     watch.signedIn = false;
     await page.getByRole("button", { name: "Sign out" }).click();
     await expect(page.getByRole("form", { name: "Sign in" })).toBeVisible();
@@ -75,8 +85,8 @@ test("sign in, add a resource and a date field, and sign out", async ({ page, pl
     // before any reload: a refused refresh also clears the cookies.
     // - Chromium honoured the logout response's expiring Set-Cookie headers.
     const left = (await page.context().cookies()).map((c) => c.name);
-    expect(left, "the logout response expired the access cookie").not.toContain("gombit_access");
-    expect(left, "the logout response expired the refresh cookie").not.toContain("gombit_refresh");
+    expect(left, "the logout response expired the access cookie").not.toContain(accessCookie);
+    expect(left, "the logout response expired the refresh cookie").not.toContain(refreshCookie);
     // - The server ended the session: the access cookie from before the
     //   sign-out no longer works.
     const replay = await playwright.request.newContext({ baseURL, storageState: { cookies: signedInCookies, origins: [] } });
