@@ -10,6 +10,7 @@ import (
 
 	"github.com/gombit-dev/gombit-forge/internal/gombit"
 	"github.com/gombit-dev/gombit-forge/internal/spec"
+	"github.com/gombit-dev/gombit-forge/internal/toolchaintest"
 )
 
 // TestMakeMigrationsGeneratesVersionedSQL is the issue #11 acceptance check:
@@ -29,11 +30,7 @@ func TestMakeMigrationsGeneratesVersionedSQL(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping migration integration test in -short")
 	}
-	for _, bin := range []string{gombit.DefaultBinary, "atlas", "go", "docker"} {
-		if _, err := exec.LookPath(bin); err != nil {
-			t.Skipf("%s not on PATH: %v", bin, err)
-		}
-	}
+	toolchaintest.RequireBinaries(t, gombit.DefaultBinary, "atlas", "go", "docker")
 
 	cli := &gombit.CLI{}
 	version, err := cli.Version(context.Background())
@@ -41,7 +38,7 @@ func TestMakeMigrationsGeneratesVersionedSQL(t *testing.T) {
 		t.Fatalf("gombit version: %v", err)
 	}
 	if err := gombit.CheckSupported(version); err != nil {
-		t.Skipf("installed toolchain unsupported: %v", err)
+		toolchaintest.Skipf(t, "installed toolchain unsupported: %v", err)
 	}
 
 	const module = "example.com/app"

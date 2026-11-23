@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/gombit-dev/gombit-forge/internal/gombit"
 	"github.com/gombit-dev/gombit-forge/internal/spec"
+	"github.com/gombit-dev/gombit-forge/internal/toolchaintest"
 )
 
 // TestFrontendEndToEnd is the frontend go/no-go gate (#186), the missing twin of
@@ -32,25 +32,21 @@ import (
 // frontend and assert it succeeds.
 //
 // It is heavier than the M0 gate — it installs the scaffolded app's npm deps and
-// runs a real tsc + vite build — so it is gated the same way (skips in -short and
-// when any of gombit, atlas, go, docker, node, npm, npx is absent) and left to a
-// slower lane rather than the fast merge gate.
+// runs a real tsc + vite build — so it is gated the same way: it skips in -short
+// and when any of gombit, atlas, go, docker, node, npm, npx is absent, and runs
+// in CI's `e2e` job (`make e2e`) rather than the fast `build` job.
 func TestFrontendEndToEnd(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping frontend end-to-end harness in -short")
 	}
-	for _, bin := range []string{gombit.DefaultBinary, "atlas", "go", "docker", "node", "npm", "npx"} {
-		if _, err := exec.LookPath(bin); err != nil {
-			t.Skipf("%s not on PATH: %v", bin, err)
-		}
-	}
+	toolchaintest.RequireBinaries(t, gombit.DefaultBinary, "atlas", "go", "docker", "node", "npm", "npx")
 	cli := &gombit.CLI{}
 	version, err := cli.Version(context.Background())
 	if err != nil {
 		t.Fatalf("gombit version: %v", err)
 	}
 	if err := gombit.CheckSupported(version); err != nil {
-		t.Skipf("installed toolchain unsupported: %v", err)
+		toolchaintest.Skipf(t, "installed toolchain unsupported: %v", err)
 	}
 
 	// The frontend build (npm install + tsc + vite) dominates and is slow.

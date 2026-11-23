@@ -5,6 +5,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/gombit-dev/gombit-forge/internal/toolchaintest"
 )
 
 // TestGeneratedModelsCompile is the issue #6 acceptance criterion: the
@@ -21,9 +23,7 @@ func TestGeneratedModelsCompile(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping compile test in -short")
 	}
-	if _, err := exec.LookPath("go"); err != nil {
-		t.Skipf("go toolchain not found: %v", err)
-	}
+	toolchaintest.RequireBinaries(t, "go")
 
 	g, _ := buildGraph(t)
 	files, err := Models(g)

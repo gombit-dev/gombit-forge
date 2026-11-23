@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/gombit-dev/gombit-forge/internal/compiler/gen"
 	"github.com/gombit-dev/gombit-forge/internal/spec"
+	"github.com/gombit-dev/gombit-forge/internal/toolchaintest"
 )
 
 func deletedResource(codeName string) DeletedResource {
@@ -104,9 +104,7 @@ func TestArchiveLeavesNothingInBuildTree(t *testing.T) {
 // `go build ./...` fail; archiving the extension out of the build graph makes it
 // pass again — without rewriting the source.
 func TestArchiveGoBuildSucceedsAfterDeletion(t *testing.T) {
-	if _, err := exec.LookPath("go"); err != nil {
-		t.Skip("go not on PATH")
-	}
+	toolchaintest.RequireBinaries(t, "go")
 	dir := t.TempDir()
 	writeFile(t, dir, "go.mod", "module example.com/app\n\ngo 1.25\n")
 	writeFile(t, dir, "main.go", "package main\n\nfunc main() {}\n")

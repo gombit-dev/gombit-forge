@@ -48,14 +48,69 @@ jobs:
           GOTOOLCHAIN: auto
         run: make cp-build
 
-      # -short here, like the M0 e2e gate: the boot test drives a throwaway
-      # Postgres under Docker and is the local acceptance proof, but bringing a
-      # cold container up inside the test is too slow/flaky for the merge gate.
-      # `make cp-test` (no -short) runs it locally where the image is warm.
+      # -short here: it skips every Postgres-backed test (dbtest's and the
+      # boot test), because this job installs neither Docker nor atlas. The
+      # `e2e` job below runs them in full.
       - name: Control plane — test (short)
         env:
           GOTOOLCHAIN: auto
         run: make cp-test-short
+
+  # The toolchain lane (`make e2e`), with every tool it needs installed: the
+  # gombit CLI, atlas, Docker and node, which `build` doesn't install.
+  # - The compiler's end-to-ends scaffold a real Gombit app, compile a spec into
+  #   it, migrate it on Postgres, then build, boot and serve it, including its
+  #   generated frontend.
+  # - The control plane runs its whole suite, the Postgres-backed tests that
+  #   `build`'s cp-test-short skips included.
+  # Each runs through internal/toolchaintest/noskip, which logs every test and
+  # fails the step on any skip: here a skip means something didn't run. gombit
+  # is the version the control plane pins, so a Gombit release that breaks a
+  # generated app or the control plane fails this check on the PR that moves
+  # the pin (dependabot's or an upgrade's). It blocks that merge only if the
+  # `main` ruleset requires it.
+  e2e:
+    name: Toolchain end-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: controlplane/go.mod
+          cache: true
+          # Keyed on both modules, so a gombit bump in the control plane saves
+          # a fresh cache holding the generated apps' new dependencies.
+          cache-dependency-path: |
+            go.sum
+            controlplane/go.sum
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # GOTOOLCHAIN is set per step because setup-go exports GOTOOLCHAIN=local
+      # to the job, which outranks a job-level env (a step-level one outranks
+      # it). gombit's own go.mod, and the go line its scaffold writes into a
+      # generated app (a constant in gombit, not its go.mod), can be newer than
+      # the control plane's toolchain installed above; auto lets go fetch it.
+      - name: Install gombit (the control plane's pin)
+        env:
+          GOTOOLCHAIN: auto
+        run: make install-gombit
+
+      - uses: ./.github/actions/install-atlas
+
+      - name: Compiler end-to-end
+        env:
+          GOTOOLCHAIN: auto
+        run: make e2e-compiler
+
+      - name: Control plane on Postgres
+        env:
+          GOTOOLCHAIN: auto
+        run: make e2e-controlplane
 
   # The Forge editor SPA (controlplane/web) is a separate npm project the Go
   # gates never cover, so it gets its own job: typecheck, build and unit-test.
@@ -95,7 +150,7 @@ jobs:
         env:
           GOTOOLCHAIN: auto
         run: |
-          go install "github.com/gombit-dev/gombit/cmd/gombit@$(cd controlplane && go list -m -f '{{.Version}}' github.com/gombit-dev/gombit)"
+          make install-gombit
           make contract-check
   # The editor in a real browser against a real control plane (`make web-e2e`):
   # the Go server on a Postgres with the committed migrations, and the built

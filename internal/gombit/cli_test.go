@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gombit-dev/gombit-forge/internal/toolchaintest"
 )
 
 // recorder captures invocations so command construction can be asserted
@@ -193,9 +194,7 @@ func TestScaffoldAgainstInstalledToolchain(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping toolchain integration test in -short")
 	}
-	if _, err := exec.LookPath(DefaultBinary); err != nil {
-		t.Skipf("gombit not on PATH: %v", err)
-	}
+	toolchaintest.RequireBinaries(t, DefaultBinary)
 
 	cli := &CLI{}
 	version, err := cli.Version(context.Background())
@@ -203,7 +202,7 @@ func TestScaffoldAgainstInstalledToolchain(t *testing.T) {
 		t.Fatalf("version: %v", err)
 	}
 	if err := CheckSupported(version); err != nil {
-		t.Skipf("installed toolchain is unsupported: %v", err)
+		toolchaintest.Skipf(t, "installed toolchain is unsupported: %v", err)
 	}
 
 	dir := filepath.Join(t.TempDir(), "acme-crm")
@@ -244,9 +243,7 @@ func TestScaffoldAgainstInstalledToolchain(t *testing.T) {
 // present, so the parser is checked against actual output rather than only
 // against a fixture that could drift.
 func TestVersionAgainstInstalledToolchain(t *testing.T) {
-	if _, err := exec.LookPath(DefaultBinary); err != nil {
-		t.Skipf("gombit not on PATH: %v", err)
-	}
+	toolchaintest.RequireBinaries(t, DefaultBinary)
 
 	cli := &CLI{}
 	version, err := cli.Version(context.Background())

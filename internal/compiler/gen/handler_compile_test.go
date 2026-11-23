@@ -9,6 +9,7 @@ import (
 	"github.com/gombit-dev/gombit-forge/internal/compiler/graph"
 	"github.com/gombit-dev/gombit-forge/internal/gombit"
 	"github.com/gombit-dev/gombit-forge/internal/spec"
+	"github.com/gombit-dev/gombit-forge/internal/toolchaintest"
 )
 
 // TestGeneratedHandlersCompileInGombitApp is the issue #7 acceptance check that
@@ -20,15 +21,13 @@ import (
 // generated package into it, and runs `go build ./...`.
 //
 // It requires an installed Gombit toolchain, so — like internal/gombit's
-// integration tests — it skips when gombit is absent or in -short. CI, which
-// has no gombit binary, exercises the structural unit tests instead.
+// integration tests — it skips when gombit is absent or in -short. CI runs it
+// in the `e2e` job (`make e2e`), where a missing gombit fails instead.
 func TestGeneratedHandlersCompileInGombitApp(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping gombit-app compile test in -short")
 	}
-	if _, err := exec.LookPath(gombit.DefaultBinary); err != nil {
-		t.Skipf("gombit not on PATH: %v", err)
-	}
+	toolchaintest.RequireBinaries(t, gombit.DefaultBinary)
 
 	cli := &gombit.CLI{}
 	version, err := cli.Version(context.Background())
@@ -36,7 +35,7 @@ func TestGeneratedHandlersCompileInGombitApp(t *testing.T) {
 		t.Fatalf("gombit version: %v", err)
 	}
 	if err := gombit.CheckSupported(version); err != nil {
-		t.Skipf("installed toolchain unsupported: %v", err)
+		toolchaintest.Skipf(t, "installed toolchain unsupported: %v", err)
 	}
 
 	// A resource with every toggle on and admin visible, so every stage emits.
