@@ -20,14 +20,15 @@ const serverDir = required("FORGE_E2E_SERVER_DIR");
 const apiPort = process.env.FORGE_E2E_API_PORT ?? "18080";
 const webPort = process.env.FORGE_E2E_WEB_PORT ?? "14173";
 
-// The server's whole configuration. Nothing else reaches it:
-// - It runs in an empty directory (serverDir), so gombit's config.Load finds no
-//   .env to fill in what this leaves out.
-// - Playwright always passes its own environment to a web server, under this
-//   object, so the command unsets every inherited variable the control plane
-//   reads (GOMBIT_*, FORGE_*, GITHUB_*). A developer's SMTP relay, Redis cache,
-//   token TTLs or Cloud credentials can't change what the test runs against.
+// The server's whole environment. It starts under `env -i` with only these
+// variables, written out on its command line (env -i also drops what Playwright
+// passes a web server), so nothing in the shell reaches it: not the control
+// plane's own GOMBIT_*/FORGE_*/GITHUB_* settings, and not a library's either,
+// such as the libpq PG* variables its Postgres driver reads. It runs in an
+// empty directory (serverDir), so gombit's config.Load finds no .env.
 const serverEnv: Record<string, string> = {
+  PATH: process.env.PATH ?? "/usr/bin:/bin",
+  HOME: serverDir,
   GOMBIT_ENV: "development",
   GOMBIT_HTTP_ADDR: `127.0.0.1:${apiPort}`,
   GOMBIT_DATABASE_DRIVER: "postgres",
@@ -38,10 +39,13 @@ const serverEnv: Record<string, string> = {
   GOMBIT_COOKIE_SECURE: "false",
   GOMBIT_COOKIE_SAMESITE: "lax",
 };
-const inherited = Object.keys(process.env).filter(
-  (name) => /^(GOMBIT|FORGE|GITHUB)_[A-Z0-9_]*$/.test(name) && !(name in serverEnv),
-);
-const unset = inherited.map((name) => `-u ${name}`).join(" ");
+// shellQuote single-quotes v for the POSIX shell Playwright runs commands in.
+const shellQuote = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
+const serverCommand = [
+  "env -i",
+  ...Object.entries(serverEnv).map(([name, value]) => `${name}=${shellQuote(value)}`),
+  shellQuote(serverBin),
+].join(" ");
 
 export default defineConfig({
   testDir: "e2e",
@@ -57,12 +61,11 @@ export default defineConfig({
   webServer: [
     {
       // A built binary, so the timeout measures the boot, not the compiler.
-      command: `env ${unset} "${serverBin}"`,
+      command: serverCommand,
       cwd: serverDir,
       url: `http://127.0.0.1:${apiPort}/readyz`,
       timeout: 60_000,
       stdout: "pipe",
-      env: serverEnv,
     },
     {
       command: `npx vite preview --host 127.0.0.1 --port ${webPort} --strictPort`,

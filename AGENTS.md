@@ -136,15 +136,17 @@ with the gombit the control plane pins and fails on any difference
   Go server on a migrated Postgres, it:
   - signs in through the editor's form and reloads;
   - adds a resource and a date field, and checks the committed spec;
-  - signs out, and reloads to check the session is really gone.
+  - signs out, and checks both halves of it: Chromium expired the session
+    cookies, and the server no longer accepts the old access cookie.
 
   It fails on any page or console error, any failed load, and any 4xx or 5xx
   response, the SPA's own assets included. The one exception is the session
   check's 401, and only while signed out. When a step fails, the failure lists
   what went wrong on the page first. The server is a built binary started in an
-  empty directory, with every inherited `GOMBIT_*`, `FORGE_*` and `GITHUB_*`
-  variable unset, so neither a local `.env` nor the shell can change what it
-  runs against. `npm run typecheck` checks the suite and its config
+  empty directory under `env -i`, with only the variables the config writes
+  out, and the migrations are applied the same way. So neither a local `.env`
+  nor the shell (a libpq `PG*` variable included) can change what it runs
+  against. `npm run typecheck` checks the suite and its config
   (`tsconfig.node.json`).
 
 The repo is **two Go modules**. The root module

@@ -36,7 +36,10 @@ for _ in $(seq 1 60); do
 done
 docker exec "$name" pg_isready -h 127.0.0.1 -U postgres >/dev/null
 
-atlas migrate apply --dir "file://${migrations}" --url "$dsn"
+# env -i, like the server's own start (playwright.config.ts): atlas's Postgres
+# driver reads the libpq PG* variables too, and the shell's must not change
+# the migration.
+env -i PATH="$PATH" HOME="$HOME" atlas migrate apply --dir "file://${migrations}" --url "$dsn"
 
 # Built ahead, so the config's readiness timeout measures the boot, not the
 # compiler. -buildvcs=false: the binary is a fixture, and VCS stamping fails in

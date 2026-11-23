@@ -25,13 +25,17 @@ test("sign in, add a resource and a date field, and sign out", async ({ page, pl
     const signIn = page.getByRole("form", { name: "Sign in" });
     await signIn.getByLabel("Email").fill(seeded.email);
     await signIn.getByLabel("Password").fill(seeded.password);
+    // The form renders only once the signed-out session check (its refresh
+    // attempt included) has resolved, so no expected 401 is still to come.
+    // From the login on, the session check must not need its refresh: a 401
+    // from /me or /auth/refresh is a failure, the first check after the login
+    // included.
+    watch.signedIn = true;
     await signIn.getByRole("button", { name: "Sign in" }).click();
     const areas = page.getByRole("navigation", { name: "Editor areas" });
     await expect(areas).toBeVisible();
-    watch.signedIn = true;
 
-    // The session is a cookie, so it survives a reload. Signed in, the session
-    // check must not need its refresh: a 401 from either one is a failure now.
+    // The session is a cookie, so it survives a reload.
     await page.reload();
     await expect(areas).toBeVisible();
 
@@ -61,13 +65,24 @@ test("sign in, add a resource and a date field, and sign out", async ({ page, pl
     ).toBeTruthy();
 
     // Signed out, the session check's 401 is expected again.
+    const signedInCookies = await page.context().cookies();
     watch.signedIn = false;
     await page.getByRole("button", { name: "Sign out" }).click();
     await expect(page.getByRole("form", { name: "Sign in" })).toBeVisible();
 
-    // Signed out for real: the browser dropped the cookies, so a reload can't
-    // restore the session. The UI goes anonymous as soon as the logout POST
-    // returns, whatever happened to the cookies.
+    // The UI goes anonymous as soon as the logout POST returns, whatever
+    // happened to the session, so check both halves of signing out. Checked
+    // before any reload: a refused refresh also clears the cookies.
+    // - Chromium honoured the logout response's expiring Set-Cookie headers.
+    const left = (await page.context().cookies()).map((c) => c.name);
+    expect(left, "the logout response expired the access cookie").not.toContain("gombit_access");
+    expect(left, "the logout response expired the refresh cookie").not.toContain("gombit_refresh");
+    // - The server ended the session: the access cookie from before the
+    //   sign-out no longer works.
+    const replay = await playwright.request.newContext({ baseURL, storageState: { cookies: signedInCookies, origins: [] } });
+    expect((await replay.get("/api/v1/me")).status(), "the old access cookie is dead server-side").toBe(401);
+    await replay.dispose();
+    // And a reload doesn't bring the session back.
     await page.reload();
     await expect(page.getByRole("form", { name: "Sign in" })).toBeVisible();
 
