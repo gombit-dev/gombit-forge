@@ -7,10 +7,12 @@
 // unset, so a skip means something didn't run. A skip that is legitimate there
 // is named with -allow-skip, with the reason it must give.
 //
-// The record is one line per top-level test with its result and time, so the
-// log shows that a given test ran. A failing test's output is printed in full.
+// The record is one line per top-level test with its package, result and time,
+// so the log shows that a given test ran, and where: `go test -json` interleaves
+// the packages it runs in parallel. -trim-prefix shortens the package paths. A
+// failing test's output is printed in full.
 //
-//	go test -json ./... | go run ./internal/toolchaintest/noskip -allow-skip 'TestX=running as root'
+//	go test -json ./... | go run ./internal/toolchaintest/noskip -trim-prefix example.com/mod/ -allow-skip 'TestX=running as root'
 package main
 
 import (
@@ -52,8 +54,9 @@ func (a allowList) Set(v string) error {
 func main() {
 	allowed := allowList{}
 	flag.Var(allowed, "allow-skip", "`TestName=reason`: a skip this test may take, if its message contains reason (repeatable)")
+	trim := flag.String("trim-prefix", "", "`prefix` to cut from package paths in the record")
 	flag.Parse()
-	if err := check(os.Stdin, os.Stdout, allowed); err != nil {
+	if err := check(os.Stdin, os.Stdout, allowed, *trim); err != nil {
 		fmt.Fprintln(os.Stdout, "noskip:", err)
 		os.Exit(1)
 	}
@@ -62,8 +65,9 @@ func main() {
 type key struct{ pkg, test string }
 
 // check streams the record of in to out and returns an error describing every
-// failure, disallowed skip and unfinished test.
-func check(in io.Reader, out io.Writer, allowed allowList) error {
+// failure, disallowed skip and unfinished test. trim is cut from the package
+// paths in the per-test lines.
+func check(in io.Reader, out io.Writer, allowed allowList, trim string) error {
 	output := map[key]*strings.Builder{} // buffered until the test ends
 	running := map[key]bool{}
 	var problems []string
@@ -86,6 +90,7 @@ func check(in io.Reader, out io.Writer, allowed allowList) error {
 			pkg = e.ImportPath
 		}
 		k := key{pkg, e.Test}
+		short := strings.TrimPrefix(pkg, trim)
 		top := e.Test != "" && !strings.Contains(e.Test, "/")
 
 		switch e.Action {
@@ -123,14 +128,14 @@ func check(in io.Reader, out io.Writer, allowed allowList) error {
 			case e.Action == "skip":
 				if reason, ok := allowed[e.Test]; ok && strings.Contains(msg, reason) {
 					skipped++
-					fmt.Fprintf(out, "--- SKIP: %s (allowed: %s)\n", e.Test, reason)
+					fmt.Fprintf(out, "--- SKIP: %s %s (allowed: %s)\n", short, e.Test, reason)
 					break
 				}
 				fmt.Fprintf(out, "%s", msg)
 				problems = append(problems, fmt.Sprintf("SKIP %s %s: nothing may skip in this lane", pkg, e.Test))
 			case top:
 				passed++
-				fmt.Fprintf(out, "--- PASS: %s (%.2fs)\n", e.Test, e.Elapsed)
+				fmt.Fprintf(out, "--- PASS: %s %s (%.2fs)\n", short, e.Test, e.Elapsed)
 			}
 		}
 	}

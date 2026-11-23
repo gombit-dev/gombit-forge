@@ -413,9 +413,11 @@ The `e2e` job's two steps pipe `go test -json` through
 `internal/toolchaintest/noskip`. It logs every top-level test with its time,
 and fails the step on any skip, however the test skipped: with every tool
 installed and no `-short`, a skip means something didn't run. A skip that is
-legitimate there is named in the Makefile with `-allow-skip`. A new toolchain
-test should still gate its tools with `toolchaintest`, whose failure names the
-missing tool.
+legitimate there is named in the Makefile with `-allow-skip`. Each step runs
+its whole module, so a toolchain test added anywhere runs there.
+`toolchaintest` carries the rule outside the lane: with
+`FORGE_REQUIRE_TOOLCHAIN=1`, a hand run of `go test` fails on a missing tool
+instead of skipping, so a new toolchain test should gate its tools with it.
 
 The `.cursor/skills/` tree duplicates `.claude/skills/` because Cursor does not
 reliably follow symlinks. Edit both sides; `skills-check` fails the build if

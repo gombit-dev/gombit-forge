@@ -51,7 +51,7 @@ func TestCheck(t *testing.T) {
 		{
 			name:    "every test passes",
 			events:  []event{run("TestA"), end("pass", "TestA"), run("TestA/sub"), end("pass", "TestA/sub"), pkgPass()},
-			wantOut: "--- PASS: TestA (0.00s)\nok  \texample.com/p\t1.500s\n",
+			wantOut: "--- PASS: p TestA (0.00s)\nok  \texample.com/p\t1.500s\n",
 		},
 		{
 			name:    "a skip fails the lane",
@@ -68,7 +68,7 @@ func TestCheck(t *testing.T) {
 			name:    "an allowed skip with its reason passes",
 			events:  append(skipped("TestRoot", "running as root: unlink"), pkgPass()),
 			allowed: root,
-			wantOut: "--- SKIP: TestRoot (allowed: running as root)",
+			wantOut: "--- SKIP: p TestRoot (allowed: running as root)",
 		},
 		{
 			name:    "an allowed test skipping for another reason fails",
@@ -115,7 +115,7 @@ func TestCheck(t *testing.T) {
 				allowed = allowList{}
 			}
 			var got strings.Builder
-			err := check(strings.NewReader(stream(t, tc.events...)), &got, allowed)
+			err := check(strings.NewReader(stream(t, tc.events...)), &got, allowed, "example.com/")
 			switch {
 			case tc.wantErr == "" && err != nil:
 				t.Fatalf("check: %v\noutput:\n%s", err, got.String())
@@ -132,12 +132,35 @@ func TestCheck(t *testing.T) {
 func TestCheckRejectsInputThatIsNotTest2JSON(t *testing.T) {
 	in := "go: cannot find main module\n" + stream(t, run("TestA"), end("pass", "TestA"), pkgPass())
 	var got strings.Builder
-	err := check(strings.NewReader(in), &got, allowList{})
+	err := check(strings.NewReader(in), &got, allowList{}, "")
 	if err == nil || !strings.Contains(err.Error(), "not go test -json output") {
 		t.Fatalf("want a rejection of the stray line, got %v", err)
 	}
 	if !strings.Contains(got.String(), "cannot find main module") {
 		t.Errorf("the stray line should be shown:\n%s", got.String())
+	}
+}
+
+// go test -json interleaves packages, so each line names its package: two
+// packages with a test of the same name stay apart.
+func TestCheckNamesEachTestsPackage(t *testing.T) {
+	ev := func(action, pkg, test string) event { return event{Action: action, Package: pkg, Test: test} }
+	in := stream(t,
+		ev("run", "example.com/mod/a", "TestSame"),
+		ev("run", "example.com/mod/b", "TestSame"),
+		ev("pass", "example.com/mod/b", "TestSame"),
+		ev("pass", "example.com/mod/a", "TestSame"),
+		ev("pass", "example.com/mod/a", ""),
+		ev("pass", "example.com/mod/b", ""),
+	)
+	var got strings.Builder
+	if err := check(strings.NewReader(in), &got, allowList{}, "example.com/mod/"); err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	for _, want := range []string{"--- PASS: a TestSame ", "--- PASS: b TestSame "} {
+		if !strings.Contains(got.String(), want) {
+			t.Errorf("output lacks %q:\n%s", want, got.String())
+		}
 	}
 }
 

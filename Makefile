@@ -29,9 +29,11 @@ race:
 
 # The toolchain lane, with every tool installed: the gombit CLI, atlas, Docker
 # and node. CI's `e2e` job runs it with the gombit the control plane pins.
-# - e2e-compiler: the tests that scaffold, compile, migrate, build and serve a
-#   real Gombit app (the M0, export, frontend and migration end-to-ends, and the
-#   gombit-app compile tests). `make test` skips them where a tool is missing.
+# - e2e-compiler: the root module's whole suite, which includes the tests that
+#   scaffold, compile, migrate, build and serve a real Gombit app (the M0,
+#   export, frontend and migration end-to-ends, and the gombit-app compile
+#   tests). `make test` skips those where a tool is missing. The whole module,
+#   not a package list, so a toolchain test added anywhere runs here.
 # - e2e-controlplane: the control plane's whole suite, its Postgres-backed tests
 #   included, which cp-test-short skips.
 # Both pipe `go test -json` through internal/toolchaintest/noskip, which logs
@@ -39,12 +41,12 @@ race:
 # nothing, however a test skips. The one allowed skip only happens as root.
 # FORGE_REQUIRE_TOOLCHAIN also turns toolchaintest's skips into failures that
 # say which tool is missing.
-NOSKIP = go run ./internal/toolchaintest/noskip
+NOSKIP = go run ./internal/toolchaintest/noskip -trim-prefix github.com/gombit-dev/gombit-forge/
 
 e2e: e2e-compiler e2e-controlplane
 
 e2e-compiler:
-	set -o pipefail; FORGE_REQUIRE_TOOLCHAIN=1 go test -json ./internal/compiler/... ./internal/gombit/... -count=1 -timeout 45m \
+	set -o pipefail; FORGE_REQUIRE_TOOLCHAIN=1 go test -json ./... -count=1 -timeout 45m \
 		| $(NOSKIP) -allow-skip 'TestMaterializeSwapSurvivesUnremovableLiveEntry=running as root'
 
 e2e-controlplane:

@@ -25,16 +25,18 @@ round-trip representation, it is almost certainly wrong. See
 | Tool | Version | Needed for |
 | --- | --- | --- |
 | Go | each module's `go.mod` is authoritative (auto-resolves via `GOTOOLCHAIN`) | everything |
-| `gombit` CLI | ≥ v0.8.0 (`internal/gombit.MinimumVersion`); test with the newest release | the end-to-end suites (scaffold, migrate, build and run a real app) |
-| Atlas | Community Edition | migration diffing in the e2e and control-plane tests |
+| `gombit` CLI | the control plane's pin (`make install-gombit`); ≥ v0.8.0 (`internal/gombit.MinimumVersion`) | the end-to-end suites (scaffold, migrate, build and run a real app) |
+| Atlas | Community Edition v1.3.0, the version CI pins (`.github/actions/install-atlas`) | migration diffing in the e2e and control-plane tests |
 | Docker | any recent | throwaway Postgres for the e2e and control-plane tests |
 | Node.js | 22+ | the editor SPA under `controlplane/web`, and the generated frontend in the e2e suite (`node`, `npm`, `npx`) |
 
 The root module's unit tests need **none** of the external tools — only Go.
-Install the `gombit` CLI when you need the integration suites:
+Install the `gombit` CLI when you need the integration suites. This installs
+the version `controlplane/go.mod` pins, the one CI tests with; install a newer
+release by hand when you want to try it before the pin moves:
 
 ```bash
-go install github.com/gombit-dev/gombit/cmd/gombit@v0.10.0
+make install-gombit
 ```
 
 ## Getting set up
@@ -135,9 +137,13 @@ which makes a missing tool fail the test with its name rather than skip it. CI's
 `e2e` job runs it with the gombit `controlplane/go.mod` pins. Run it before you
 move that pin.
 
-A new test that needs a tool should check for it with
-`toolchaintest.RequireBinaries` (or `toolchaintest.Skipf`), not a bare
-`t.Skip`, so that the failure says which tool is missing.
+In `make e2e` any skip fails, a bare `t.Skip` included: `noskip` prints the
+skip's message and fails the step. `toolchaintest` carries the rule outside the
+lane: with `FORGE_REQUIRE_TOOLCHAIN=1`, a hand run of `go test` on one package
+fails on a missing tool instead of skipping. So a new test that needs a tool
+should check for it with `toolchaintest.RequireBinaries` (or
+`toolchaintest.Skipf`). The control plane's Postgres tests skip the plain way
+(`internal/dbtest`); in the lane, `noskip` covers them.
 
 ### The control plane
 
