@@ -28,7 +28,7 @@ round-trip representation, it is almost certainly wrong. See
 | `gombit` CLI | ≥ v0.8.0 (`internal/gombit.MinimumVersion`); test with the newest release | the end-to-end suites (scaffold, migrate, build and run a real app) |
 | Atlas | Community Edition | migration diffing in the e2e and control-plane tests |
 | Docker | any recent | throwaway Postgres for the e2e and control-plane tests |
-| Node.js | 22+ | the editor SPA under `controlplane/web` |
+| Node.js | 22+ | the editor SPA under `controlplane/web`, and the generated frontend in the e2e suite (`node`, `npm`, `npx`) |
 
 The root module's unit tests need **none** of the external tools — only Go.
 Install the `gombit` CLI when you need the integration suites:
@@ -102,13 +102,15 @@ scope in a PR.
 ## Local checks
 
 `make all` is the local gate; run it before you push. CI runs the same checks
-split into jobs (with `cp-test-short` instead of `cp-test`, plus the SPA and an
-informational `govulncheck`).
+split into jobs: a `build` job (with `cp-test-short` instead of `cp-test`), an
+`e2e` job that runs `make e2e` with every tool installed, the SPA, and an
+informational `govulncheck`.
 
 ```bash
 make all           # fmt-check + vet + cp-vet + test + cp-test + skills-check
 make test          # go test ./... -count=1   (root module)
 make race          # go test ./... -race
+make e2e           # the toolchain lane: needs gombit, atlas, Docker and node; any skip fails
 make cover         # coverage summary
 make golden        # rewrite the canonical-JSON golden file (deliberate only)
 make skills-check  # the .claude and .cursor skill trees must match byte for byte
@@ -117,12 +119,25 @@ make skills-check  # the .claude and .cursor skill trees must match byte for byt
 ### The end-to-end gate
 
 `TestM0EndToEnd` scaffolds a real Gombit app, migrates on Postgres, builds,
-boots, and exercises CRUD + admin. It needs `gombit`, `atlas`, and Docker on
-PATH and skips automatically without them or under `-short`:
+boots, and exercises CRUD + admin. The export, frontend and migration
+end-to-ends and the gombit-app compile tests work the same way. They need
+`gombit`, `atlas` and Docker on PATH (the frontend one also needs node), and
+under `go test` they skip without them or under `-short`:
 
 ```bash
 go test ./internal/compiler -run TestM0EndToEnd -v
 ```
+
+`make e2e` is the lane that must not skip. It runs those tests, then the control
+plane's whole suite, through `internal/toolchaintest/noskip`, which lists every
+test that ran and fails on any skip. It also sets `FORGE_REQUIRE_TOOLCHAIN=1`,
+which makes a missing tool fail the test with its name rather than skip it. CI's
+`e2e` job runs it with the gombit `controlplane/go.mod` pins. Run it before you
+move that pin.
+
+A new test that needs a tool should check for it with
+`toolchaintest.RequireBinaries` (or `toolchaintest.Skipf`), not a bare
+`t.Skip`, so that the failure says which tool is missing.
 
 ### The control plane
 
@@ -135,8 +150,9 @@ make cp-vet cp-build cp-test
 `make cp-test` applies the committed Atlas migration to a throwaway Postgres, so
 it needs `atlas` and Docker. It skips under `-short` and when Docker is absent;
 with Docker present but `atlas` missing it **fails** rather than skips — a green
-run that silently skipped every integration test is worse than a loud one. CI
-runs `make cp-test-short`, which skips the boot tests.
+run that silently skipped every integration test is worse than a loud one. CI's
+`build` job runs `make cp-test-short`, which skips every Postgres-backed test;
+its `e2e` job runs them all (`make e2e-controlplane`).
 
 ### The editor SPA
 

@@ -48,6 +48,15 @@ func TestMissingBinaryFailsWhenRequired(t *testing.T) {
 	}
 }
 
+func TestFailureSaysAValueThatIsNotABooleanCountsAsSet(t *testing.T) {
+	t.Setenv(RequireEnv, "off")
+	r := &recorder{}
+	RequireBinaries(r, missing)
+	if !strings.Contains(r.failed, `FORGE_REQUIRE_TOOLCHAIN="off" is not a boolean`) {
+		t.Fatalf("want the failure to explain the value, got failed=%q skipped=%q", r.failed, r.skipped)
+	}
+}
+
 func TestPresentBinariesNeitherSkipNorFail(t *testing.T) {
 	t.Setenv(RequireEnv, "1")
 	r := &recorder{}
@@ -58,7 +67,11 @@ func TestPresentBinariesNeitherSkipNorFail(t *testing.T) {
 }
 
 func TestRequiredReadsTheVariable(t *testing.T) {
-	for value, want := range map[string]bool{"": false, "0": false, "1": true, "true": true} {
+	for value, want := range map[string]bool{
+		"": false, "0": false, "false": false, "FALSE": false,
+		"1": true, "true": true, "TRUE": true,
+		"no": true, "off": true, "yes": true, // not booleans: on, so a typo can't turn it off
+	} {
 		t.Setenv(RequireEnv, value)
 		if got := Required(); got != want {
 			t.Errorf("%s=%q: Required() = %v, want %v", RequireEnv, value, got, want)

@@ -5,8 +5,9 @@
 //
 // Every entry point skips the test — it does not fail it — when the test is run
 // with -short or when Docker is unavailable, so the unit suite stays fast and
-// hermetic and CI's merge gate never depends on Docker (see the Makefile's
-// cp-test-short).
+// hermetic: CI's `build` job runs cp-test-short and needs no Docker. CI's `e2e`
+// job runs these tests in full (the Makefile's e2e-controlplane), where any
+// skip fails the job.
 package dbtest
 
 import (
@@ -117,7 +118,8 @@ func DB(t *testing.T) *gorm.DB {
 // into integration tests, and every control-plane Postgres test now applies the
 // committed migration — so a missing atlas is a broken environment, not an
 // absent one, and fails loudly rather than skipping a whole suite to a
-// deceptively green run. CI exercises these tests only outside -short.
+// deceptively green run. In CI they run in the `e2e` job, outside -short, with
+// Docker and atlas installed.
 func requireMigrationToolchain(t *testing.T) {
 	t.Helper()
 	if testing.Short() {

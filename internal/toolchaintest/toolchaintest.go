@@ -12,28 +12,46 @@
 package toolchaintest
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"testing"
 )
 
 // RequireEnv is the variable that turns a missing toolchain from a skip into a
-// failure. Any non-empty value other than "0" enables it.
+// failure. It is a boolean in strconv.ParseBool's spelling ("1", "true", "0",
+// "false", ...). Unset or empty, it is off. Any other value counts as on, so a
+// typo can't quietly switch the requirement off in the lane that sets it.
 const RequireEnv = "FORGE_REQUIRE_TOOLCHAIN"
 
-// Required reports whether RequireEnv is set.
+// Required reports whether RequireEnv asks for the toolchain.
 func Required() bool {
 	v := os.Getenv(RequireEnv)
-	return v != "" && v != "0"
+	if v == "" {
+		return false
+	}
+	on, err := strconv.ParseBool(v)
+	return on || err != nil
 }
 
 // Skipf skips t, or fails it when the toolchain is required.
 func Skipf(t testing.TB, format string, args ...any) {
 	t.Helper()
 	if Required() {
-		t.Fatalf(RequireEnv+" is set, so this is a failure, not a skip: "+format, args...)
+		t.Fatalf("%s, so this is a failure, not a skip: %s", requiredBecause(), fmt.Sprintf(format, args...))
 	}
 	t.Skipf(format, args...)
+}
+
+// requiredBecause names the setting that made the toolchain required, and says
+// so when the value isn't a boolean.
+func requiredBecause() string {
+	v := os.Getenv(RequireEnv)
+	if _, err := strconv.ParseBool(v); err != nil {
+		return fmt.Sprintf("%s=%q is not a boolean, which counts as set", RequireEnv, v)
+	}
+	return fmt.Sprintf("%s=%s", RequireEnv, v)
 }
 
 // RequireBinaries calls Skipf for the first of bins that is not on PATH.

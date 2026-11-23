@@ -14,7 +14,7 @@ WEB := controlplane/web
 .PHONY: all test lint fmt fmt-check vet tidy clean skills-check \
 	cp-build cp-vet cp-test cp-race \
 	web web-install web-check web-build web-test contract contract-check \
-	e2e
+	e2e e2e-compiler e2e-controlplane install-gombit
 
 # `all` is the Go merge gate; it deliberately does not run the web SPA (that
 # would put node on every Go dev's critical path). A frontend dev runs `make web`
@@ -27,14 +27,28 @@ test:
 race:
 	go test ./... -race -count=1
 
-# The toolchain lane: the tests that drive the real gombit CLI, atlas, Docker
-# and node (the M0, export, frontend and migration end-to-ends, and the
-# gombit-app compile tests). `make test` skips them where a tool is missing;
-# here FORGE_REQUIRE_TOOLCHAIN turns that skip into a failure, so a broken
-# install can't pass by running nothing. CI's `e2e` job runs this with the
-# gombit the control plane pins.
-e2e:
-	FORGE_REQUIRE_TOOLCHAIN=1 go test ./internal/compiler/... ./internal/gombit/... -count=1 -timeout 45m
+# The toolchain lane, with every tool installed: the gombit CLI, atlas, Docker
+# and node. CI's `e2e` job runs it with the gombit the control plane pins.
+# - e2e-compiler: the tests that scaffold, compile, migrate, build and serve a
+#   real Gombit app (the M0, export, frontend and migration end-to-ends, and the
+#   gombit-app compile tests). `make test` skips them where a tool is missing.
+# - e2e-controlplane: the control plane's whole suite, its Postgres-backed tests
+#   included, which cp-test-short skips.
+# Both pipe `go test -json` through internal/toolchaintest/noskip, which logs
+# every test that ran and fails on any skip, so neither can pass by running
+# nothing, however a test skips. The one allowed skip only happens as root.
+# FORGE_REQUIRE_TOOLCHAIN also turns toolchaintest's skips into failures that
+# say which tool is missing.
+NOSKIP = go run ./internal/toolchaintest/noskip
+
+e2e: e2e-compiler e2e-controlplane
+
+e2e-compiler:
+	set -o pipefail; FORGE_REQUIRE_TOOLCHAIN=1 go test -json ./internal/compiler/... ./internal/gombit/... -count=1 -timeout 45m \
+		| $(NOSKIP) -allow-skip 'TestMaterializeSwapSurvivesUnremovableLiveEntry=running as root'
+
+e2e-controlplane:
+	set -o pipefail; (cd $(CONTROLPLANE) && go test -json ./... -count=1 -timeout 30m) | $(NOSKIP)
 
 # Control-plane module (github.com/gombit-dev/gombit-forge/controlplane).
 cp-build:
@@ -46,8 +60,9 @@ cp-vet:
 cp-test:
 	cd $(CONTROLPLANE) && go test ./... -count=1
 
-# CI variant: skips the Docker/Postgres boot test (see boot_test.go), matching
-# how the M0 e2e harness stays out of the merge gate.
+# CI's `build` job runs this: -short skips every Postgres-backed test (dbtest's
+# and the boot test), because that job installs neither Docker nor atlas. The
+# `e2e` job runs them in full (e2e-controlplane).
 cp-test-short:
 	cd $(CONTROLPLANE) && go test ./... -short -count=1
 
@@ -77,7 +92,14 @@ web-test:
 # `make contract` regenerates both after an API change. contract-check is the CI
 # gate for the client: it regenerates it with the gombit CLI the control plane
 # pins (go.mod) and fails on any difference.
+#
+# GOMBIT_VERSION is that pin, and install-gombit installs the CLI at it. CI's
+# `web` and `e2e` jobs both call install-gombit, so the pin is read here only.
 GOMBIT_VERSION = $(shell cd $(CONTROLPLANE) && go list -m -f '{{.Version}}' github.com/gombit-dev/gombit)
+
+install-gombit:
+	go install github.com/gombit-dev/gombit/cmd/gombit@$(GOMBIT_VERSION)
+	gombit version
 
 contract:
 	cd $(CONTROLPLANE) && go test ./cmd/server -run TestOpenAPIDocumentIsCommitted -count=1 -update
