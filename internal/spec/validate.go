@@ -551,6 +551,12 @@ var capabilityAllowedTypes = map[string]typeSet{
 
 func (v *validator) validatePages() {
 	slugs := map[string]ID{}
+	type pageFile struct {
+		resource ID
+		kind     PageType
+		name     string
+	}
+	files := map[pageFile]ID{}
 	// The MVP allows at most one resource_form page per resource, so "the form
 	// page" is unambiguous: the compiler generates its create/edit UI at the
 	// page's own route and every "New"/"Edit" link targets it (DESIGN.md §18).
@@ -579,6 +585,28 @@ func (v *validator) validatePages() {
 				"page slug %q already used by page %s", page.Slug, owner)
 		} else {
 			slugs[page.Slug] = page.ID
+		}
+
+		if IsSlug(page.Slug) {
+			// Match gen.pascalSlug after case folding, including its underscore
+			// before digit-leading parts (a-1 and a1 remain distinct).
+			var name strings.Builder
+			for _, part := range strings.Split(page.Slug, "-") {
+				if part[0] >= '0' && part[0] <= '9' {
+					name.WriteByte('_')
+				}
+				name.WriteString(part)
+			}
+			key := pageFile{page.Resource, page.Type, name.String()}
+			if page.Type == PageDashboard {
+				key.resource = ""
+			}
+			if owner, taken := files[key]; taken && slugs[page.Slug] == page.ID {
+				v.report(CodeDuplicateSlug, path+".slug", page.ID,
+					"page slug %q generates a filename that collides with page %s on case-insensitive filesystems", page.Slug, owner)
+			} else {
+				files[key] = page.ID
+			}
 		}
 
 		switch page.Type {
