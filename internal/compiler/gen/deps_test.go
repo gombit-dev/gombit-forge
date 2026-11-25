@@ -19,7 +19,7 @@ import (
 // into its throwaway module. TestDepVersionsMatchGoMod guards them against
 // drifting from what this module actually depends on.
 const (
-	depDecimal = "github.com/shopspring/decimal v1.4.0"
+	depDecimal = "github.com/shopspring/decimal v1.6.0"
 	depGorm    = "gorm.io/gorm v1.31.2"
 )
 
