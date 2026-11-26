@@ -356,3 +356,22 @@ func TestPageEditErrors(t *testing.T) {
 		t.Errorf("unknown page = %v, want ErrPageNotFound", err)
 	}
 }
+
+func TestAddPageDerivesPortableSlugs(t *testing.T) {
+	svc, projectID, resID := projectWithResource(t)
+	for _, label := range []string{"Open Orders", "OpenOrders", "OpenOrders"} {
+		result, err := svc.AddPage(context.Background(), projectID, project.PageInput{Label: label, Type: spec.PageResourceTable, Resource: resID}, 7)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Outcome != project.OutcomeCommitted {
+			t.Fatalf("add %q: %s, %v", label, result.Outcome, result.Diagnostics)
+		}
+	}
+	pages := headSpec(t, svc, projectID).Pages
+	for i, want := range []string{"open-orders", "openorders-2", "openorders-3"} {
+		if pages[i].Slug != want {
+			t.Errorf("page %d slug = %q, want %q", i, pages[i].Slug, want)
+		}
+	}
+}

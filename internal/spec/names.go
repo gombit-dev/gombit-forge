@@ -241,3 +241,21 @@ func IsSlug(value string) bool {
 	}
 	return true
 }
+
+// PageSlugKey returns the case-insensitive component stem for a valid page
+// slug. Letter boundaries disappear under folding; digit-leading segments keep
+// an underscore so a-1 and a1 remain distinct. Callers must supply an IsSlug slug.
+// The generator's PascalCase spelling is pinned to this key by a parity test.
+func PageSlugKey(slug string) string {
+	var key strings.Builder
+	for _, part := range strings.Split(slug, "-") {
+		if part == "" {
+			continue
+		}
+		if part[0] >= '0' && part[0] <= '9' {
+			key.WriteByte('_')
+		}
+		key.WriteString(part)
+	}
+	return key.String()
+}

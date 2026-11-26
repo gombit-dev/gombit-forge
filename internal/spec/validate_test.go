@@ -1,6 +1,9 @@
 package spec
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestValidSpecPasses(t *testing.T) {
 	if diagnostics := Validate(validSpec()); diagnostics != nil {
@@ -929,5 +932,22 @@ func TestPageFilenamesAreUniqueIgnoringCase(t *testing.T) {
 				t.Fatalf("expected valid pages, got %v", diagnostics)
 			}
 		})
+	}
+}
+
+func TestPageFilenameCollisionKeepsFirstOwner(t *testing.T) {
+	s := validSpec()
+	first := fixID(KindPage, "81")
+	for i, slug := range []string{"open-orders", "open-orders", "openorders"} {
+		s.Pages = append(s.Pages, &Page{ID: fixID(KindPage, []string{"81", "82", "83"}[i]), Label: "Orders", Slug: slug, Type: PageResourceTable, Resource: fixCustomer})
+	}
+	ds := Validate(s)
+	if len(ds) != 2 {
+		t.Fatalf("want two diagnostics, got %v", ds)
+	}
+	for i, d := range ds {
+		if d.Code != CodeDuplicateSlug || d.Entity != s.Pages[i+4].ID || !strings.Contains(d.Message, string(first)) {
+			t.Errorf("diagnostic must name the original owner %s: %v", first, d)
+		}
 	}
 }

@@ -248,7 +248,7 @@ func validatePageInput(in PageInput) error {
 
 // derivePageSlug folds a label into a valid, collision-free URL slug
 // (spec.IsSlug: lower kebab-case). Uniqueness is enforced across the spec's
-// existing pages so two pages never share a slug.
+// existing pages, including component stems on case-insensitive filesystems.
 func derivePageSlug(label string, s *spec.ProjectSpec) string {
 	base := kebabCase(label)
 	if base == "" {
@@ -257,11 +257,11 @@ func derivePageSlug(label string, s *spec.ProjectSpec) string {
 	taken := map[string]bool{}
 	for _, p := range s.Pages {
 		if p != nil {
-			taken[p.Slug] = true
+			taken[spec.PageSlugKey(p.Slug)] = true
 		}
 	}
 	name := base
-	for n := 2; taken[name]; n++ {
+	for n := 2; taken[spec.PageSlugKey(name)]; n++ {
 		name = base + "-" + strconv.Itoa(n)
 	}
 	return name

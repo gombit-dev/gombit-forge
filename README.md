@@ -186,6 +186,8 @@ change that reopens one needs an ADR, not a pull request:
 
 ## Documentation
 
+- [**Upgrade notes**](docs/upgrading.md) — compatibility changes and pre-upgrade repairs.
+
 - [**Tutorial**](docs/tutorial.md) — build and run a two-resource app end to end.
 - [**Design**](docs/DESIGN.md) — product scope, milestones, and the locked MVP decisions.
 - [**ADR-001**](docs/ADR-001.md) — identity, symbol allocation, file ownership, the extension ABI.

@@ -52,9 +52,9 @@ func Frontend(g *graph.Graph) ([]File, error) {
 
 	var files []File
 	// One guard for every page-driven component name, so a detail, form and table
-	// (or two of any) can never collide on a file path or a registry import name.
-	// Slugs are globally unique and pascalSlug is injective, so this is
-	// belt-and-suspenders.
+	// (or two of any) cannot share a registry import identifier. This guard is
+	// case-sensitive; spec validation and compiler.Generate also enforce
+	// filename portability on case-insensitive filesystems.
 	seen := make(map[string]string) // component name -> slug
 
 	// Validate every resource's frontend name up front, even a page-less resource
@@ -663,14 +663,15 @@ func newTableView(g *graph.Graph, page *graph.Page) tableView {
 // pascalSlug turns a lower-kebab-case slug into a PascalCase identifier segment:
 // "active-customers" -> "ActiveCustomers".
 //
-// It is injective over valid slugs, so two distinct slugs can never derive the
+// It is injective case-sensitively over valid slugs, so distinct slugs cannot derive the
 // same component name (which would make an already-committed revision fail to
 // build — the #134 footgun). A letter-starting segment is PascalCased, marking
 // the boundary with a capital; a digit-starting segment can't be upper-cased, so
 // PascalCasing alone would erase its hyphen boundary ("a1" and "a-1" would both
 // fold to "A1") — an underscore keeps the boundary, and since a valid slug never
 // starts with a digit no leading underscore is ever produced. The component-name
-// guard in Frontend is then pure belt-and-suspenders.
+// guard in Frontend is then pure belt-and-suspenders for identifiers. Filename
+// portability additionally requires spec.PageSlugKey and the compiler path guard.
 func pascalSlug(slug string) string {
 	var b strings.Builder
 	for _, part := range strings.Split(slug, "-") {

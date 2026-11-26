@@ -585,23 +585,13 @@ func (v *validator) validatePages() {
 				"page slug %q already used by page %s", page.Slug, owner)
 		} else {
 			slugs[page.Slug] = page.ID
-		}
-
-		if IsSlug(page.Slug) {
-			// Match gen.pascalSlug after case folding, including its underscore
-			// before digit-leading parts (a-1 and a1 remain distinct).
-			var name strings.Builder
-			for _, part := range strings.Split(page.Slug, "-") {
-				if part[0] >= '0' && part[0] <= '9' {
-					name.WriteByte('_')
-				}
-				name.WriteString(part)
-			}
-			key := pageFile{page.Resource, page.Type, name.String()}
+			// Resource pages live in per-resource directories; dashboards share
+			// dashboard/. Each page type has a distinct filename suffix.
+			key := pageFile{page.Resource, page.Type, PageSlugKey(page.Slug)}
 			if page.Type == PageDashboard {
 				key.resource = ""
 			}
-			if owner, taken := files[key]; taken && slugs[page.Slug] == page.ID {
+			if owner, taken := files[key]; taken {
 				v.report(CodeDuplicateSlug, path+".slug", page.ID,
 					"page slug %q generates a filename that collides with page %s on case-insensitive filesystems", page.Slug, owner)
 			} else {
