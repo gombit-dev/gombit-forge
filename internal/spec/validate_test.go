@@ -1,6 +1,9 @@
 package spec
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestValidSpecPasses(t *testing.T) {
 	if diagnostics := Validate(validSpec()); diagnostics != nil {
@@ -896,6 +899,55 @@ func TestNameHelpers(t *testing.T) {
 	for input, want := range slugTests {
 		if got := IsSlug(input); got != want {
 			t.Errorf("IsSlug(%q) = %v, want %v", input, got, want)
+		}
+	}
+}
+
+func TestPageFilenamesAreUniqueIgnoringCase(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		first, second *Page
+		collision     bool
+	}{
+		{"table same resource", &Page{Slug: "open-orders", Type: PageResourceTable, Resource: fixCustomer}, &Page{Slug: "openorders", Type: PageResourceTable, Resource: fixCustomer}, true},
+		{"dashboard", &Page{Slug: "home-page", Type: PageDashboard}, &Page{Slug: "homepage", Type: PageDashboard}, true},
+		{"multiple hyphens", &Page{Slug: "a-b-c", Type: PageDashboard}, &Page{Slug: "ab-c", Type: PageDashboard}, true},
+		{"separate resources", &Page{Slug: "open-orders", Type: PageResourceTable, Resource: fixCustomer}, &Page{Slug: "openorders", Type: PageResourceTable, Resource: fixInvoice}, false},
+		{"separate page types", &Page{Slug: "open-orders", Type: PageResourceTable, Resource: fixCustomer}, &Page{Slug: "openorders", Type: PageResourceForm, Resource: fixCustomer}, false},
+		{"digit boundary", &Page{Slug: "a-1", Type: PageDashboard}, &Page{Slug: "a1", Type: PageDashboard}, false},
+		{"distinct filenames", &Page{Slug: "home-page", Type: PageDashboard}, &Page{Slug: "home-other", Type: PageDashboard}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := validSpec()
+			tc.first.ID, tc.first.Label = fixID(KindPage, "81"), "First"
+			tc.second.ID, tc.second.Label = fixID(KindPage, "82"), "Second"
+			s.Pages = append(s.Pages, tc.first, tc.second)
+			diagnostics := Validate(s)
+			if tc.collision {
+				if len(diagnostics) != 1 || diagnostics[0].Code != CodeDuplicateSlug ||
+					diagnostics[0].Entity != tc.second.ID || diagnostics[0].Path != "$.pages[4].slug" {
+					t.Fatalf("expected filename collision on the second page, got %v", diagnostics)
+				}
+			} else if diagnostics != nil {
+				t.Fatalf("expected valid pages, got %v", diagnostics)
+			}
+		})
+	}
+}
+
+func TestPageFilenameCollisionKeepsFirstOwner(t *testing.T) {
+	s := validSpec()
+	first := fixID(KindPage, "81")
+	for i, slug := range []string{"open-orders", "open-orders", "openorders"} {
+		s.Pages = append(s.Pages, &Page{ID: fixID(KindPage, []string{"81", "82", "83"}[i]), Label: "Orders", Slug: slug, Type: PageResourceTable, Resource: fixCustomer})
+	}
+	ds := Validate(s)
+	if len(ds) != 2 {
+		t.Fatalf("want two diagnostics, got %v", ds)
+	}
+	for i, d := range ds {
+		if d.Code != CodeDuplicateSlug || d.Entity != s.Pages[i+4].ID || !strings.Contains(d.Message, string(first)) {
+			t.Errorf("diagnostic must name the original owner %s: %v", first, d)
 		}
 	}
 }

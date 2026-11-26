@@ -1565,3 +1565,28 @@ func TestFrontendRejectsReservedResourceName(t *testing.T) {
 		t.Fatal("Frontend must reject a resource folding to package main")
 	}
 }
+
+// Enumerate digit and letter boundaries so changes to the component spelling
+// cannot silently drift away from the validator and control-plane minter.
+func TestPageSlugKeyMatchesGenerator(t *testing.T) {
+	count := 0
+	var visit func(string)
+	visit = func(slug string) {
+		if spec.IsSlug(slug) {
+			count++
+			if got, want := spec.PageSlugKey(slug), strings.ToLower(pascalSlug(slug)); got != want {
+				t.Errorf("slug %q: key %q, generated stem %q", slug, got, want)
+			}
+		}
+		if len(slug) == 6 {
+			return
+		}
+		for _, c := range "ab1-" {
+			visit(slug + string(c))
+		}
+	}
+	visit("")
+	if count != 1760 {
+		t.Fatalf("enumerated %d valid slugs, want 1760", count)
+	}
+}

@@ -295,3 +295,19 @@ func TestCompileNilAndEmpty(t *testing.T) {
 		t.Error("generate(nil) must error")
 	}
 }
+
+func TestGenerateRejectsCaseInsensitivePaths(t *testing.T) {
+	saved := fileStages
+	defer func() { fileStages = saved }()
+	fileStages = []stage{
+		{"first", func(*graph.Graph) ([]gen.File, error) { return []gen.File{{Path: "frontend/OpenOrders.tsx"}}, nil }},
+		{"second", func(*graph.Graph) ([]gen.File, error) { return []gen.File{{Path: "frontend/Openorders.tsx"}}, nil }},
+	}
+	g, err := graph.Build(sampleSpec(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Generate(g, testModule); err == nil {
+		t.Fatal("Generate must reject paths differing only in case")
+	}
+}

@@ -12,6 +12,7 @@ package compiler
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/gombit-dev/gombit-forge/internal/compiler/gen"
 	"github.com/gombit-dev/gombit-forge/internal/compiler/graph"
@@ -81,7 +82,7 @@ func Generate(g *graph.Graph, module string) ([]gen.File, error) {
 	})
 
 	var files []gen.File
-	seen := make(map[string]string) // path -> producing stage
+	seen := make(map[string]string) // case-folded path -> producing stage
 
 	for _, stage := range stages {
 		produced, err := stage.run(g)
@@ -89,14 +90,15 @@ func Generate(g *graph.Graph, module string) ([]gen.File, error) {
 			return nil, fmt.Errorf("compiler: %s: %w", stage.name, err)
 		}
 		for _, file := range produced {
-			if other, clash := seen[file.Path]; clash {
+			if other, clash := seen[strings.ToLower(file.Path)]; clash {
+				// Paths must be unique even on case-insensitive filesystems.
 				// Two stages writing the same path would make output depend on
 				// append order and silently drop a file downstream. This is a
 				// generator bug, surfaced rather than shipped.
 				return nil, fmt.Errorf(
 					"compiler: stages %s and %s both produced %s", other, stage.name, file.Path)
 			}
-			seen[file.Path] = stage.name
+			seen[strings.ToLower(file.Path)] = stage.name
 			files = append(files, file)
 		}
 	}
