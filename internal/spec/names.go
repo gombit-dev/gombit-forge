@@ -60,6 +60,32 @@ var reservedStorageNames = map[string]string{
 	"deleted_at": "gorm.Model provides deleted_at (soft delete)",
 }
 
+// reservedStorageTables is the table-name reservation for a resource's
+// storage_name: the tables Gombit's auth system and the scaffold demo already
+// own. A resource sharing one of these tables never gets a migration for its
+// own columns — Atlas loads two models for one table and the framework model
+// wins — so every endpoint of that resource fails at runtime (#287). Auth
+// tables beyond this exact set are namespaced "auth_" (auth_group_permissions,
+// auth_totp_factors, and so on), so that prefix is reserved wholesale rather
+// than enumerated.
+var reservedStorageTables = map[string]string{
+	"users":          "Gombit's auth system owns the users table",
+	"groups":         "Gombit's auth system owns the groups table",
+	"permissions":    "Gombit's auth system owns the permissions table",
+	"refresh_tokens": "Gombit's auth system owns the refresh_tokens table",
+	"storage_claims": "Gombit's file storage owns the storage_claims table",
+	"products":       "the scaffold demo app owns the products table",
+}
+
+// ReservedStorageTablePrefix namespaces every other table Gombit's auth
+// system owns, so a resource cannot collide with one by acquiring the prefix
+// instead of the exact name. It is exported so an allocator deriving a
+// storage name from a label can escape the prefix outright before
+// consulting IsReservedStorageTable: being a prefix match rather than an
+// exact one, it can never be escaped by appending a numeric suffix
+// ("auth_logs_2" is still reserved).
+const ReservedStorageTablePrefix = "auth_"
+
 // ReservedModelSymbol reports whether name is reserved in the model's field/
 // accessor namespace, and if so why. The reason is actionable feedback the
 // allocator and the validator surface (ADR-001 §12: rejected or disambiguated
@@ -103,6 +129,26 @@ func ReservedStorageName(name string) (reason string, reserved bool) {
 // embedded gorm.Model.
 func IsReservedStorageName(name string) bool {
 	_, reserved := reservedStorageNames[name]
+	return reserved
+}
+
+// ReservedStorageTable reports whether a resource's storage_name collides
+// with a table Gombit's auth system or the scaffold demo already owns, and if
+// so why — the table-level counterpart to ReservedStorageName.
+func ReservedStorageTable(name string) (reason string, reserved bool) {
+	if reason, reserved = reservedStorageTables[name]; reserved {
+		return reason, reserved
+	}
+	if strings.HasPrefix(name, ReservedStorageTablePrefix) {
+		return "Gombit's auth system namespaces its tables under auth_", true
+	}
+	return "", false
+}
+
+// IsReservedStorageTable reports whether a resource's storage_name collides
+// with a table Gombit's auth system or the scaffold demo already owns.
+func IsReservedStorageTable(name string) bool {
+	_, reserved := ReservedStorageTable(name)
 	return reserved
 }
 

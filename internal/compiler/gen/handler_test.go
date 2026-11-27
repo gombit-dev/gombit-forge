@@ -226,7 +226,7 @@ func TestListHandlerEmitsDeclaredQuerySurface(t *testing.T) {
 				},
 			},
 			{
-				ID: id(spec.KindResource), Label: "Product", CodeName: "Product", StorageName: "products",
+				ID: id(spec.KindResource), Label: "Product", CodeName: "Product", StorageName: "widgets",
 				Fields: []*spec.Field{
 					{ID: nameID, Label: "Name", Type: spec.TypeString, CodeName: "Name", StorageName: "name"},
 					{ID: skuID, Label: "SKU", Type: spec.TypeString, CodeName: "SKU", StorageName: "sku"},

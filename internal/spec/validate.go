@@ -225,14 +225,23 @@ func (v *validator) validateResources() {
 			resourceCodeNames[resource.CodeName] = resource.ID
 		}
 
-		if !IsStorageName(resource.StorageName) {
+		switch {
+		case !IsStorageName(resource.StorageName):
 			v.report(CodeInvalidStorage, path+".storage_name", resource.ID,
 				"storage_name %q must be lower_snake_case", resource.StorageName)
-		} else if owner, taken := resourceStorage[resource.StorageName]; taken {
-			v.report(CodeDuplicateStore, path+".storage_name", resource.ID,
-				"storage_name %q already used by resource %s", resource.StorageName, owner)
-		} else {
-			resourceStorage[resource.StorageName] = resource.ID
+		// A resource sharing a table Gombit's auth system or the scaffold demo
+		// already owns never gets a migration for its own columns (#287).
+		case IsReservedStorageTable(resource.StorageName):
+			reason, _ := ReservedStorageTable(resource.StorageName)
+			v.report(CodeReservedName, path+".storage_name", resource.ID,
+				"storage_name %q is reserved: %s", resource.StorageName, reason)
+		default:
+			if owner, taken := resourceStorage[resource.StorageName]; taken {
+				v.report(CodeDuplicateStore, path+".storage_name", resource.ID,
+					"storage_name %q already used by resource %s", resource.StorageName, owner)
+			} else {
+				resourceStorage[resource.StorageName] = resource.ID
+			}
 		}
 
 		v.validateFields(resource, path)

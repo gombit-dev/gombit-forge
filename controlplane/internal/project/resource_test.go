@@ -95,6 +95,36 @@ func TestAddResourceMintsUniqueSymbols(t *testing.T) {
 	}
 }
 
+// TestAddResourceAvoidsReservedStorageTable: a label that derives a storage
+// name Gombit's auth system or the scaffold demo already owns ("User" ->
+// "users", "Product" -> "products") must be disambiguated rather than
+// silently sharing that table (#287).
+func TestAddResourceAvoidsReservedStorageTable(t *testing.T) {
+	db := dbtest.DB(t)
+	seedFKDeps(t, db)
+	svc := project.NewService(db)
+	ctx := context.Background()
+
+	p, _ := svc.CreateProject(ctx, 1, "Acme", "acme", 7)
+	if _, err := svc.AddResource(ctx, p.ID, "User", "Users", 7); err != nil {
+		t.Fatalf("add User: %v", err)
+	}
+	if _, err := svc.AddResource(ctx, p.ID, "Product", "Products", 7); err != nil {
+		t.Fatalf("add Product: %v", err)
+	}
+
+	s := headSpec(t, svc, p.ID)
+	if got := s.Resources[0].StorageName; got == "users" {
+		t.Errorf("User storage_name = %q, must not collide with Gombit's auth users table", got)
+	}
+	if got := s.Resources[1].StorageName; got == "products" {
+		t.Errorf("Product storage_name = %q, must not collide with the scaffold's products table", got)
+	}
+	if d := spec.Validate(s); d != nil {
+		t.Errorf("spec after add invalid:\n%s", d.Error())
+	}
+}
+
 // TestRenameResourceIsNeutral: renaming edits labels only, so the transition is
 // ABI-neutral and the frozen code symbol is unchanged.
 func TestRenameResourceIsNeutral(t *testing.T) {

@@ -503,6 +503,17 @@ func TestValidateRejects(t *testing.T) {
 			},
 			wantAny: CodeReservedName,
 		},
+		// A resource whose storage_name matches a table the generated app
+		// already owns (Gombit's auth tables, the scaffold "products" demo)
+		// shares that table: no migration is produced for the resource's own
+		// columns, and every endpoint 500s at runtime (gombit-forge#287).
+		{
+			name: "resource storage_name collides with framework table users",
+			mutate: func(s *ProjectSpec) {
+				s.Resources[0].StorageName = "users"
+			},
+			wantAny: CodeReservedName,
+		},
 	}
 
 	for _, test := range tests {

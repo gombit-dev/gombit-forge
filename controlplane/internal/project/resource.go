@@ -214,7 +214,12 @@ func resourceLedger(s *spec.ProjectSpec) *spec.Ledger {
 }
 
 // deriveStorageName folds a label (plural preferred — it names a table) into a
-// valid, collision-free storage identifier (spec.IsStorageName).
+// valid, collision-free storage identifier (spec.IsStorageName). A name that
+// collides with a table Gombit's auth system or the scaffold demo already
+// owns (spec.IsReservedStorageTable) is disambiguated the same as a collision
+// with another resource — "User" and "Product" are common labels, and
+// deriveStorageName is exactly what turns them into "users" and "products"
+// (#287).
 func deriveStorageName(labelPlural, label string, s *spec.ProjectSpec) string {
 	base := snakeCase(labelPlural)
 	if base == "" {
@@ -223,6 +228,12 @@ func deriveStorageName(labelPlural, label string, s *spec.ProjectSpec) string {
 	if base == "" {
 		base = "resource"
 	}
+	// The auth_ reservation is a prefix match, not an exact one, so appending
+	// a numeric suffix below can never escape it ("auth_logs_2" is still
+	// reserved) — a base minted under it must be renamed outright first.
+	if strings.HasPrefix(base, spec.ReservedStorageTablePrefix) {
+		base = "resource_" + base
+	}
 	taken := map[string]bool{}
 	for _, r := range s.Resources {
 		if r != nil {
@@ -230,7 +241,7 @@ func deriveStorageName(labelPlural, label string, s *spec.ProjectSpec) string {
 		}
 	}
 	name := base
-	for n := 2; taken[name]; n++ {
+	for n := 2; taken[name] || spec.IsReservedStorageTable(name); n++ {
 		name = base + "_" + strconv.Itoa(n)
 	}
 	return name
