@@ -113,7 +113,7 @@ func TestFrontendFieldInputs(t *testing.T) {
 		{"string is text input", customer, `<input type="text" {...register("contact_email"`},
 		{"boolean is checkbox", customer, `<input type="checkbox" {...register("active")`},
 		{"enum is a select", customer, `<select {...register("tier")`},
-		{"enum option free", customer, `<option value="free">{ "free" }</option>`},
+		{"enum option free", customer, `<option value={ "free" }>{ "free" }</option>`},
 		{"datetime is text (RFC3339 round-trips)", customer, `<input type="text" placeholder="YYYY-MM-DDTHH:MM:SSZ" {...register("joined_at")`},
 		{"belongs_to is a relationship select", invoice, `<select {...register("customer_id"`},
 		{"relationship options from the target", invoice, `{CustomerOptions.map((o) => (`},
@@ -463,7 +463,7 @@ func TestFrontendEscapesLabels(t *testing.T) {
 		t.Errorf("field label with a quote must be escaped in the required message:\n%s", form)
 	}
 	// A quote in an enum value must be escaped in both the attribute and text.
-	if !strings.Contains(form, `<option value="a\"b">{ "a\"b" }</option>`) {
+	if !strings.Contains(form, `<option value={ "a\"b" }>{ "a\"b" }</option>`) {
 		t.Errorf("enum value with a quote must be escaped:\n%s", form)
 	}
 	// The raw unescaped forms must not appear.
@@ -786,7 +786,7 @@ func TestFrontendTableFilters(t *testing.T) {
 		// enum → select with an "any" option and the enum options.
 		`onChange={(e) => setFilter("tier", e.target.value)}`,
 		`<option value="">{ "Tier: any" }</option>`,
-		`<option value="free">{ "Free" }</option>`,
+		`<option value={ "free" }>{ "Free" }</option>`,
 		// boolean → yes/no/any select.
 		`onChange={(e) => setFilter("active", e.target.value)}`,
 		`<option value="true">{ "Yes" }</option>`,

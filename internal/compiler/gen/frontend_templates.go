@@ -307,8 +307,8 @@ export function {{.Component}}() {
         <input
           type="search"
           value={search}
-          placeholder={{js (printf "Search %s…" .Title)}}
-          aria-label={{js (printf "Search %s" .Title)}}
+          placeholder={ {{js (printf "Search %s…" .Title)}} }
+          aria-label={ {{js (printf "Search %s" .Title)}} }
           onChange={(e) => {
             setSearch(e.target.value);
             setPage(1);
@@ -322,7 +322,7 @@ export function {{.Component}}() {
 {{- if eq .Control "bool"}}
         <select
           value={filters["{{.JSONName}}"] ?? ""}
-          aria-label={{js (printf "Filter by %s" .Label)}}
+          aria-label={ {{js (printf "Filter by %s" .Label)}} }
           onChange={(e) => setFilter("{{.JSONName}}", e.target.value)}
         >
           <option value="">{ {{js (printf "%s: any" .Label)}} }</option>
@@ -332,20 +332,20 @@ export function {{.Component}}() {
 {{- else if eq .Control "enum"}}
         <select
           value={filters["{{.JSONName}}"] ?? ""}
-          aria-label={{js (printf "Filter by %s" .Label)}}
+          aria-label={ {{js (printf "Filter by %s" .Label)}} }
           onChange={(e) => setFilter("{{.JSONName}}", e.target.value)}
         >
           <option value="">{ {{js (printf "%s: any" .Label)}} }</option>
 {{- range .Options}}
-          <option value={{js .Value}}>{ {{if .Label}}{{js .Label}}{{else}}{{js .Value}}{{end}} }</option>
+          <option value={ {{js .Value}} }>{ {{if .Label}}{{js .Label}}{{else}}{{js .Value}}{{end}} }</option>
 {{- end}}
         </select>
 {{- else}}
         <input
           type="{{.Control}}"
           value={filters["{{.JSONName}}"] ?? ""}
-          placeholder={{js .Label}}
-          aria-label={{js (printf "Filter by %s" .Label)}}
+          placeholder={ {{js .Label}} }
+          aria-label={ {{js (printf "Filter by %s" .Label)}} }
           onChange={(e) => setFilter("{{.JSONName}}", e.target.value)}
         />
 {{- end}}
@@ -740,7 +740,7 @@ export function {{.Component}}() {
           <select {...register("{{.JSONName}}"{{if .Required}}, { required: {{js (printf "%s is required" .Label)}} }{{end}})}>
             <option value="">—</option>
 {{- range .Options}}
-            <option value={{js .Value}}>{ {{if .Label}}{{js .Label}}{{else}}{{js .Value}}{{end}} }</option>
+            <option value={ {{js .Value}} }>{ {{if .Label}}{{js .Label}}{{else}}{{js .Value}}{{end}} }</option>
 {{- end}}
           </select>
 {{- else}}
