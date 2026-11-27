@@ -573,6 +573,19 @@ func TestFrontendTablePaginates(t *testing.T) {
 		}
 	}
 
+	// A request above the server cap still needs a page for the final rows:
+	// 250 rows at an effective 100 per page take three pages, even if we ask for 150.
+	clamped := tableFor(build(150))
+	for _, want := range []string{
+		"const PAGE_SIZE = 150;",
+		"const perPage = listed?.meta?.per_page ?? PAGE_SIZE;",
+		"setPageCount(Math.max(1, Math.ceil(total / perPage)));",
+	} {
+		if !strings.Contains(clamped, want) {
+			t.Errorf("table must paginate using the response page size: missing %q", want)
+		}
+	}
+
 	// An unconfigured table falls back to the default page size (25).
 	if def := tableFor(build(0)); !strings.Contains(def, "const PAGE_SIZE = 25;") {
 		t.Error("an unconfigured table must default PAGE_SIZE to 25")

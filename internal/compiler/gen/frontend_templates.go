@@ -234,7 +234,7 @@ export function {{.Component}}() {
   const client = useApiClient();
   const [rows, setRows] = useState<{{.Type}}Row[]>([]);
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
+  const [pageCount, setPageCount] = useState(1);
 {{- if .Search}}
   const [search, setSearch] = useState("");
 {{- end}}
@@ -259,7 +259,9 @@ export function {{.Component}}() {
         }
         const data = Array.isArray(listed?.data) ? listed?.data : [];
         setRows(data);
-        setTotal(listed?.meta?.total ?? data.length);
+        const total = listed?.meta?.total ?? data.length;
+        const perPage = listed?.meta?.per_page ?? PAGE_SIZE;
+        setPageCount(Math.max(1, Math.ceil(total / perPage)));
         setStatus(data.length === 0 ? {{js (printf "No %s yet." .Title)}} : "");
       } catch (err: unknown) {
         if (cancelled) {
@@ -273,7 +275,6 @@ export function {{.Component}}() {
     };
   }, [client, page{{if .Search}}, search{{end}}{{if .Sortable}}, ordering{{end}}{{if .Filters}}, filters{{end}}]);
 
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 {{- if .Filters}}
 
   // Set one exact-match filter (empty clears it) and return to the first page.
