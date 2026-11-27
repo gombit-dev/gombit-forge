@@ -242,7 +242,8 @@ export function {{.Component}}() {
   const [ordering, setOrdering] = useState("");
 {{- end}}
 {{- if .Filters}}
-  const [filters, setFilters] = useState<Record<string, string>>({});
+  // Null prototype: a "constructor" filter must not resolve to Object.prototype.constructor (#305).
+  const [filters, setFilters] = useState<Record<string, string>>(Object.create(null));
 {{- end}}
   const [status, setStatus] = useState({{js (printf "Loading %s…" .Title)}});
 
@@ -277,7 +278,7 @@ export function {{.Component}}() {
 
   // Set one exact-match filter (empty clears it) and return to the first page.
   const setFilter = (col: string, value: string) => {
-    setFilters((prev) => ({ ...prev, [col]: value }));
+    setFilters((prev) => Object.assign(Object.create(null), prev, { [col]: value }));
     setPage(1);
   };
 {{- end}}

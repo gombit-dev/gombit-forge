@@ -763,7 +763,7 @@ func TestFrontendTableFilters(t *testing.T) {
 
 	filtered := tableFor(build([]spec.ID{name, age, tier, active}))
 	for _, want := range []string{
-		`const [filters, setFilters] = useState<Record<string, string>>({});`,
+		`const [filters, setFilters] = useState<Record<string, string>>(Object.create(null));`,
 		`const setFilter = (col: string, value: string) => {`,
 		// string → text, integer → number.
 		`type="text"`,
