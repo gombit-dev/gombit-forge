@@ -116,6 +116,14 @@ func viewFile(resource *graph.Resource) (File, error) {
 
 	fmt.Fprintf(&b, "func (v %s) ID() uint { return v.model.ID }\n", impl)
 	for _, accessor := range accessors {
+		// Optional dates are pointers in the ABI. Copy the value so an after-hook
+		// cannot write through an accessor into the persistence model.
+		if strings.HasPrefix(accessor.goType, "*") {
+			fmt.Fprintf(&b, "func (v %s) %s() %s {\n", impl, accessor.name, accessor.goType)
+			fmt.Fprintf(&b, "\tp := v.model.%s\n", accessor.modelName)
+			b.WriteString("\tif p == nil { return nil }\n\tvalue := *p\n\treturn &value\n}\n")
+			continue
+		}
 		fmt.Fprintf(&b, "func (v %s) %s() %s { return v.model.%s }\n",
 			impl, accessor.name, accessor.goType, accessor.modelName)
 	}

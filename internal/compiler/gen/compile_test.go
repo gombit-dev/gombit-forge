@@ -47,7 +47,7 @@ func TestGeneratedModelsCompile(t *testing.T) {
 	writeFile(t, filepath.Join(root, "_gombit", "go.mod"), "module github.com/gombit-dev/gombit\n\ngo 1.25.7\n")
 	writeFile(t, filepath.Join(root, "_gombit", "types", "date.go"),
 		"// Package types stands in for Gombit's types package in the model compile test.\npackage types\n\n"+
-			"// Date stands in for Gombit's calendar date.\ntype Date struct{}\n")
+			"// Date stands in for Gombit's calendar date.\ntype Date struct{ Day int }\n")
 
 	for _, file := range files {
 		writeFile(t, filepath.Join(root, filepath.FromSlash(file.Path)), string(file.Content))
@@ -64,6 +64,25 @@ func TestGeneratedModelsCompile(t *testing.T) {
 	// whether the generated models compile.
 	if out, err := runGoBuild(t, root, "GOFLAGS=-mod=mod", "GOPROXY=off"); err != nil {
 		t.Fatalf("generated models did not compile:\n%s", out)
+	}
+
+	views, err := Views(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, view := range views {
+		writeFile(t, filepath.Join(root, filepath.FromSlash(view.Path)), string(view.Content))
+	}
+	test, err := os.ReadFile("testdata/view_dates_test.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(root, "view_dates_test.go"), string(test))
+	cmd := exec.Command("go", "test", ".")
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod", "GOPROXY=off")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("generated view tests: %v\n%s", err, out)
 	}
 }
 
