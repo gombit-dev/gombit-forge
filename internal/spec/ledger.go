@@ -193,7 +193,7 @@ func (l *Ledger) retire(ns Namespace, symbol string, e entry) {
 // line rather than reshuffling the file. Use json.MarshalIndent for the on-disk
 // form. A nil map (the zero Ledger) marshals as {}, not null, so a persisted
 // project file never carries a surprising null ledger.
-func (l *Ledger) MarshalJSON() ([]byte, error) {
+func (l Ledger) MarshalJSON() ([]byte, error) {
 	if l.namespaces == nil {
 		return []byte("{}"), nil
 	}

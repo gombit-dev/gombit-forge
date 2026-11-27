@@ -147,6 +147,36 @@ func TestLedgerRoundTrips(t *testing.T) {
 	}
 }
 
+func TestEmbeddedLedgerRoundTripsByValue(t *testing.T) {
+	type project struct {
+		Ledger Ledger `json:"ledger"`
+	}
+	var source project
+	if err := source.Ledger.Record(NamespaceResource, "Customer", "res_A"); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.Ledger.Record(NamespaceResource, "Legacy", "res_B"); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.Ledger.Tombstone(NamespaceResource, "Legacy"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got project
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if owner, ok := got.Ledger.OwnerOf(NamespaceResource, "Customer"); !ok || owner != "res_A" {
+		t.Errorf("Customer owner = (%q,%v), want (res_A,true)", owner, ok)
+	}
+	if !got.Ledger.IsTombstoned(NamespaceResource, "Legacy") {
+		t.Error("Legacy tombstone was lost")
+	}
+}
+
 // TestLedgerSerializationIsDeterministic: two ledgers built by recording the
 // same symbols in different orders must serialize to identical bytes, so the
 // on-disk file does not churn under Git for a semantically identical history.
