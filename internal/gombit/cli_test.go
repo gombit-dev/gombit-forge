@@ -4,12 +4,84 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gombit-dev/gombit-forge/internal/toolchaintest"
 )
+
+func TestRunnerCancelsWithInheritedOutputPipe(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ready := filepath.Join(t.TempDir(), "ready")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	finished := make(chan error, 1)
+	go func() {
+		_, err := (&CLI{}).runner()(ctx, "", executable, "-test.run=^TestInheritedOutputHelper$", "--", "parent", ready)
+		finished <- err
+	}()
+
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		if content, err := os.ReadFile(ready); err == nil && len(content) > 0 {
+			if runtime.GOOS == "windows" {
+				pid, err := strconv.Atoi(string(content))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if child, err := os.FindProcess(pid); err == nil {
+					t.Cleanup(func() {
+						_ = child.Kill()
+						_, _ = child.Wait()
+					})
+				}
+			}
+			break
+		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("child did not signal readiness")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case err := <-finished:
+		if err == nil {
+			t.Fatal("cancelled command returned successfully")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("cancelled command still waiting on the child's output pipe")
+	}
+}
+
+func TestInheritedOutputHelper(t *testing.T) {
+	if len(os.Args) != 5 || os.Args[2] != "--" {
+		return
+	}
+	if os.Args[3] == "child" {
+		if err := os.WriteFile(os.Args[4], []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(5 * time.Second)
+		return
+	}
+	child := exec.Command(os.Args[0], os.Args[1], "--", "child", os.Args[4])
+	child.Stdout = os.Stdout
+	child.Stderr = os.Stderr
+	if err := child.Run(); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // recorder captures invocations so command construction can be asserted
 // without a Gombit installation.

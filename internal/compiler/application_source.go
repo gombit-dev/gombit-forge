@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/gombit-dev/gombit-forge/internal/gombit"
 	"github.com/gombit-dev/gombit-forge/internal/spec"
+	"github.com/gombit-dev/gombit-forge/internal/toolchainexec"
 )
 
 // SourceToolchain is the explicit seam for the external tools that assembling an
@@ -46,9 +46,7 @@ func (g GombitToolchain) MakeMigrations(ctx context.Context, req gombit.MakeMigr
 }
 
 func (g GombitToolchain) Tidy(ctx context.Context, dir string) error {
-	cmd := exec.CommandContext(ctx, "go", "mod", "tidy")
-	cmd.Dir = dir
-	if out, err := cmd.CombinedOutput(); err != nil {
+	if out, err := toolchainexec.CombinedOutput(ctx, dir, "go", "mod", "tidy"); err != nil {
 		return fmt.Errorf("go mod tidy: %w\n%s", err, out)
 	}
 	return nil

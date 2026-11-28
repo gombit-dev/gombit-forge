@@ -3,9 +3,10 @@ package gombit
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/gombit-dev/gombit-forge/internal/toolchainexec"
 )
 
 // DefaultBinary is the executable looked up on PATH when none is configured.
@@ -25,7 +26,7 @@ type Runner func(ctx context.Context, dir string, name string, args ...string) (
 type CLI struct {
 	// Binary is the gombit executable; DefaultBinary when empty.
 	Binary string
-	// Run executes commands; execRunner when nil.
+	// Run executes commands. When nil, it uses the default toolchain runner.
 	Run Runner
 
 	// SkipVersionCheck bypasses the minimum-version guard. Tests set it; a
@@ -45,15 +46,9 @@ func (c *CLI) binary() string {
 
 func (c *CLI) runner() Runner {
 	if c.Run == nil {
-		return execRunner
+		return toolchainexec.CombinedOutput
 	}
 	return c.Run
-}
-
-func execRunner(ctx context.Context, dir string, name string, args ...string) ([]byte, error) {
-	command := exec.CommandContext(ctx, name, args...)
-	command.Dir = dir
-	return command.CombinedOutput()
 }
 
 // Version reports the toolchain version.
